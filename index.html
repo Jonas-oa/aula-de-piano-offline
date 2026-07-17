@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#10243f" />
+  <meta name="description" content="Tutor de piano offline que escuta notas, exibe partitura e acompanha o progresso do aluno." />
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="icon" href="./assets/icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="./assets/icons/icon-192.png" />
+  <link rel="stylesheet" href="./styles.css" />
+  <title>Aula de Piano — Tutor Offline</title>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">♩</div>
+        <div>
+          <p class="eyebrow">TUTOR OFFLINE</p>
+          <h1>Aula de Piano</h1>
+        </div>
+      </div>
+      <button id="installButton" class="ghost-button" hidden>Instalar</button>
+    </header>
+
+    <main>
+      <section id="homeView" class="view active" aria-labelledby="homeTitle">
+        <div class="hero-card">
+          <div>
+            <p class="eyebrow">SEU PRÓXIMO PASSO</p>
+            <h2 id="homeTitle">Treine uma nota de cada vez</h2>
+            <p>O app escuta o piano, compara com a pauta e avança quando você acerta.</p>
+          </div>
+          <button id="resumeButton" class="primary-button">Continuar aula</button>
+        </div>
+
+        <div class="stats-grid" aria-label="Resumo do progresso">
+          <article class="stat-card"><span>Nível</span><strong id="levelStat">1</strong></article>
+          <article class="stat-card"><span>Precisão</span><strong id="accuracyStat">0%</strong></article>
+          <article class="stat-card"><span>Notas certas</span><strong id="correctStat">0</strong></article>
+          <article class="stat-card"><span>Sequência</span><strong id="streakStat">0 dias</strong></article>
+        </div>
+
+        <section class="section-block">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">TRILHA ADAPTATIVA</p>
+              <h2>Aulas</h2>
+            </div>
+            <span id="lessonProgressLabel" class="pill">0% concluído</span>
+          </div>
+          <div id="lessonList" class="lesson-list"></div>
+        </section>
+      </section>
+
+      <section id="practiceView" class="view" aria-labelledby="practiceTitle">
+        <div class="practice-header">
+          <button id="backToHome" class="icon-button" aria-label="Voltar">←</button>
+          <div>
+            <p id="practiceCategory" class="eyebrow">EXERCÍCIO</p>
+            <h2 id="practiceTitle">Leitura inicial</h2>
+          </div>
+          <div class="tempo-box"><span>Tempo</span><strong id="tempoValue">72</strong></div>
+        </div>
+
+        <div class="practice-layout">
+          <section class="score-card">
+            <div class="score-toolbar">
+              <span id="scoreProgress">Nota 1 de 8</span>
+              <div class="progress-track"><div id="scoreProgressBar" class="progress-fill"></div></div>
+              <button id="toggleNoteNames" class="ghost-button small">Nomes: ligados</button>
+            </div>
+            <div id="scoreCanvas" class="score-canvas" role="img" aria-label="Pauta musical com as notas do exercício"></div>
+            <div class="target-note-panel">
+              <div>
+                <span>Toque agora</span>
+                <strong id="targetNote">Dó 4</strong>
+              </div>
+              <div class="detected-note-box">
+                <span>Detectado</span>
+                <strong id="detectedNote">—</strong>
+                <small id="tuningStatus">Microfone desligado</small>
+              </div>
+            </div>
+          </section>
+
+          <aside class="coach-card">
+            <div id="feedbackBadge" class="feedback-badge neutral">Pronto para começar</div>
+            <h3 id="coachTitle">Posicione a mão direita</h3>
+            <p id="coachMessage">Use o dedo indicado e toque uma nota por vez. O aplicativo aguardará a nota correta.</p>
+
+            <div class="control-grid">
+              <button id="listenButton" class="primary-button">Ativar microfone</button>
+              <button id="demoButton" class="secondary-button">Ouvir exemplo</button>
+              <button id="metronomeButton" class="secondary-button">Metrônomo: desligado</button>
+              <button id="resetPracticeButton" class="ghost-button">Reiniciar</button>
+            </div>
+
+            <div class="input-mode-card">
+              <div>
+                <span>Entrada</span>
+                <strong id="inputModeLabel">Microfone</strong>
+              </div>
+              <button id="midiButton" class="ghost-button small">Conectar MIDI</button>
+            </div>
+
+            <details class="help-box">
+              <summary>Como melhorar a detecção</summary>
+              <p>Toque uma nota isolada, mantenha o celular a 50–100 cm do piano e reduza ruídos ao redor.</p>
+            </details>
+          </aside>
+        </div>
+
+        <section class="keyboard-section" aria-labelledby="keyboardTitle">
+          <div class="section-heading compact">
+            <div>
+              <p class="eyebrow">TECLADO DE APOIO</p>
+              <h2 id="keyboardTitle">Teste sem microfone</h2>
+            </div>
+            <span class="pill">Toque nas teclas</span>
+          </div>
+          <div id="pianoKeyboard" class="piano-keyboard" aria-label="Teclado virtual"></div>
+        </section>
+      </section>
+
+      <section id="catalogView" class="view" aria-labelledby="catalogTitle">
+        <div class="section-heading catalog-heading">
+          <div>
+            <p class="eyebrow">REPERTÓRIO DIDÁTICO</p>
+            <h2 id="catalogTitle">Catálogo</h2>
+            <p>Trechos simplificados de obras em domínio público, sem letras.</p>
+          </div>
+          <div class="catalog-controls">
+            <input id="catalogSearch" type="search" placeholder="Buscar música ou compositor" aria-label="Buscar no catálogo" />
+            <select id="catalogFilter" aria-label="Filtrar catálogo">
+              <option value="all">Todas</option>
+              <option value="classical">Clássicas</option>
+              <option value="hymn">Hinos e gospel</option>
+              <option value="exercise">Exercícios</option>
+            </select>
+          </div>
+        </div>
+        <div id="catalogGrid" class="catalog-grid"></div>
+      </section>
+
+      <section id="progressView" class="view" aria-labelledby="progressTitle">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">HISTÓRICO LOCAL</p>
+            <h2 id="progressTitle">Seu progresso</h2>
+            <p>Os dados permanecem somente neste dispositivo.</p>
+          </div>
+          <button id="resetProgressButton" class="ghost-button danger">Apagar progresso</button>
+        </div>
+        <div id="progressSummary" class="progress-summary"></div>
+        <div id="activityList" class="activity-list"></div>
+      </section>
+
+      <section id="settingsView" class="view" aria-labelledby="settingsTitle">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">PREFERÊNCIAS</p>
+            <h2 id="settingsTitle">Configurações</h2>
+          </div>
+        </div>
+        <div class="settings-grid">
+          <label class="setting-card">
+            <span>Afinação de referência</span>
+            <div><input id="concertPitch" type="range" min="438" max="442" value="440" /><strong id="concertPitchValue">440 Hz</strong></div>
+          </label>
+          <label class="setting-card">
+            <span>Tolerância da nota</span>
+            <div><input id="centsTolerance" type="range" min="20" max="60" step="5" value="40" /><strong id="centsToleranceValue">±40 cents</strong></div>
+          </label>
+          <label class="setting-card switch-row">
+            <span>Mostrar nomes das notas</span>
+            <input id="showNoteNamesSetting" type="checkbox" checked />
+          </label>
+          <label class="setting-card switch-row">
+            <span>Vibração ao acertar</span>
+            <input id="vibrationSetting" type="checkbox" checked />
+          </label>
+        </div>
+        <article class="privacy-card">
+          <h3>Privacidade e funcionamento offline</h3>
+          <p>O áudio é analisado em tempo real no próprio navegador. Esta versão não envia gravações para servidores e não exige conta.</p>
+        </article>
+      </section>
+    </main>
+
+    <nav class="bottom-nav" aria-label="Navegação principal">
+      <button class="nav-button active" data-view="homeView"><span>⌂</span>Início</button>
+      <button class="nav-button" data-view="practiceView"><span>♫</span>Praticar</button>
+      <button class="nav-button" data-view="catalogView"><span>▤</span>Catálogo</button>
+      <button class="nav-button" data-view="progressView"><span>↗</span>Progresso</button>
+      <button class="nav-button" data-view="settingsView"><span>⚙</span>Ajustes</button>
+    </nav>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="./src/app.js"></script>
+</body>
+</html>
