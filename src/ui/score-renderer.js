@@ -12,6 +12,37 @@ const NOTE_START_X = 180;
 const NOTE_SPACING = 88;
 const PLAYHEAD_X = 310;
 
+// Metadados corretivos para transcrições que ainda usam o formato legado.
+// Für Elise está em 3/8: como as durações do catálogo usam a semínima como 1,
+// cada compasso equivale a 1,5 unidades.
+const SCORE_METADATA = {
+  'fur-elise': { beatsPerBar: 1.5, timeSignature: '3/8' },
+};
+
+export function effectiveBeatsPerBar(song) {
+  const override = SCORE_METADATA[song?.id]?.beatsPerBar;
+  if (Number.isFinite(override)) return override;
+
+  if (song?.beatsPerBar !== undefined && song?.beatsPerBar !== null) {
+    const configured = Number(song.beatsPerBar);
+    return Number.isFinite(configured) ? configured : 0;
+  }
+
+  return 4;
+}
+
+export function timeSignatureLabel(song) {
+  if (song?.timeSignature) return String(song.timeSignature);
+  const override = SCORE_METADATA[song?.id]?.timeSignature;
+  if (override) return override;
+
+  const beatsPerBar = effectiveBeatsPerBar(song);
+  if (beatsPerBar === 4) return '4/4';
+  if (beatsPerBar === 3) return '3/4';
+  if (beatsPerBar === 2) return '2/4';
+  return '';
+}
+
 export function renderScore(container, song, currentIndex = 0, showNames = true) {
   const scoreKey = `${song.id}:${showNames ? 1 : 0}`;
   let svg = container.querySelector('svg[data-score-key]');
@@ -36,8 +67,9 @@ function buildScore(song, showNames) {
   svg.dataset.focusViewBox = hasBass ? '35 20 850 375' : '35 20 850 245';
   svg.append(create('rect', { x: 0, y: 0, width: SCORE_WIDTH, height, fill: '#fbfcfd' }));
 
+  const clipId = `score-window-${safeId(song.id)}`;
   const defs = create('defs');
-  const clipPath = create('clipPath', { id: `score-window-${safeId(song.id)}` });
+  const clipPath = create('clipPath', { id: clipId, clipPathUnits: 'userSpaceOnUse' });
   clipPath.append(create('rect', {
     x: 145,
     y: 42,
@@ -75,13 +107,14 @@ function buildScore(song, showNames) {
     }));
   }
 
+  const signature = timeSignatureLabel(song);
   svg.append(create('text', {
     x: 122,
     y: 77,
     'font-size': 15,
     'font-weight': 800,
     fill: '#667085',
-  }, `${song.key} · ${song.bpm} bpm`));
+  }, `${song.key} · ${song.bpm} bpm${signature ? ` · ${signature}` : ''}`));
 
   // A linha fica parada enquanto as notas deslizam por baixo dela.
   svg.append(create('line', {
@@ -94,18 +127,27 @@ function buildScore(song, showNames) {
     'stroke-dasharray': '5 7',
   }));
 
-  const track = create('g', {
-    class: 'score-track',
-    'clip-path': `url(#score-window-${safeId(song.id)})`,
+  // O recorte fica no grupo externo. Somente a faixa interna é deslocada;
+  // assim, a janela permanece fixa enquanto a partitura rola.
+  const viewport = create('g', {
+    class: 'score-viewport',
+    'clip-path': `url(#${clipId})`,
   });
+  const track = create('g', { class: 'score-track' });
   track.style.transition = 'transform 320ms cubic-bezier(.22,.72,.28,1)';
+  track.style.transformBox = 'view-box';
+  track.style.transformOrigin = '0 0';
   track.style.willChange = 'transform';
-  svg.append(track);
+  viewport.append(track);
+  svg.append(viewport);
 
   const namesY = hasBass ? 320 : 205;
   const durationY = hasBass ? 348 : 235;
   const barBottom = hasBass ? BASS_TOP + 48 : 128;
-  const pickupOffset = song.pickupBeats ? (song.beatsPerBar ?? 4) - song.pickupBeats : 0;
+  const beatsPerBar = effectiveBeatsPerBar(song);
+  const pickupOffset = song.pickupBeats && beatsPerBar > 0
+    ? beatsPerBar - Number(song.pickupBeats)
+    : 0;
   let runningBeat = pickupOffset;
 
   song.notes.forEach((event, index) => {
@@ -115,10 +157,10 @@ function buildScore(song, showNames) {
       'data-index': index,
     });
 
-    const beatsPerBar = song.beatsPerBar ?? 4;
-    const crossesBar = beatsPerBar >= 2
+    const crossesBar = beatsPerBar > 0
       && ((index === 0 && !song.pickupBeats)
-        || Math.floor(runningBeat / beatsPerBar) !== Math.floor((runningBeat - 0.001) / beatsPerBar));
+        || Math.floor(runningBeat / beatsPerBar)
+          !== Math.floor((runningBeat - 0.001) / beatsPerBar));
     if (crossesBar) {
       track.append(create('line', {
         x1: x - 34,
@@ -170,7 +212,7 @@ function buildScore(song, showNames) {
     }, durationSymbol(event.duration)));
 
     track.append(eventGroup);
-    runningBeat += event.duration;
+    runningBeat += Number(event.duration) || 0;
   });
 
   svg.append(create('text', {
@@ -203,7 +245,7 @@ function updateScoreState(svg, song, currentIndex) {
   if (!track) return;
   const currentX = NOTE_START_X + visualIndex * NOTE_SPACING;
   const translateX = Math.min(0, PLAYHEAD_X - currentX);
-  track.setAttribute('transform', `translate(${translateX} 0)`);
+  track.style.transform = `translateX(${translateX}px)`;
 }
 
 function drawEventOnStaff(parent, pitches, x, isBass) {
