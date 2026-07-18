@@ -11,6 +11,8 @@ const SCORE_WIDTH = 920;
 const NOTE_START_X = 180;
 const NOTE_SPACING = 88;
 const PLAYHEAD_X = 310;
+const SCROLL_DURATION_MS = 280;
+const TRACK_ANIMATIONS = new WeakMap();
 
 // Metadados corretivos para transcrições que ainda usam o formato legado.
 // Für Elise está em 3/8: como as durações do catálogo usam a semínima como 1,
@@ -41,6 +43,14 @@ export function timeSignatureLabel(song) {
   if (beatsPerBar === 3) return '3/4';
   if (beatsPerBar === 2) return '2/4';
   return '';
+}
+
+export function scoreTranslateXForIndex(song, currentIndex = 0) {
+  const noteCount = Math.max(0, song?.notes?.length || 0);
+  if (!noteCount) return 0;
+  const visualIndex = Math.min(Math.max(Number(currentIndex) || 0, 0), noteCount - 1);
+  const currentX = NOTE_START_X + visualIndex * NOTE_SPACING;
+  return Math.min(0, PLAYHEAD_X - currentX);
 }
 
 export function renderScore(container, song, currentIndex = 0, showNames = true) {
@@ -133,11 +143,11 @@ function buildScore(song, showNames) {
     class: 'score-viewport',
     'clip-path': `url(#${clipId})`,
   });
-  const track = create('g', { class: 'score-track' });
-  track.style.transition = 'transform 320ms cubic-bezier(.22,.72,.28,1)';
-  track.style.transformBox = 'view-box';
-  track.style.transformOrigin = '0 0';
-  track.style.willChange = 'transform';
+  const track = create('g', {
+    class: 'score-track',
+    transform: 'translate(0 0)',
+    'data-translate-x': '0',
+  });
   viewport.append(track);
   svg.append(viewport);
 
@@ -227,7 +237,6 @@ function buildScore(song, showNames) {
 
 function updateScoreState(svg, song, currentIndex) {
   const completedAll = currentIndex >= song.notes.length;
-  const visualIndex = Math.min(Math.max(currentIndex, 0), Math.max(0, song.notes.length - 1));
 
   svg.querySelectorAll('.score-event').forEach((group) => {
     const index = Number(group.dataset.index);
@@ -243,9 +252,47 @@ function updateScoreState(svg, song, currentIndex) {
 
   const track = svg.querySelector('.score-track');
   if (!track) return;
-  const currentX = NOTE_START_X + visualIndex * NOTE_SPACING;
-  const translateX = Math.min(0, PLAYHEAD_X - currentX);
-  track.style.transform = `translateX(${translateX}px)`;
+  animateTrackTo(track, scoreTranslateXForIndex(song, currentIndex));
+}
+
+function animateTrackTo(track, targetX) {
+  const activeFrame = TRACK_ANIMATIONS.get(track);
+  if (activeFrame && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(activeFrame);
+
+  const startX = Number(track.dataset.translateX || 0);
+  const distance = targetX - startX;
+  const reduceMotion = typeof window === 'undefined'
+    || typeof requestAnimationFrame !== 'function'
+    || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
+  if (reduceMotion || Math.abs(distance) < 0.5) {
+    setTrackTranslate(track, targetX);
+    return;
+  }
+
+  const startTime = performance.now();
+  const step = (now) => {
+    const progress = Math.min(1, (now - startTime) / SCROLL_DURATION_MS);
+    const eased = 1 - (1 - progress) ** 3;
+    setTrackTranslate(track, startX + distance * eased);
+
+    if (progress < 1) {
+      TRACK_ANIMATIONS.set(track, requestAnimationFrame(step));
+    } else {
+      TRACK_ANIMATIONS.delete(track);
+      setTrackTranslate(track, targetX);
+    }
+  };
+
+  TRACK_ANIMATIONS.set(track, requestAnimationFrame(step));
+}
+
+function setTrackTranslate(track, value) {
+  const normalized = Number.isFinite(value) ? value : 0;
+  track.dataset.translateX = String(normalized);
+  // O atributo SVG usa as unidades do viewBox. Isso evita o erro de escala que
+  // ocorria com translateX(px) em telas grandes, fazendo as notas sumirem.
+  track.setAttribute('transform', `translate(${normalized.toFixed(2)} 0)`);
 }
 
 function drawEventOnStaff(parent, pitches, x, isBass) {
