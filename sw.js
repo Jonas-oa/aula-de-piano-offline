@@ -1,4 +1,4 @@
-const CACHE_NAME = 'aula-piano-v7-partitura-rolante-piano';
+const CACHE_NAME = 'aula-piano-v8-auditoria-033';
 const APP_SHELL = [
   './',
   './index.html',
@@ -6,6 +6,7 @@ const APP_SHELL = [
   './manifest.webmanifest',
   './src/app.js',
   './src/core/audio-engine.js',
+  './src/core/playback-fixes.js',
   './src/core/music.js',
   './src/data/catalog.js',
   './src/ui/score-renderer.js',
