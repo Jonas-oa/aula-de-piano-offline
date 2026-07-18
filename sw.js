@@ -1,4 +1,4 @@
-const CACHE_NAME = 'aula-piano-v8-auditoria-033';
+const CACHE_NAME = 'aula-piano-v9-scroll-sustain-034';
 const APP_SHELL = [
   './',
   './index.html',
