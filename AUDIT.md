@@ -1,4 +1,4 @@
-# Auditoria da versão 0.1.0
+# Auditoria das versões 0.1.0 e 0.2.0
 
 Data: 17 de julho de 2026
 
@@ -22,7 +22,7 @@ Data: 17 de julho de 2026
 
 ## Resultado
 
-- 8/8 testes automatizados aprovados.
+- 9/9 testes automatizados aprovados.
 - Smoke test funcional aprovado.
 
 ## Pendente para validação em dispositivo real
@@ -32,3 +32,12 @@ Data: 17 de julho de 2026
 - Permissão e funcionamento do microfone em Android, iOS e desktop.
 - Conexão Web MIDI nos navegadores compatíveis.
 - Revisão musical das transcrições didáticas antes de publicação comercial.
+
+
+## Modo Foco — versão 0.2.0
+
+- Cabeçalho e navegação inferior são retraídos durante a prática.
+- Partitura e teclado ocupam toda a área útil da tela.
+- Controles secundários permanecem disponíveis em painel retrátil.
+- O modo fecha ao voltar, trocar de seção ou pressionar Escape.
+- Cache offline atualizado para incluir o novo módulo.
