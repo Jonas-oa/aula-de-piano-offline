@@ -2,7 +2,8 @@ import { catalog } from '../data/catalog.js';
 import { DemoSynth } from './audio-engine.js';
 
 const PATCH_FLAG = Symbol.for('aula-piano.demo-duration-patch');
-const GROUP_GAP_MS = 80;
+const MIN_PIANO_DURATION_SECONDS = 0.72;
+const MAX_SUSTAIN_EXTRA_SECONDS = 0.48;
 
 let demoSession = null;
 let manualInputUntil = 0;
@@ -23,6 +24,17 @@ export function demoPitchDurationSeconds(song, eventIndex, pitchIndex = 0, scale
 
   const secondsPerBeat = 60 / Number(song.bpm);
   return Math.max(0.18, secondsPerBeat * beats * scale);
+}
+
+/**
+ * Acrescenta uma cauda musical ao som. Notas rápidas continuam articuladas,
+ * mas não são cortadas de forma seca; notas longas mantêm sua proporção.
+ */
+export function sustainedPianoDurationSeconds(durationSeconds) {
+  const base = Number(durationSeconds);
+  if (!Number.isFinite(base) || base <= 0) return MIN_PIANO_DURATION_SECONDS;
+  const extra = Math.min(MAX_SUSTAIN_EXTRA_SECONDS, 0.24 + base * 0.18);
+  return Math.max(MIN_PIANO_DURATION_SECONDS, base + extra);
 }
 
 function songFromPracticeView() {
@@ -48,9 +60,19 @@ function beginDemoSession() {
     song,
     eventIndex: currentEventIndex(),
     pitchIndex: 0,
-    lastCallAt: 0,
-    started: false,
   };
+}
+
+function advanceDemoCursor() {
+  if (!demoSession) return;
+  const event = demoSession.song.notes[demoSession.eventIndex];
+  const pitchCount = (event?.pitches || (event ? [event] : [])).length;
+  demoSession.pitchIndex += 1;
+
+  if (!pitchCount || demoSession.pitchIndex >= pitchCount) {
+    demoSession.eventIndex += 1;
+    demoSession.pitchIndex = 0;
+  }
 }
 
 function installDemoDurationPatch() {
@@ -65,27 +87,22 @@ function installDemoDurationPatch() {
     gainValue = 0.12,
   ) {
     const now = performance.now();
-    const demoButton = document.getElementById('demoButton');
     let resolvedDuration = durationSeconds;
 
-    if (demoSession && demoButton?.disabled && now >= manualInputUntil) {
-      if (demoSession.started && now - demoSession.lastCallAt > GROUP_GAP_MS) {
-        demoSession.eventIndex += 1;
-        demoSession.pitchIndex = 0;
-      }
-
+    // A sessão é iniciada no clique capturado antes do controlador principal.
+    // Não dependemos do instante em que o botão recebe disabled, evitando que a
+    // primeira nota seja executada sem a duração individual correta.
+    if (demoSession && now >= manualInputUntil) {
       const individualDuration = demoPitchDurationSeconds(
         demoSession.song,
         demoSession.eventIndex,
         demoSession.pitchIndex,
       );
       if (individualDuration !== null) resolvedDuration = individualDuration;
-
-      demoSession.pitchIndex += 1;
-      demoSession.lastCallAt = now;
-      demoSession.started = true;
+      advanceDemoCursor();
     }
 
+    resolvedDuration = sustainedPianoDurationSeconds(resolvedDuration);
     return originalPlayFrequency.call(this, frequency, resolvedDuration, gainValue);
   };
 
@@ -105,7 +122,7 @@ function installDemoDurationPatch() {
   // posição da fila de notas da reprodução automática.
   document.addEventListener('pointerdown', (event) => {
     const target = event.target instanceof Element ? event.target.closest('.piano-key') : null;
-    if (target) manualInputUntil = performance.now() + 120;
+    if (target) manualInputUntil = performance.now() + 160;
   }, true);
 
   const demoButton = document.getElementById('demoButton');
