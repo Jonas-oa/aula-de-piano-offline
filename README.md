@@ -14,7 +14,9 @@ Protótipo funcional de um aplicativo educacional de piano que:
 
 ## Estado desta primeira versão
 
-O reconhecimento por microfone é **monofônico**: ele identifica uma nota por vez. Isso é adequado para exercícios iniciais, escalas e melodias de uma mão. Acordes e execução completa a duas mãos exigem um motor polifônico posterior ou um teclado MIDI, que fornece a entrada mais precisa.
+A partitura, o catálogo e a avaliação agora são **polifônicos**: eventos podem conter acordes e notas de duas mãos (notação `C3:4+E4:1`), a pauta dupla (claves de Sol e Fá) é desenhada automaticamente quando há notas abaixo do Dó central, e o exercício avança quando todas as notas do evento são tocadas — em qualquer ordem — via teclado MIDI ou teclado virtual (com multitoque).
+
+O reconhecimento por **microfone continua monofônico**: identifica uma nota por vez, o que atende escalas e melodias; em acordes, ele aceita as notas arpejadas (uma após a outra). O reconhecimento simultâneo por microfone exigirá um motor polifônico (ex.: modelo WebAssembly), previsto nas próximas fases.
 
 O catálogo inicial contém mais de 30 trechos didáticos entre clássicos, hinos/gospel históricos e exercícios técnicos. As transcrições devem passar por revisão musical antes de uma publicação comercial.
 

@@ -74,6 +74,33 @@ test('barras de compasso respeitam a fórmula de compasso', () => {
   assert.equal(getSong('minuet-g').beatsPerBar, 3);
   assert.equal(getSong('fur-elise').beatsPerBar, 0);
   const renderer = fs.readFileSync(path.join(root, 'src/ui/score-renderer.js'), 'utf8');
-  assert.match(renderer, /x1: x - 34, y1: 80, x2: x - 34, y2: 128/);
+  assert.match(renderer, /x1: x - 34, y1: 80, x2: x - 34, y2: barBottom/);
   assert.match(renderer, /beatsPerBar/);
+});
+
+test('acordes: notação com +, herança de duração e voz superior compatível', () => {
+  const chords = getSong('exercise-c-chords');
+  const first = chords.notes[0];
+  assert.equal(first.pitches.length, 3);
+  assert.deepEqual(first.pitches.map((n) => n.pitch), ['C4', 'E4', 'G4']);
+  assert.ok(first.pitches.every((n) => n.duration === 2)); // ':2' herdado pelo acorde todo
+  assert.equal(first.pitch, 'G4'); // compatibilidade: voz superior
+  assert.equal(first.duration, 2);
+
+  const ode = getSong('ode-to-joy-duas-maos');
+  const opening = ode.notes[0];
+  assert.deepEqual(opening.pitches.map((n) => n.pitch), ['C3', 'E4']); // baixo + melodia
+  assert.equal(opening.duration, 1); // passo do evento = próximo ataque da melodia
+  assert.equal(opening.pitches[0].duration, 4); // baixo sustentado
+
+  // Peças monofônicas seguem com um único pitch por evento
+  assert.ok(getSong('ode-to-joy').notes.every((n) => n.pitches.length === 1));
+});
+
+test('renderizador desenha pauta dupla e divide no Dó central', () => {
+  const renderer = fs.readFileSync(path.join(root, 'src/ui/score-renderer.js'), 'utf8');
+  assert.match(renderer, /BASS_TOP/);
+  assert.match(renderer, /𝄢/);
+  assert.match(renderer, /noteToMidi\(p\.pitch\) >= 60/);
+  assert.match(renderer, /focusViewBox/);
 });

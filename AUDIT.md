@@ -71,3 +71,24 @@ Data: 17 de julho de 2026
   recurso não está no cache e a rede falha.
 - Fontes `src/app.js` e `src/data/catalog.js` deixaram de ser distribuídos
   minificados no repositório.
+
+## Fase 2 — polifonia (versão 0.3.0)
+
+- Catálogo: eventos podem conter múltiplas notas simultâneas com a notação
+  `NOTA[:duração][@dedo]` unida por `+` (ex.: `C3:4+E4:1@3`). Durações não
+  declaradas num acorde herdam a maior duração do próprio acorde. O campo
+  `pitch`/`duration`/`finger` de cada evento segue existindo (voz superior),
+  preservando compatibilidade com código e testes anteriores.
+- Renderizador: pauta dupla (claves de Sol e Fá) ativada automaticamente quando
+  há notas abaixo do Dó central; acordes com haste compartilhada, segundas
+  deslocadas, linhas suplementares por pauta e dedilhado junto a cada nota.
+  O Modo Foco usa o enquadramento informado pelo renderizador (`focusViewBox`).
+- Avaliação: o evento-alvo mantém o conjunto de notas pendentes; o exercício
+  avança quando todas são tocadas, em qualquer ordem, com feedback parcial
+  ("falta X"). Teclado MIDI e teclado virtual (multitoque) avaliam acordes
+  simultâneos; o microfone aceita acordes arpejados (nota a nota).
+- Demonstração toca acordes completos; dica de erro compara com a nota
+  pendente mais próxima.
+- Novas peças: "Ode à Alegria — duas mãos" (melodia + baixo sustentado) e
+  "Acordes de Dó Maior — tríades" (I-IV-V-I, mão direita).
+- Cache offline renovado (v5). 14/14 testes automatizados aprovados.

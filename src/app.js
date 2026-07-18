@@ -42,6 +42,32 @@ let h = ot(p, v),
 const onMetronomeBeat = () => {
   suppressUntil = Math.max(suppressUntil, Date.now() + 160);
 };
+// Avaliação polifônica: notas MIDI que ainda faltam no evento atual.
+// Recalculada quando o índice do evento (ou a música) muda.
+let pendingMidis = [];
+let pendingKey = "";
+function eventMidis(event) {
+  return (event.pitches || [event]).map((p) => u(p.pitch));
+}
+function syncPending() {
+  const key = `${y.id}:${C}`;
+  if (key === pendingKey) return;
+  pendingKey = key;
+  const event = y.notes[C];
+  pendingMidis = event ? eventMidis(event) : [];
+}
+function targetLabel(event) {
+  return eventMidis(event)
+    .slice()
+    .sort((a, b) => a - b)
+    .map((midi) => d(midi))
+    .join(" + ");
+}
+function highlightPending() {
+  document
+    .querySelectorAll(".piano-key")
+    .forEach((t) => t.classList.toggle("target", pendingMidis.includes(Number(t.dataset.midi))));
+}
 const k = (t) => document.getElementById(t),
   I = new a(),
   A = new o({
@@ -128,6 +154,7 @@ function F(t = !0) {
     (B = 0),
     (heldMidi = null),
     (suppressUntil = 0),
+    (pendingKey = ""),
     (M = ""),
     (E = 0),
     (D = 0),
@@ -143,20 +170,17 @@ function F(t = !0) {
 }
 function O() {
   const t = y.notes[C] || y.notes.at(-1);
-  var e;
   ((k("practiceCategory").textContent = c(y.category).toUpperCase()),
     (k("practiceTitle").textContent = y.title),
     (k("tempoValue").textContent = String(y.bpm)),
     (k("scoreProgress").textContent =
       `Nota ${Math.min(C + 1, y.notes.length)} de ${y.notes.length}`),
     (k("scoreProgressBar").style.width = (C / y.notes.length) * 100 + "%"),
-    (k("targetNote").textContent = d(u(t.pitch))),
+    (k("targetNote").textContent = targetLabel(t)),
     (k("toggleNoteNames").textContent = "Nomes: " + (L ? "ligados" : "desligados")),
     m(k("scoreCanvas"), y, C, L),
-    (e = u(t.pitch)),
-    document
-      .querySelectorAll(".piano-key")
-      .forEach((t) => t.classList.toggle("target", Number(t.dataset.midi) === e)));
+    syncPending(),
+    highlightPending());
 }
 function z() {
   const e = k("catalogSearch")?.value.trim().toLocaleLowerCase("pt-BR") || "",
@@ -235,9 +259,26 @@ async function U() {
 }
 function J(t, e = 0, n = "unknown") {
   if (C >= y.notes.length) return;
-  const o = u(y.notes[C].pitch),
-    a = t === o && Math.abs(e) <= f.centsTolerance,
-    c = Date.now();
+  syncPending();
+  const c = Date.now();
+  const a = pendingMidis.includes(t) && Math.abs(e) <= f.centsTolerance;
+  if (a && pendingMidis.length > 1) {
+    // Nota correta de um acorde ainda incompleto: registra e aguarda as demais.
+    pendingMidis = pendingMidis.filter((midi) => midi !== t);
+    highlightPending();
+    D = c;
+    W(
+      "correct",
+      "Nota do acorde",
+      `Falta${pendingMidis.length > 1 ? "m" : ""} ${pendingMidis.length}`,
+      `Toque também: ${pendingMidis
+        .slice()
+        .sort((x, z) => x - z)
+        .map((midi) => d(midi))
+        .join(" + ")}.`,
+    );
+    return;
+  }
   if (a)
     return (
       ($ += 1),
@@ -302,6 +343,9 @@ function J(t, e = 0, n = "unknown") {
   const i = `${C}:${t}`;
   if (i === M && c - E < 700) return;
   ((M = i), (E = c), ($ += 1), (h.attempts += 1), et());
+  const o = pendingMidis
+    .slice()
+    .sort((x, z) => Math.abs(x - t) - Math.abs(z - t))[0];
   const r = t < o ? "um pouco mais à direita/agudo" : "um pouco mais à esquerda/grave";
   W("incorrect", "Quase", `Você tocou ${d(t)}`, `Procure ${d(o)}: vá ${r}.`);
 }
@@ -320,11 +364,13 @@ async function G() {
   for (let o = e; o < n && t === P; o += 1) {
     const t = y.notes[o],
       e = (6e4 / y.bpm) * t.duration,
-      n = u(t.pitch);
-    ((suppressUntil = Date.now() + e + 300),
-      R(n),
-      await I.playFrequency(s(n, f.concertPitch), Math.max(0.18, (e / 1e3) * 0.82)),
-      await rt(e));
+      midis = eventMidis(t);
+    suppressUntil = Date.now() + e + 300;
+    midis.forEach((midi) => {
+      R(midi);
+      I.playFrequency(s(midi, f.concertPitch), Math.max(0.18, (e / 1e3) * 0.82));
+    });
+    await rt(e);
   }
   ((k("demoButton").disabled = !1), (k("demoButton").textContent = "Ouvir exemplo"));
 }

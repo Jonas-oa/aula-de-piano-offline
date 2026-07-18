@@ -1,36 +1,64 @@
-// Sintaxe: NOTA[:duração][@dedo]  →  ex.: "F#4:1.5@2"
+// Sintaxe de um evento: NOTA[:duração][@dedo], com acordes unindo notas por "+".
+// Ex.: "F#4:1.5@2"  ·  "C3:4+E4:1@3" (baixo sustentado + melodia)  ·  "C4+E4+G4:2" (tríade)
 const e = /^([A-G])(#|b)?(-?\d)(?::([0-9.]+))?(?:@([1-5]))?$/
 const NATURAL_STEP = { C: 0, D: 1, E: 2, F: 3, G: 4, A: 5, B: 6 }
+const NOTE_INDEX = { C: 0, "C#": 1, Db: 1, D: 2, "D#": 3, Eb: 3, E: 4, F: 5, "F#": 6, Gb: 6, G: 7, "G#": 8, Ab: 8, A: 9, "A#": 10, Bb: 10, B: 11 }
+
+function parsePitchSpec(token) {
+  const a = token.match(e)
+  if (!a) throw new Error(`Nota inválida no catálogo: ${token}`)
+  const pitch = `${a[1]}${a[2] || ""}${a[3]}`
+  return {
+    pitch,
+    midi: (Number(a[3]) + 1) * 12 + NOTE_INDEX[`${a[1]}${a[2] || ""}`],
+    duration: a[4] ? Number(a[4]) : null,
+    finger: a[5] ? Number(a[5]) : null,
+  }
+}
 
 export function parseSequence(i, o = 1) {
-  const notes = i
+  const events = i
     .trim()
     .split(/\s+/)
-    .map((i) => {
-      const a = i.match(e)
-      if (!a) throw new Error(`Nota inválida no catálogo: ${i}`)
+    .map((token) => {
+      const pitches = token.split("+").map((part) => parsePitchSpec(part))
+      // Num acorde, notas sem duração explícita herdam a maior duração
+      // declarada no próprio acorde; sem nenhuma, valem o padrão da música.
+      const declared = pitches.filter((p) => p.duration !== null).map((p) => p.duration)
+      const inherited = declared.length ? Math.max(...declared) : o
+      pitches.forEach((p) => {
+        if (p.duration === null) p.duration = inherited
+      })
+      pitches.sort((a, b) => a.midi - b.midi)
+      const top = pitches[pitches.length - 1]
       return {
-        pitch: `${a[1]}${a[2] || ""}${a[3]}`,
-        duration: Number(a[4] || o),
-        finger: a[5] ? Number(a[5]) : null,
+        // Compatibilidade: `pitch`, `duration` e `finger` continuam existindo e
+        // representam a voz superior (melodia). `pitches` traz o evento completo.
+        pitch: top.pitch,
+        duration: Math.min(...pitches.map((p) => p.duration)),
+        finger: pitches.length === 1 ? top.finger : null,
+        pitches: pitches.map(({ pitch, duration, finger }) => ({ pitch, duration, finger })),
       }
     })
-  return autoFingerFivePosition(notes)
+  return autoFingerFivePosition(events)
 }
 
 // Dedilhado automático somente quando a peça cabe numa posição fixa de
 // cinco dedos (mão direita): dedo = posição diatônica dentro do âmbito.
 // Fora disso, sem dedilhado explícito, nada é sugerido — melhor omitir
 // do que ensinar dedilhado errado.
-function autoFingerFivePosition(notes) {
-  if (notes.some((note) => note.finger)) return notes
-  const steps = notes.map((note) => {
-    const match = /^([A-G])(?:#|b)?(-?\d)$/.exec(note.pitch)
+function autoFingerFivePosition(events) {
+  if (events.some((event) => event.pitches.length > 1 || event.finger)) return events
+  const steps = events.map((event) => {
+    const match = /^([A-G])(?:#|b)?(-?\d)$/.exec(event.pitch)
     return Number(match[2]) * 7 + NATURAL_STEP[match[1]]
   })
   const low = Math.min(...steps)
-  if (Math.max(...steps) - low > 4) return notes
-  return notes.map((note, index) => ({ ...note, finger: steps[index] - low + 1 }))
+  if (Math.max(...steps) - low > 4) return events
+  return events.map((event, index) => {
+    const finger = steps[index] - low + 1
+    return { ...event, finger, pitches: [{ ...event.pitches[0], finger }] }
+  })
 }
 const i = {
   playable: !0,
@@ -556,6 +584,39 @@ export const catalog = [
     key: "F",
     clef: "treble",
     notes: parseSequence("F4 A4 G4 C5 Bb4 A4 G4 F4 E4 G4 Bb4 A4 F4 D4 E4 G4 C5 A4 Bb4 G4 F4:2"),
+  },
+
+  {
+    ...i,
+    id: "ode-to-joy-duas-maos",
+    title: "Ode à Alegria — duas mãos",
+    originalTitle: "Ode to Joy",
+    composer: "Ludwig van Beethoven",
+    category: "classical",
+    difficulty: 2,
+    bpm: 76,
+    key: "C",
+    clef: "grand",
+    beatsPerBar: 4,
+    notes: parseSequence(
+      "C3:4+E4:1@3 E4@3 F4@4 G4@5 G3:4+G4:1@5 F4@4 E4@3 D4@2 C3:4+C4:1@1 C4@1 D4@2 E4@3 G3:4+E4:1.5@3 D4:0.5@2 D4:2@2 C3:4+E4:1@3 E4@3 F4@4 G4@5 G3:4+G4:1@5 F4@4 E4@3 D4@2 C3:4+C4:1@1 C4@1 D4@2 E4@3 G3:2+D4:1.5@2 C4:0.5@1 C3:2+C4:2@1",
+    ),
+  },
+  {
+    ...i,
+    id: "exercise-c-chords",
+    title: "Acordes de Dó Maior — tríades",
+    originalTitle: "Exercício técnico",
+    composer: "Aula de Piano",
+    category: "exercise",
+    difficulty: 3,
+    bpm: 60,
+    key: "C",
+    clef: "grand",
+    beatsPerBar: 4,
+    notes: parseSequence(
+      "C4+E4+G4:2 C4+E4+G4:2 C4+F4+A4:2 C4+F4+A4:2 C4+E4+G4:2 C4+E4+G4:2 D4+G4+B4:2 D4+G4+B4:2 C4+E4+G4:2 C4+E4+G4:2 C4+F4+A4:2 C4+F4+A4:2 D4+G4+B4:1 D4+F4+G4:1 C4+E4+G4:2 C4+E4+G4:4",
+    ),
   },
 ]
 export const lessons = [

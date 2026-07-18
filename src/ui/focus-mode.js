@@ -80,7 +80,7 @@ function initializeFocusMode() {
     if (!svg) return;
     if (!svg.dataset.defaultViewBox) svg.dataset.defaultViewBox = svg.getAttribute('viewBox') || '0 0 920 310';
     if (document.body.classList.contains('practice-focus')) {
-      svg.setAttribute('viewBox', '35 20 850 245');
+      svg.setAttribute('viewBox', svg.dataset.focusViewBox || '35 20 850 245');
       svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
     } else {
       svg.setAttribute('viewBox', svg.dataset.defaultViewBox);

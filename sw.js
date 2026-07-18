@@ -1,4 +1,4 @@
-const CACHE_NAME = 'aula-piano-v4-correcoes';
+const CACHE_NAME = 'aula-piano-v5-polifonia';
 const APP_SHELL = [
   './',
   './index.html',
