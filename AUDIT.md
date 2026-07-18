@@ -48,3 +48,26 @@ Data: 17 de julho de 2026
 - Barra de progresso sobreposta à área livre superior da pauta.
 - Teclado reduzido proporcionalmente para priorizar a leitura musical.
 - Controles compactados automaticamente em telas horizontais baixas.
+
+## Correções — versão 0.2.2
+
+- Dedilhado: removido o ciclo automático 1-5 (musicalmente incorreto). Agora o
+  catálogo aceita dedilhado explícito (`NOTA[:duração][@dedo]`) e gera dedilhado
+  automático apenas para peças que cabem numa posição fixa de cinco dedos.
+  Escalas de Dó e Sol receberam o dedilhado padrão (123-12345). Peças sem
+  dedilhado confiável não exibem sugestão.
+- Partitura: barra de compasso corrigida (faltava `x2`, desenhava uma diagonal).
+  Novo campo opcional `beatsPerBar` (3 para peças ternárias; 0 desativa as
+  barras em Para Elisa, que tem anacruse).
+- Microfone: passa a ignorar os sons emitidos pelo próprio app (demonstração,
+  teclado virtual e metrônomo), evitando avanço automático do exercício.
+- Nota sustentada após um acerto não conta mais como tentativa errada: uma nova
+  tentativa exige silêncio ou mudança de nota (detecção de novo ataque simples).
+- Metrônomo: ao trocar de música, o andamento é atualizado para o BPM da nova
+  peça.
+- MIDI: teclados conectados após a ativação são reconhecidos automaticamente
+  (`onstatechange`).
+- Service worker: cache renovado (v4) e resposta de fallback válida quando o
+  recurso não está no cache e a rede falha.
+- Fontes `src/app.js` e `src/data/catalog.js` deixaram de ser distribuídos
+  minificados no repositório.

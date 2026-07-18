@@ -1,4 +1,4 @@
-const CACHE_NAME = 'aula-piano-v3-score';
+const CACHE_NAME = 'aula-piano-v4-correcoes';
 const APP_SHELL = [
   './',
   './index.html',
@@ -54,7 +54,14 @@ self.addEventListener('fetch', (event) => {
           }
           return response;
         })
-        .catch(() => cached);
+        .catch(
+          () =>
+            cached ||
+            new Response('Recurso indisponível offline.', {
+              status: 503,
+              headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+            })
+        );
       return cached || network;
     })
   );

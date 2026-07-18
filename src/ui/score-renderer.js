@@ -24,8 +24,11 @@ export function renderScore(container, song, currentIndex = 0, showNames = true)
     const isCompleted = globalIndex < currentIndex;
     const fill = isCurrent ? '#d7a84b' : isCompleted ? '#177a4b' : '#172033';
 
-    if (globalIndex === 0 || Math.floor(runningBeat / 4) !== Math.floor((runningBeat - 0.001) / 4)) {
-      svg.append(create('line', { x: x - 34, y1: 80, x1: x - 34, y2: 128, stroke: '#aeb8c4', 'stroke-width': 1.5 }));
+    const beatsPerBar = song.beatsPerBar ?? 4;
+    const crossesBar = beatsPerBar >= 2
+      && (globalIndex === 0 || Math.floor(runningBeat / beatsPerBar) !== Math.floor((runningBeat - 0.001) / beatsPerBar));
+    if (crossesBar) {
+      svg.append(create('line', { x1: x - 34, y1: 80, x2: x - 34, y2: 128, stroke: '#aeb8c4', 'stroke-width': 1.5 }));
     }
 
     drawLedgerLines(svg, x, y);

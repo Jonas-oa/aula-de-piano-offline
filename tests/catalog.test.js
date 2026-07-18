@@ -3,6 +3,11 @@ import assert from 'node:assert/strict';
 import { catalog, lessons, getSong } from '../src/data/catalog.js';
 import { noteToMidi, midiToNote } from '../src/core/music.js';
 import { yinPitch } from '../src/core/audio-engine.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 test('catálogo possui repertório inicial amplo e dividido por categoria', () => {
   assert.ok(catalog.length >= 30);
@@ -46,4 +51,29 @@ test('YIN reconhece uma onda senoidal de Lá 440 Hz', () => {
   const result = yinPitch(buffer, sampleRate);
   assert.ok(result);
   assert.ok(Math.abs(result.frequency - 440) < 2, `Frequência: ${result.frequency}`);
+});
+
+test('dedilhado é correto ou omitido — nunca inventado', () => {
+  const ode = getSong('ode-to-joy');
+  // Ode à Alegria em posição de Dó: Mi=3, Fá=4, Sol=5, Ré=2, Dó=1
+  assert.equal(ode.notes[0].finger, 3); // E4
+  assert.equal(ode.notes[2].finger, 4); // F4
+  assert.equal(ode.notes[3].finger, 5); // G4
+  assert.equal(ode.notes[8].finger, 1); // C4
+
+  // Escalas com dedilhado padrão de mão direita (passagem de polegar)
+  const scale = getSong('exercise-c-scale');
+  assert.deepEqual(scale.notes.slice(0, 8).map((n) => n.finger), [1, 2, 3, 1, 2, 3, 4, 5]);
+
+  // Peças fora de posição fixa e sem dedilhado explícito não sugerem nada
+  const elise = getSong('fur-elise');
+  assert.ok(elise.notes.every((n) => !n.finger));
+});
+
+test('barras de compasso respeitam a fórmula de compasso', () => {
+  assert.equal(getSong('minuet-g').beatsPerBar, 3);
+  assert.equal(getSong('fur-elise').beatsPerBar, 0);
+  const renderer = fs.readFileSync(path.join(root, 'src/ui/score-renderer.js'), 'utf8');
+  assert.match(renderer, /x1: x - 34, y1: 80, x2: x - 34, y2: 128/);
+  assert.match(renderer, /beatsPerBar/);
 });
