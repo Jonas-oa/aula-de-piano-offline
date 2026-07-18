@@ -6,8 +6,15 @@ import { fileURLToPath } from 'node:url';
 import { catalog, lessons, getSong } from '../src/data/catalog.js';
 import { noteToMidi, midiToNote } from '../src/core/music.js';
 import { yinPitch } from '../src/core/audio-engine.js';
-import { demoPitchDurationSeconds } from '../src/core/playback-fixes.js';
-import { effectiveBeatsPerBar, timeSignatureLabel } from '../src/ui/score-renderer.js';
+import {
+  demoPitchDurationSeconds,
+  sustainedPianoDurationSeconds,
+} from '../src/core/playback-fixes.js';
+import {
+  effectiveBeatsPerBar,
+  scoreTranslateXForIndex,
+  timeSignatureLabel,
+} from '../src/ui/score-renderer.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -104,7 +111,7 @@ test('acordes preservam duração individual e voz superior compatível', () => 
   assert.ok(getSong('ode-to-joy').notes.every((note) => note.pitches.length === 1));
 });
 
-test('demonstração respeita sustain individual do baixo e da melodia', () => {
+test('demonstração respeita duração individual e acrescenta sustain audível', () => {
   const song = getSong('ode-to-joy-duas-maos');
   const bassSeconds = demoPitchDurationSeconds(song, 0, 0, 1);
   const melodySeconds = demoPitchDurationSeconds(song, 0, 1, 1);
@@ -112,15 +119,25 @@ test('demonstração respeita sustain individual do baixo e da melodia', () => {
   assert.ok(bassSeconds > melodySeconds);
   assert.ok(Math.abs(bassSeconds / melodySeconds - 4) < 0.001);
   assert.equal(demoPitchDurationSeconds(song, 999, 0), null);
+
+  assert.ok(sustainedPianoDurationSeconds(0.3) >= 0.72);
+  assert.ok(sustainedPianoDurationSeconds(0.45) > 0.45);
+  assert.ok(sustainedPianoDurationSeconds(2.4) > 2.4);
 });
 
-test('renderizador possui pauta dupla, janela fixa e faixa rolante', () => {
+test('rolagem usa unidades do viewBox e mantém a nota atual na linha-guia', () => {
+  const song = getSong('ode-to-joy');
+  assert.equal(scoreTranslateXForIndex(song, 0), 0);
+  assert.equal(scoreTranslateXForIndex(song, 1), 0);
+  assert.equal(scoreTranslateXForIndex(song, 2), -46);
+  assert.equal(scoreTranslateXForIndex(song, 10), -750);
+  assert.ok(scoreTranslateXForIndex(song, 40) < scoreTranslateXForIndex(song, 10));
+
   const renderer = fs.readFileSync(path.join(root, 'src/ui/score-renderer.js'), 'utf8');
-  assert.match(renderer, /BASS_TOP/);
-  assert.match(renderer, /𝄢/);
   assert.match(renderer, /score-viewport/);
   assert.match(renderer, /score-track/);
-  assert.match(renderer, /translateX\(/);
+  assert.match(renderer, /setAttribute\('transform'/);
+  assert.doesNotMatch(renderer, /style\.transform\s*=\s*`translateX/);
   assert.match(renderer, /song\.clef === 'grand'/);
 });
 
@@ -136,10 +153,10 @@ test('melodias principais das aulas estão completas', () => {
   assert.ok(getSong('fur-elise').notes.length >= 80);
 });
 
-test('shell offline inclui os módulos adicionados na versão auditada', () => {
+test('shell offline inclui os módulos da versão 0.3.4', () => {
   const worker = fs.readFileSync(path.join(root, 'sw.js'), 'utf8');
   const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
-  assert.match(worker, /aula-piano-v8-auditoria-033/);
+  assert.match(worker, /aula-piano-v9-scroll-sustain-034/);
   assert.match(worker, /src\/core\/playback-fixes\.js/);
   assert.match(index, /src\/core\/playback-fixes\.js/);
 });
