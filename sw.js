@@ -1,4 +1,4 @@
-const CACHE_NAME = 'aula-piano-v2-focus';
+const CACHE_NAME = 'aula-piano-v3-score';
 const APP_SHELL = [
   './',
   './index.html',

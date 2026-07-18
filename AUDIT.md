@@ -1,4 +1,4 @@
-# Auditoria das versões 0.1.0 e 0.2.0
+# Auditoria das versões 0.1.0 a 0.2.1
 
 Data: 17 de julho de 2026
 
@@ -22,8 +22,9 @@ Data: 17 de julho de 2026
 
 ## Resultado
 
-- 9/9 testes automatizados aprovados.
+- 10/10 testes automatizados aprovados.
 - Smoke test funcional aprovado.
+- Layout do Modo Foco validado em viewport horizontal de 1536 × 691 px.
 
 ## Pendente para validação em dispositivo real
 
@@ -33,7 +34,6 @@ Data: 17 de julho de 2026
 - Conexão Web MIDI nos navegadores compatíveis.
 - Revisão musical das transcrições didáticas antes de publicação comercial.
 
-
 ## Modo Foco — versão 0.2.0
 
 - Cabeçalho e navegação inferior são retraídos durante a prática.
@@ -41,3 +41,10 @@ Data: 17 de julho de 2026
 - Controles secundários permanecem disponíveis em painel retrátil.
 - O modo fecha ao voltar, trocar de seção ou pressionar Escape.
 - Cache offline atualizado para incluir o novo módulo.
+
+## Ajuste da partitura — versão 0.2.1
+
+- Partitura ampliada no Modo Foco, com enquadramento sem margens vazias.
+- Barra de progresso sobreposta à área livre superior da pauta.
+- Teclado reduzido proporcionalmente para priorizar a leitura musical.
+- Controles compactados automaticamente em telas horizontais baixas.

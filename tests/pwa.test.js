@@ -44,7 +44,6 @@ test('service worker lista somente recursos existentes', () => {
   }
 });
 
-
 test('modo foco é carregado pelo renderizador de partitura', () => {
   const renderer = fs.readFileSync(path.join(root, 'src/ui/score-renderer.js'), 'utf8');
   const focus = fs.readFileSync(path.join(root, 'src/ui/focus-mode.js'), 'utf8');
@@ -52,4 +51,11 @@ test('modo foco é carregado pelo renderizador de partitura', () => {
   assert.match(focus, /practice-focus/);
   assert.match(focus, /focusControlsButton/);
   assert.match(focus, /aria-expanded/);
+});
+
+test('partitura ampliada no modo foco', () => {
+  const focus = fs.readFileSync(path.join(root, 'src/ui/focus-mode.js'), 'utf8');
+  assert.match(focus, /35 20 850 245/);
+  assert.match(focus, /clamp\(135px,28dvh,205px\)/);
+  assert.match(focus, /applyScoreSizing/);
 });

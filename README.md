@@ -20,7 +20,7 @@ O catálogo inicial contém mais de 30 trechos didáticos entre clássicos, hino
 
 ## Modo Foco
 
-Na tela **Praticar**, o botão **Modo foco** retrai cabeçalho, navegação e cartões auxiliares. O botão **Controles** abre temporariamente microfone, MIDI, metrônomo e demais opções.
+Na tela **Praticar**, o botão **Modo foco** retrai cabeçalho, navegação e cartões auxiliares. A partitura recebe prioridade de espaço e usa um enquadramento ampliado; o teclado permanece logo abaixo. O botão **Controles** abre temporariamente microfone, MIDI, metrônomo e demais opções.
 
 ## Executar localmente
 
