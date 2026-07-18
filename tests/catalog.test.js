@@ -1,11 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { catalog, lessons, getSong } from '../src/data/catalog.js';
-import { noteToMidi, midiToNote } from '../src/core/music.js';
-import { yinPitch } from '../src/core/audio-engine.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { catalog, lessons, getSong } from '../src/data/catalog.js';
+import { noteToMidi, midiToNote } from '../src/core/music.js';
+import { yinPitch } from '../src/core/audio-engine.js';
+import { demoPitchDurationSeconds } from '../src/core/playback-fixes.js';
+import { effectiveBeatsPerBar, timeSignatureLabel } from '../src/ui/score-renderer.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -16,7 +18,7 @@ test('catálogo possui repertório inicial amplo e dividido por categoria', () =
   assert.ok(catalog.filter((song) => song.category === 'exercise').length >= 6);
 });
 
-test('todas as músicas possuem notas válidas e parâmetros didáticos', () => {
+test('todas as músicas possuem eventos, notas e parâmetros didáticos válidos', () => {
   const ids = new Set();
   for (const song of catalog) {
     assert.ok(!ids.has(song.id), `ID duplicado: ${song.id}`);
@@ -24,10 +26,16 @@ test('todas as músicas possuem notas válidas e parâmetros didáticos', () => 
     assert.ok(song.notes.length >= 16, `${song.id} tem poucas notas`);
     assert.ok(song.bpm >= 40 && song.bpm <= 180, `${song.id} tem BPM inválido`);
     assert.ok(song.difficulty >= 1 && song.difficulty <= 5);
-    for (const note of song.notes) {
-      const midi = noteToMidi(note.pitch);
-      assert.ok(Number.isInteger(midi));
-      assert.ok(note.duration > 0);
+
+    for (const event of song.notes) {
+      assert.ok(event.duration > 0, `${song.id} contém evento sem duração`);
+      const pitches = event.pitches || [event];
+      assert.ok(pitches.length >= 1, `${song.id} contém evento vazio`);
+      for (const pitch of pitches) {
+        const midi = noteToMidi(pitch.pitch);
+        assert.ok(Number.isInteger(midi), `${song.id}: nota inválida ${pitch.pitch}`);
+        assert.ok(pitch.duration > 0, `${song.id}: duração inválida em ${pitch.pitch}`);
+      }
     }
   }
 });
@@ -47,7 +55,9 @@ test('conversão MIDI é reversível para sustenidos', () => {
 test('YIN reconhece uma onda senoidal de Lá 440 Hz', () => {
   const sampleRate = 48000;
   const buffer = new Float32Array(4096);
-  for (let i = 0; i < buffer.length; i += 1) buffer[i] = 0.3 * Math.sin((2 * Math.PI * 440 * i) / sampleRate);
+  for (let i = 0; i < buffer.length; i += 1) {
+    buffer[i] = 0.3 * Math.sin((2 * Math.PI * 440 * i) / sampleRate);
+  }
   const result = yinPitch(buffer, sampleRate);
   assert.ok(result);
   assert.ok(Math.abs(result.frequency - 440) < 2, `Frequência: ${result.frequency}`);
@@ -55,69 +65,81 @@ test('YIN reconhece uma onda senoidal de Lá 440 Hz', () => {
 
 test('dedilhado é correto ou omitido — nunca inventado', () => {
   const ode = getSong('ode-to-joy');
-  // Ode à Alegria em posição de Dó: Mi=3, Fá=4, Sol=5, Ré=2, Dó=1
-  assert.equal(ode.notes[0].finger, 3); // E4
-  assert.equal(ode.notes[2].finger, 4); // F4
-  assert.equal(ode.notes[3].finger, 5); // G4
-  assert.equal(ode.notes[8].finger, 1); // C4
+  assert.equal(ode.notes[0].finger, 3);
+  assert.equal(ode.notes[2].finger, 4);
+  assert.equal(ode.notes[3].finger, 5);
+  assert.equal(ode.notes[8].finger, 1);
 
-  // Escalas com dedilhado padrão de mão direita (passagem de polegar)
   const scale = getSong('exercise-c-scale');
-  assert.deepEqual(scale.notes.slice(0, 8).map((n) => n.finger), [1, 2, 3, 1, 2, 3, 4, 5]);
+  assert.deepEqual(scale.notes.slice(0, 8).map((note) => note.finger), [1, 2, 3, 1, 2, 3, 4, 5]);
 
-  // Peças fora de posição fixa e sem dedilhado explícito não sugerem nada
   const elise = getSong('fur-elise');
-  assert.ok(elise.notes.every((n) => !n.finger));
+  assert.ok(elise.notes.every((note) => !note.finger));
 });
 
-test('barras de compasso respeitam a fórmula de compasso', () => {
-  assert.equal(getSong('minuet-g').beatsPerBar, 3);
-  assert.equal(getSong('fur-elise').beatsPerBar, 0);
-  const renderer = fs.readFileSync(path.join(root, 'src/ui/score-renderer.js'), 'utf8');
-  assert.match(renderer, /x1: x - 34, y1: 80, x2: x - 34, y2: barBottom/);
-  assert.match(renderer, /beatsPerBar/);
+test('fórmulas de compasso e anacruse são resolvidas semanticamente', () => {
+  assert.equal(effectiveBeatsPerBar(getSong('minuet-g')), 3);
+  assert.equal(effectiveBeatsPerBar(getSong('fur-elise')), 1.5);
+  assert.equal(timeSignatureLabel(getSong('fur-elise')), '3/8');
+
+  const grace = getSong('amazing-grace');
+  assert.equal(grace.pickupBeats, 1);
+  assert.equal(effectiveBeatsPerBar(grace), 3);
 });
 
-test('acordes: notação com +, herança de duração e voz superior compatível', () => {
+test('acordes preservam duração individual e voz superior compatível', () => {
   const chords = getSong('exercise-c-chords');
   const first = chords.notes[0];
   assert.equal(first.pitches.length, 3);
-  assert.deepEqual(first.pitches.map((n) => n.pitch), ['C4', 'E4', 'G4']);
-  assert.ok(first.pitches.every((n) => n.duration === 2)); // ':2' herdado pelo acorde todo
-  assert.equal(first.pitch, 'G4'); // compatibilidade: voz superior
+  assert.deepEqual(first.pitches.map((note) => note.pitch), ['C4', 'E4', 'G4']);
+  assert.ok(first.pitches.every((note) => note.duration === 2));
+  assert.equal(first.pitch, 'G4');
   assert.equal(first.duration, 2);
 
   const ode = getSong('ode-to-joy-duas-maos');
   const opening = ode.notes[0];
-  assert.deepEqual(opening.pitches.map((n) => n.pitch), ['C3', 'E4']); // baixo + melodia
-  assert.equal(opening.duration, 1); // passo do evento = próximo ataque da melodia
-  assert.equal(opening.pitches[0].duration, 4); // baixo sustentado
-
-  // Peças monofônicas seguem com um único pitch por evento
-  assert.ok(getSong('ode-to-joy').notes.every((n) => n.pitches.length === 1));
+  assert.deepEqual(opening.pitches.map((note) => note.pitch), ['C3', 'E4']);
+  assert.equal(opening.duration, 1);
+  assert.equal(opening.pitches[0].duration, 4);
+  assert.ok(getSong('ode-to-joy').notes.every((note) => note.pitches.length === 1));
 });
 
-test('renderizador desenha pauta dupla e divide no Dó central', () => {
+test('demonstração respeita sustain individual do baixo e da melodia', () => {
+  const song = getSong('ode-to-joy-duas-maos');
+  const bassSeconds = demoPitchDurationSeconds(song, 0, 0, 1);
+  const melodySeconds = demoPitchDurationSeconds(song, 0, 1, 1);
+
+  assert.ok(bassSeconds > melodySeconds);
+  assert.ok(Math.abs(bassSeconds / melodySeconds - 4) < 0.001);
+  assert.equal(demoPitchDurationSeconds(song, 999, 0), null);
+});
+
+test('renderizador possui pauta dupla, janela fixa e faixa rolante', () => {
   const renderer = fs.readFileSync(path.join(root, 'src/ui/score-renderer.js'), 'utf8');
   assert.match(renderer, /BASS_TOP/);
   assert.match(renderer, /𝄢/);
-  assert.match(renderer, /noteToMidi\(p\.pitch\) >= 60/);
-  assert.match(renderer, /focusViewBox/);
+  assert.match(renderer, /score-viewport/);
+  assert.match(renderer, /score-track/);
+  assert.match(renderer, /translateX\(/);
+  assert.match(renderer, /song\.clef === 'grand'/);
 });
 
-test('melodias das aulas estão completas', () => {
+test('melodias principais das aulas estão completas', () => {
+  const beats = (song) => song.notes.reduce((sum, note) => sum + note.duration, 0);
   const ode = getSong('ode-to-joy');
-  const beats = (song) => song.notes.reduce((sum, n) => sum + n.duration, 0);
-  assert.equal(beats(ode), 64); // tema AABA completo: 16 compassos de 4
-  assert.ok(ode.notes.some((n) => n.pitch === 'G3')); // seção B alcança o Sol 3
+  assert.equal(beats(ode), 64);
+  assert.ok(ode.notes.some((note) => note.pitch === 'G3'));
 
   const grace = getSong('amazing-grace');
-  assert.equal(grace.pickupBeats, 1); // anacruse
-  assert.equal((beats(grace) - grace.pickupBeats) % grace.beatsPerBar, 0); // compassos fecham
+  assert.equal((beats(grace) - grace.pickupBeats) % effectiveBeatsPerBar(grace), 0);
 
-  assert.ok(getSong('fur-elise').notes.length >= 80); // seção A completa (a a' b a a')
+  assert.ok(getSong('fur-elise').notes.length >= 80);
+});
 
-  const renderer = fs.readFileSync(path.join(root, 'src/ui/score-renderer.js'), 'utf8');
-  assert.match(renderer, /pickupBeats/);
-  assert.match(renderer, /song\.clef === 'grand'/);
+test('shell offline inclui os módulos adicionados na versão auditada', () => {
+  const worker = fs.readFileSync(path.join(root, 'sw.js'), 'utf8');
+  const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+  assert.match(worker, /aula-piano-v8-auditoria-033/);
+  assert.match(worker, /src\/core\/playback-fixes\.js/);
+  assert.match(index, /src\/core\/playback-fixes\.js/);
 });
