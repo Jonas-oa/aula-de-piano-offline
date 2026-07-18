@@ -1,0 +1,30 @@
+name: Auditoria automatizada
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**/*.js'
+      - 'index.html'
+      - 'package.json'
+      - '.github/workflows/ci.yml'
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Testes Node.js
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Baixar repositório
+        uses: actions/checkout@v4
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Executar testes automatizados
+        run: npm test
