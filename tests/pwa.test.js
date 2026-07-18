@@ -17,6 +17,7 @@ test('arquivos essenciais da PWA existem', () => {
     'src/core/music.js',
     'src/data/catalog.js',
     'src/ui/score-renderer.js',
+    'src/ui/focus-mode.js',
     'assets/icons/icon-192.png',
     'assets/icons/icon-512.png',
   ];
@@ -41,4 +42,14 @@ test('service worker lista somente recursos existentes', () => {
     if (entry === './') continue;
     assert.ok(fs.existsSync(path.join(root, entry.replace(/^\.\//, ''))), `Recurso do cache ausente: ${entry}`);
   }
+});
+
+
+test('modo foco é carregado pelo renderizador de partitura', () => {
+  const renderer = fs.readFileSync(path.join(root, 'src/ui/score-renderer.js'), 'utf8');
+  const focus = fs.readFileSync(path.join(root, 'src/ui/focus-mode.js'), 'utf8');
+  assert.match(renderer, /focus-mode\.js/);
+  assert.match(focus, /practice-focus/);
+  assert.match(focus, /focusControlsButton/);
+  assert.match(focus, /aria-expanded/);
 });

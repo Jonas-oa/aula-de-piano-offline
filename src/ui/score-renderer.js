@@ -139,3 +139,5 @@ function create(tag, attributes = {}, text = '') {
   if (text) node.textContent = text;
   return node;
 }
+
+import("./focus-mode.js").catch(() => {});

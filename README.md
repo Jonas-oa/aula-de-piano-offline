@@ -6,6 +6,7 @@ Protótipo funcional de um aplicativo educacional de piano que:
 - aceita teclado MIDI quando o navegador oferece Web MIDI;
 - possui teclado virtual para demonstração e testes;
 - mostra pauta, dedilhado, nota-alvo e afinação;
+- oferece **Modo Foco**, deixando apenas partitura e teclado na área principal;
 - progride por aulas com metas crescentes de precisão;
 - guarda o progresso apenas no dispositivo;
 - funciona como PWA offline após o primeiro carregamento;
@@ -16,6 +17,10 @@ Protótipo funcional de um aplicativo educacional de piano que:
 O reconhecimento por microfone é **monofônico**: ele identifica uma nota por vez. Isso é adequado para exercícios iniciais, escalas e melodias de uma mão. Acordes e execução completa a duas mãos exigem um motor polifônico posterior ou um teclado MIDI, que fornece a entrada mais precisa.
 
 O catálogo inicial contém mais de 30 trechos didáticos entre clássicos, hinos/gospel históricos e exercícios técnicos. As transcrições devem passar por revisão musical antes de uma publicação comercial.
+
+## Modo Foco
+
+Na tela **Praticar**, o botão **Modo foco** retrai cabeçalho, navegação e cartões auxiliares. O botão **Controles** abre temporariamente microfone, MIDI, metrônomo e demais opções.
 
 ## Executar localmente
 
@@ -49,6 +54,7 @@ src/
   core/music.js
   data/catalog.js
   ui/score-renderer.js
+  ui/focus-mode.js
 assets/icons/
 tests/
 ```
