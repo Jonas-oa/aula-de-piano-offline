@@ -137,4 +137,4 @@ function initializeFocusMode() {
   applyScoreSizing();
 }
 
-queueMicrotask(initializeFocusMode);
+if (typeof document !== 'undefined') queueMicrotask(initializeFocusMode);
