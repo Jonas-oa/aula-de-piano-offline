@@ -167,19 +167,85 @@ export class DemoSynth {
     return this.context;
   }
 
+  // Síntese aditiva leve: ataque de martelo, harmônicos e decaimento curto
+  // para lembrar um piano acústico sem depender de amostras externas.
   async playFrequency(frequency, durationSeconds = 0.45, gainValue = 0.12) {
     const ctx = await this.ensureContext();
-    const oscillator = ctx.createOscillator();
-    const gain = ctx.createGain();
     const now = ctx.currentTime;
-    oscillator.type = 'triangle';
-    oscillator.frequency.setValueAtTime(frequency, now);
-    gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.exponentialRampToValueAtTime(gainValue, now + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + durationSeconds);
-    oscillator.connect(gain).connect(ctx.destination);
-    oscillator.start(now);
-    oscillator.stop(now + durationSeconds + 0.02);
+    const noteDuration = Math.max(0.32, Number(durationSeconds) || 0.45);
+    const releaseEnd = now + noteDuration + Math.min(0.42, 0.18 + noteDuration * 0.22);
+
+    const master = ctx.createGain();
+    const tone = ctx.createBiquadFilter();
+    const compressor = ctx.createDynamicsCompressor();
+
+    tone.type = 'lowpass';
+    tone.frequency.setValueAtTime(Math.min(6800, Math.max(2600, frequency * 11)), now);
+    tone.Q.setValueAtTime(0.55, now);
+
+    compressor.threshold.setValueAtTime(-18, now);
+    compressor.knee.setValueAtTime(18, now);
+    compressor.ratio.setValueAtTime(3, now);
+    compressor.attack.setValueAtTime(0.004, now);
+    compressor.release.setValueAtTime(0.18, now);
+
+    master.gain.setValueAtTime(0.0001, now);
+    master.gain.exponentialRampToValueAtTime(Math.max(0.001, gainValue), now + 0.008);
+    master.gain.exponentialRampToValueAtTime(Math.max(0.0008, gainValue * 0.52), now + 0.12);
+    master.gain.exponentialRampToValueAtTime(0.0001, releaseEnd);
+
+    tone.connect(master).connect(compressor).connect(ctx.destination);
+
+    const partials = [
+      { ratio: 1, level: 1, detune: 0, decay: 1 },
+      { ratio: 2.006, level: 0.34, detune: -2, decay: 0.82 },
+      { ratio: 3.015, level: 0.17, detune: 2, decay: 0.68 },
+      { ratio: 4.035, level: 0.085, detune: -3, decay: 0.55 },
+      { ratio: 6.08, level: 0.038, detune: 3, decay: 0.42 },
+    ];
+
+    partials.forEach((partial, index) => {
+      const oscillator = ctx.createOscillator();
+      const partialGain = ctx.createGain();
+      const partialEnd = now + Math.max(0.16, (releaseEnd - now) * partial.decay);
+
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(frequency * partial.ratio, now);
+      oscillator.detune.setValueAtTime(partial.detune, now);
+
+      partialGain.gain.setValueAtTime(Math.max(0.0001, partial.level), now);
+      partialGain.gain.exponentialRampToValueAtTime(
+        Math.max(0.0001, partial.level * (index === 0 ? 0.5 : 0.16)),
+        now + Math.min(0.14, noteDuration * 0.3),
+      );
+      partialGain.gain.exponentialRampToValueAtTime(0.0001, partialEnd);
+
+      oscillator.connect(partialGain).connect(tone);
+      oscillator.start(now);
+      oscillator.stop(releaseEnd + 0.04);
+    });
+
+    // Pequeno ruído filtrado simula o contato inicial do martelo com a corda.
+    const transientLength = Math.max(1, Math.floor(ctx.sampleRate * 0.018));
+    const transientBuffer = ctx.createBuffer(1, transientLength, ctx.sampleRate);
+    const transientData = transientBuffer.getChannelData(0);
+    for (let i = 0; i < transientLength; i += 1) {
+      const envelope = 1 - i / transientLength;
+      transientData[i] = (Math.random() * 2 - 1) * envelope;
+    }
+
+    const transient = ctx.createBufferSource();
+    const transientFilter = ctx.createBiquadFilter();
+    const transientGain = ctx.createGain();
+    transient.buffer = transientBuffer;
+    transientFilter.type = 'bandpass';
+    transientFilter.frequency.setValueAtTime(Math.min(4200, Math.max(1500, frequency * 7)), now);
+    transientFilter.Q.setValueAtTime(0.8, now);
+    transientGain.gain.setValueAtTime(Math.max(0.001, gainValue * 0.16), now);
+    transientGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.022);
+    transient.connect(transientFilter).connect(transientGain).connect(compressor);
+    transient.start(now);
+    transient.stop(now + 0.025);
   }
 
   async click(accent = false) {
