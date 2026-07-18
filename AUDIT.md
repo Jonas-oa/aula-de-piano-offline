@@ -92,3 +92,16 @@ Data: 17 de julho de 2026
 - Novas peças: "Ode à Alegria — duas mãos" (melodia + baixo sustentado) e
   "Acordes de Dó Maior — tríades" (I-IV-V-I, mão direita).
 - Cache offline renovado (v5). 14/14 testes automatizados aprovados.
+
+## Melodias completas das aulas (versão 0.3.1)
+
+- Ode à Alegria: tema AABA completo (16 compassos) com dedilhado explícito;
+  a seção B alcança o Sol 3, exibido na clave de Sol com linhas suplementares.
+- Amazing Grace: verso completo em 3/4 com anacruse (novo campo `pickupBeats`,
+  que desloca as barras de compasso para os pontos corretos).
+- Für Elise: seção A completa (a a' b a a'), 87 eventos.
+- Ode à Alegria — duas mãos: estendida para o AABA completo com linha de baixo.
+- Renderizador: a pauta dupla passa a ser decidida pelo campo `clef` da música
+  ("grand"), e não pela altura das notas — melodias de mão direita com notas
+  graves usam linhas suplementares, como em partitura convencional.
+- Cache offline renovado (v6). 15/15 testes automatizados aprovados.

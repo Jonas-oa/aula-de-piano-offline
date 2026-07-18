@@ -11,8 +11,7 @@ const STEP = 6; // meia distância entre linhas = um grau diatônico
 export function renderScore(container, song, currentIndex = 0, showNames = true) {
   container.replaceChildren();
 
-  const events = song.notes.map((event) => event.pitches || [event]);
-  const hasBass = events.some((pitches) => pitches.some((p) => noteToMidi(p.pitch) < 60));
+  const hasBass = song.clef === 'grand';
   const height = hasBass ? 430 : 310;
 
   const svg = create('svg', { viewBox: `0 0 920 ${height}`, role: 'presentation' });
@@ -36,7 +35,10 @@ export function renderScore(container, song, currentIndex = 0, showNames = true)
   const durationY = hasBass ? 348 : 235;
   const barBottom = hasBass ? BASS_TOP + 48 : 128;
 
-  let runningBeat = song.notes.slice(0, start).reduce((sum, note) => sum + note.duration, 0);
+  // Anacruse (pickupBeats): o compasso 1 começa depois dos tempos de entrada,
+  // então a contagem é deslocada para as barras caírem nos pontos corretos.
+  const pickupOffset = song.pickupBeats ? (song.beatsPerBar ?? 4) - song.pickupBeats : 0;
+  let runningBeat = pickupOffset + song.notes.slice(0, start).reduce((sum, note) => sum + note.duration, 0);
   const spacing = 88;
   visible.forEach((event, localIndex) => {
     const globalIndex = start + localIndex;
@@ -48,17 +50,20 @@ export function renderScore(container, song, currentIndex = 0, showNames = true)
 
     const beatsPerBar = song.beatsPerBar ?? 4;
     const crossesBar = beatsPerBar >= 2
-      && (globalIndex === 0 || Math.floor(runningBeat / beatsPerBar) !== Math.floor((runningBeat - 0.001) / beatsPerBar));
+      && ((globalIndex === 0 && !song.pickupBeats)
+        || Math.floor(runningBeat / beatsPerBar) !== Math.floor((runningBeat - 0.001) / beatsPerBar));
     if (crossesBar) {
       svg.append(create('line', { x1: x - 34, y1: 80, x2: x - 34, y2: barBottom, stroke: '#aeb8c4', 'stroke-width': 1.5 }));
     }
 
-    // Divide o evento entre as pautas: Dó central (60) para cima → Sol; abaixo → Fá
-    const treble = pitches.filter((p) => noteToMidi(p.pitch) >= 60);
-    const bass = pitches.filter((p) => noteToMidi(p.pitch) < 60);
+    // No grand staff, divide o evento no Dó central (60): acima → Sol; abaixo → Fá.
+    // Em pauta única, tudo vai para a clave de Sol (com linhas suplementares).
+    const treble = hasBass ? pitches.filter((p) => noteToMidi(p.pitch) >= 60) : pitches;
+    const bass = hasBass ? pitches.filter((p) => noteToMidi(p.pitch) < 60) : [];
     if (isCurrent) {
-      [...treble, ...bass].forEach((p) => {
-        svg.append(create('circle', { cx: x, cy: noteY(p.pitch, noteToMidi(p.pitch) < 60), r: 22, fill: 'rgba(215,168,75,0.18)' }));
+      pitches.forEach((p) => {
+        const onBass = hasBass && noteToMidi(p.pitch) < 60;
+        svg.append(create('circle', { cx: x, cy: noteY(p.pitch, onBass), r: 22, fill: 'rgba(215,168,75,0.18)' }));
       });
     }
     drawEventOnStaff(svg, treble, x, false, fill, isCurrent);

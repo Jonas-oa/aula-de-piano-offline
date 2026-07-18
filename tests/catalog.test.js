@@ -104,3 +104,20 @@ test('renderizador desenha pauta dupla e divide no Dó central', () => {
   assert.match(renderer, /noteToMidi\(p\.pitch\) >= 60/);
   assert.match(renderer, /focusViewBox/);
 });
+
+test('melodias das aulas estão completas', () => {
+  const ode = getSong('ode-to-joy');
+  const beats = (song) => song.notes.reduce((sum, n) => sum + n.duration, 0);
+  assert.equal(beats(ode), 64); // tema AABA completo: 16 compassos de 4
+  assert.ok(ode.notes.some((n) => n.pitch === 'G3')); // seção B alcança o Sol 3
+
+  const grace = getSong('amazing-grace');
+  assert.equal(grace.pickupBeats, 1); // anacruse
+  assert.equal((beats(grace) - grace.pickupBeats) % grace.beatsPerBar, 0); // compassos fecham
+
+  assert.ok(getSong('fur-elise').notes.length >= 80); // seção A completa (a a' b a a')
+
+  const renderer = fs.readFileSync(path.join(root, 'src/ui/score-renderer.js'), 'utf8');
+  assert.match(renderer, /pickupBeats/);
+  assert.match(renderer, /song\.clef === 'grand'/);
+});

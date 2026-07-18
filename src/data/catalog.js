@@ -79,7 +79,7 @@ export const catalog = [
     key: "C",
     clef: "treble",
     notes: parseSequence(
-      "E4 E4 F4 G4 G4 F4 E4 D4 C4 C4 D4 E4 E4:1.5 D4:0.5 D4:2 E4 E4 F4 G4 G4 F4 E4 D4 C4 C4 D4 E4 D4:1.5 C4:0.5 C4:2",
+      "E4@3 E4@3 F4@4 G4@5 G4@5 F4@4 E4@3 D4@2 C4@1 C4@1 D4@2 E4@3 E4:1.5@3 D4:0.5@2 D4:2@2 E4@3 E4@3 F4@4 G4@5 G4@5 F4@4 E4@3 D4@2 C4@1 C4@1 D4@2 E4@3 D4:1.5@2 C4:0.5@1 C4:2@1 D4@2 D4@2 E4@3 C4@1 D4@2 E4:0.5@3 F4:0.5@4 E4@3 C4@1 D4@2 E4:0.5@3 F4:0.5@4 E4@3 D4@2 C4@1 D4@2 G3:2 E4@3 E4@3 F4@4 G4@5 G4@5 F4@4 E4@3 D4@2 C4@1 C4@1 D4@2 E4@3 D4:1.5@2 C4:0.5@1 C4:2@1",
     ),
   },
   {
@@ -95,7 +95,7 @@ export const catalog = [
     key: "Am",
     clef: "treble",
     notes: parseSequence(
-      "E5:0.5 D#5:0.5 E5:0.5 D#5:0.5 E5:0.5 B4:0.5 D5:0.5 C5:0.5 A4:1 C4:0.5 E4:0.5 A4:0.5 B4:1 E4:0.5 G#4:0.5 B4:0.5 C5:1 E4:0.5 E5:0.5 D#5:0.5 E5:0.5 D#5:0.5 E5:0.5 B4:0.5 D5:0.5 C5:0.5 A4:1",
+      "E5:0.5 D#5:0.5 E5:0.5 D#5:0.5 E5:0.5 B4:0.5 D5:0.5 C5:0.5 A4:1 C4:0.5 E4:0.5 A4:0.5 B4:1 E4:0.5 G#4:0.5 B4:0.5 C5:1 E4:0.5 E5:0.5 D#5:0.5 E5:0.5 D#5:0.5 E5:0.5 B4:0.5 D5:0.5 C5:0.5 A4:1 C4:0.5 E4:0.5 A4:0.5 B4:1 E4:0.5 C5:0.5 B4:0.5 A4:1 B4:0.5 C5:0.5 D5:0.5 E5:1 G4:0.5 F5:0.5 E5:0.5 D5:1 F4:0.5 E5:0.5 D5:0.5 C5:1 E4:0.5 D5:0.5 C5:0.5 B4:1 E4:0.5 E5:0.5 D#5:0.5 E5:0.5 D#5:0.5 E5:0.5 B4:0.5 D5:0.5 C5:0.5 A4:1 C4:0.5 E4:0.5 A4:0.5 B4:1 E4:0.5 G#4:0.5 B4:0.5 C5:1 E4:0.5 E5:0.5 D#5:0.5 E5:0.5 D#5:0.5 E5:0.5 B4:0.5 D5:0.5 C5:0.5 A4:1 C4:0.5 E4:0.5 A4:0.5 B4:1 E4:0.5 C5:0.5 B4:0.5 A4:2",
     ),
   },
   {
@@ -255,6 +255,7 @@ export const catalog = [
     ...i,
     id: "amazing-grace",
     beatsPerBar: 3,
+    pickupBeats: 1,
     title: "Graça Maravilhosa",
     originalTitle: "Amazing Grace",
     composer: "Melodia tradicional “New Britain”",
@@ -264,7 +265,7 @@ export const catalog = [
     key: "G",
     clef: "treble",
     notes: parseSequence(
-      "D4:1 G4:2 B4:1 G4:1 B4:2 A4:1 G4:2 E4:1 D4:2 D4:1 G4:2 B4:1 G4:1 B4:2 A4:1 D5:3 B4:1 D5:3 B4:1 G4:2 D4:1 E4:1 G4:2 G4:1",
+      "D4 G4:2 B4:0.5 G4:0.5 B4:2 A4 G4:2 E4 D4:2 D4 G4:2 B4:0.5 G4:0.5 B4:2 A4 D5:3 D5:2 B4 D5:2 B4:0.5 G4:0.5 B4:2 A4 G4:2 E4 D4:2 D4 G4:2 B4:0.5 G4:0.5 B4:2 A4 G4:3",
     ),
   },
   {
@@ -599,7 +600,7 @@ export const catalog = [
     clef: "grand",
     beatsPerBar: 4,
     notes: parseSequence(
-      "C3:4+E4:1@3 E4@3 F4@4 G4@5 G3:4+G4:1@5 F4@4 E4@3 D4@2 C3:4+C4:1@1 C4@1 D4@2 E4@3 G3:4+E4:1.5@3 D4:0.5@2 D4:2@2 C3:4+E4:1@3 E4@3 F4@4 G4@5 G3:4+G4:1@5 F4@4 E4@3 D4@2 C3:4+C4:1@1 C4@1 D4@2 E4@3 G3:2+D4:1.5@2 C4:0.5@1 C3:2+C4:2@1",
+      "C3:4+E4:1@3 E4@3 F4@4 G4@5 G3:4+G4:1@5 F4@4 E4@3 D4@2 C3:4+C4:1@1 C4@1 D4@2 E4@3 G3:4+E4:1.5@3 D4:0.5@2 D4:2@2 C3:4+E4:1@3 E4@3 F4@4 G4@5 G3:4+G4:1@5 F4@4 E4@3 D4@2 C3:4+C4:1@1 C4@1 D4@2 E4@3 G3:2+D4:1.5@2 C4:0.5@1 C3:2+C4:2@1 G3:4+D4:1@2 D4@2 E4@3 C4@1 C3:4+D4:1@2 E4:0.5@3 F4:0.5@4 E4@3 C4@1 G3:4+D4:1@2 E4:0.5@3 F4:0.5@4 E4@3 D4@2 C3:2+C4:1@1 D4@2 G3:2 C3:4+E4:1@3 E4@3 F4@4 G4@5 G3:4+G4:1@5 F4@4 E4@3 D4@2 C3:4+C4:1@1 C4@1 D4@2 E4@3 G3:2+D4:1.5@2 C4:0.5@1 C3:2+C4:2@1",
     ),
   },
   {
