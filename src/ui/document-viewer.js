@@ -7,7 +7,7 @@ export class DocumentViewer {
     this.pdf = null;
     this.pdfDocument = null;
     this.page = 1;
-    this.scale = 1.25;
+    this.zoom = 1;
     this.osmd = null;
     this.renderToken = 0;
   }
@@ -16,11 +16,7 @@ export class DocumentViewer {
     this.clear();
     this.container.className = "document-stage pdf-stage";
     this.pdf = asset;
-    const pdfjs = await import("../../vendor/pdfjs/pdf.min.mjs");
-    pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-      "../../vendor/pdfjs/pdf.worker.min.mjs",
-      import.meta.url,
-    ).href;
+    const pdfjs = await loadPdfJs();
     const bytes = asset.bytes instanceof ArrayBuffer ? asset.bytes.slice(0) : asset.bytes;
     this.pdfDocument = await pdfjs.getDocument({ data: bytes }).promise;
     this.page = 1;
@@ -68,7 +64,7 @@ export class DocumentViewer {
 
   async zoomBy(delta) {
     if (this.pdfDocument) {
-      this.scale = Math.max(0.7, Math.min(2.5, this.scale + delta));
+      this.zoom = Math.max(0.65, Math.min(2.25, this.zoom + delta));
       await this.renderPdfPage();
       return;
     }
@@ -78,11 +74,18 @@ export class DocumentViewer {
     }
   }
 
+  async resize() {
+    if (this.pdfDocument) await this.renderPdfPage();
+  }
+
   async renderPdfPage() {
     const token = ++this.renderToken;
     const page = await this.pdfDocument.getPage(this.page);
     if (token !== this.renderToken) return;
-    const viewport = page.getViewport({ scale: this.scale });
+    const baseViewport = page.getViewport({ scale: 1 });
+    const availableWidth = Math.max(280, this.container.clientWidth - 28);
+    const fitScale = availableWidth / baseViewport.width;
+    const viewport = page.getViewport({ scale: fitScale * this.zoom });
     const canvas = document.createElement("canvas");
     const context = canvas.getContext("2d", { alpha: false });
     const ratio = Math.min(window.devicePixelRatio || 1, 2);
@@ -112,4 +115,34 @@ export class DocumentViewer {
 
 export function assetUrl(asset) {
   return URL.createObjectURL(storedAssetToBlob(asset));
+}
+
+export async function inspectPdfAsset(asset) {
+  const pdfjs = await loadPdfJs();
+  const bytes = asset.bytes instanceof ArrayBuffer ? asset.bytes.slice(0) : asset.bytes;
+  const loadingTask = pdfjs.getDocument({ data: bytes });
+  const document = await loadingTask.promise;
+  try {
+    const firstPage = await document.getPage(1);
+    const viewport = firstPage.getViewport({ scale: 1 });
+    const metadata = await document.getMetadata().catch(() => ({ info: {} }));
+    return {
+      pageCount: document.numPages,
+      pageWidth: Math.round(viewport.width),
+      pageHeight: Math.round(viewport.height),
+      title: metadata?.info?.Title || "",
+      author: metadata?.info?.Author || "",
+    };
+  } finally {
+    await loadingTask.destroy();
+  }
+}
+
+async function loadPdfJs() {
+  const pdfjs = await import("../../vendor/pdfjs/pdf.min.mjs");
+  pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+    "../../vendor/pdfjs/pdf.worker.min.mjs",
+    import.meta.url,
+  ).href;
+  return pdfjs;
 }

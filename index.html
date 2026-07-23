@@ -86,13 +86,13 @@
           <section class="import-card">
             <p class="eyebrow">NOVA PEÇA</p>
             <h1 id="importTitle">Adicionar ao repertório</h1>
-            <p class="lead">Você pode importar apenas o PDF ou juntar PDF + MusicXML da mesma peça.</p>
+            <p class="lead">O PDF já vira uma peça de estudo. Se houver MusicXML, o app também passa a conhecer as notas e pausas exatas.</p>
 
             <form id="importForm">
               <div class="form-grid">
                 <label>
                   <span>Título da peça</span>
-                  <input id="pieceTitle" name="title" required placeholder="Ex.: Dolannes Melodie" />
+                  <input id="pieceTitle" name="title" placeholder="Preenchido automaticamente pelo arquivo" />
                 </label>
                 <label>
                   <span>Compositor</span>
@@ -114,8 +114,8 @@
               <label class="drop-zone" id="dropZone">
                 <input id="pieceFiles" type="file" multiple accept=".pdf,.xml,.musicxml,application/pdf,application/vnd.recordare.musicxml+xml" />
                 <span class="drop-icon" aria-hidden="true">⇧</span>
-                <strong>Escolha o PDF e, se tiver, o MusicXML</strong>
-                <span>PDF mostra a partitura. MusicXML permite comparar notas e ritmos.</span>
+                <strong>Escolha o PDF</strong>
+                <span>O app prepara o arquivo para estudo imediatamente. MusicXML é opcional.</span>
               </label>
               <div id="selectedFiles" class="selected-files" aria-live="polite"></div>
 
@@ -123,7 +123,7 @@
                 <input id="rightsConfirmation" type="checkbox" required />
                 <span>Confirmo que tenho uma cópia legal destes arquivos e autorização para usá-los.</span>
               </label>
-              <button class="primary-button wide" type="submit">Salvar no repertório</button>
+              <button class="primary-button wide" type="submit">Preparar e abrir para estudo</button>
             </form>
           </section>
 
@@ -131,7 +131,7 @@
             <h2>O que cada arquivo permite</h2>
             <article>
               <span class="file-badge">PDF</span>
-              <div><strong>Leitura e tempo</strong><p>A partitura aparece na tela e o microfone avalia se seus ataques estão próximos da grade rítmica.</p></div>
+              <div><strong>Modo de estudo imediato</strong><p>O app prepara as páginas, cria a grade de tempo e abre a partitura em tela cheia.</p></div>
             </article>
             <article>
               <span class="file-badge precise">XML</span>
@@ -159,20 +159,36 @@
             <button id="nextPageButton" class="ghost-button small" aria-label="Próxima página">pág. →</button>
             <button id="zoomOutButton" class="ghost-button small" aria-label="Diminuir partitura">−</button>
             <button id="zoomInButton" class="ghost-button small" aria-label="Aumentar partitura">+</button>
+            <button id="fullscreenButton" class="ghost-button small">Tela cheia</button>
           </div>
         </header>
 
         <div class="practice-workspace">
-          <section class="score-panel">
-            <div id="documentStage" class="document-stage">
-              <div class="loading-state">Carregando partitura…</div>
-            </div>
-          </section>
+          <div class="score-and-keyboard">
+            <section class="score-panel">
+              <div id="documentStage" class="document-stage">
+                <div class="loading-state">Preparando partitura para estudo…</div>
+              </div>
+            </section>
+            <section class="keyboard-panel" aria-labelledby="keyboardLabel">
+              <div class="keyboard-heading">
+                <strong id="keyboardLabel">Teclado de referência</strong>
+                <span id="keyboardHint">As teclas esperadas serão destacadas quando a partitura tiver dados musicais.</span>
+              </div>
+              <div id="studyKeyboard" class="study-keyboard" aria-label="Teclado de piano ilustrativo"></div>
+            </section>
+          </div>
 
           <aside class="practice-console">
             <div class="mode-row">
               <span id="analysisModeBadge" class="mode-badge">Tempo pelo PDF</span>
               <span id="screenStatus" class="screen-status">Tela ativa</span>
+            </div>
+
+            <div id="microphoneStatus" class="microphone-status requesting">
+              <span class="microphone-dot" aria-hidden="true"></span>
+              <div><strong>Preparando microfone</strong><small>Permita o acesso quando o navegador solicitar.</small></div>
+              <button id="retryMicrophoneButton" class="ghost-button small" hidden>Tentar novamente</button>
             </div>
 
             <div class="tempo-control">
@@ -233,6 +249,12 @@
     <div id="resultContent"></div>
     <form method="dialog"><button class="primary-button wide">Continuar</button></form>
   </dialog>
+  <div id="rotateOverlay" class="rotate-overlay" role="dialog" aria-modal="true" aria-labelledby="rotateTitle">
+    <span class="rotate-phone" aria-hidden="true">▯</span>
+    <h2 id="rotateTitle">Gire o telefone</h2>
+    <p>O modo de estudo funciona exclusivamente na horizontal.</p>
+    <button id="rotateFullscreenButton" class="primary-button">Ativar tela cheia</button>
+  </div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <script src="./vendor/osmd/opensheetmusicdisplay.min.js"></script>
