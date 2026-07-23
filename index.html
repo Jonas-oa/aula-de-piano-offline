@@ -3,229 +3,239 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#10243f" />
-  <meta name="description" content="Tutor de piano offline que escuta notas, exibe partitura e acompanha o progresso do aluno." />
+  <meta name="theme-color" content="#171b2f" />
+  <meta name="description" content="Estude peças completas pela partitura, com acompanhamento rítmico pelo microfone ou MIDI." />
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="icon" href="./assets/icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./assets/icons/icon-192.png" />
   <link rel="stylesheet" href="./styles.css" />
-  <title>Aula de Piano — Tutor Offline</title>
+  <title>Partitura Viva — estudo de piano</title>
 </head>
 <body>
   <div class="app-shell">
     <header class="topbar">
-      <div class="brand">
-        <div class="brand-mark" aria-hidden="true">♩</div>
-        <div>
-          <p class="eyebrow">TUTOR OFFLINE</p>
-          <h1>Aula de Piano</h1>
-        </div>
+      <button id="brandButton" class="brand-button" aria-label="Abrir repertório">
+        <span class="brand-mark" aria-hidden="true">𝄞</span>
+        <span>
+          <small>ESTUDO DE PEÇAS</small>
+          <strong>Partitura Viva</strong>
+        </span>
+      </button>
+      <div class="topbar-actions">
+        <span id="offlineBadge" class="status-pill">Arquivos ficam neste aparelho</span>
+        <button id="installButton" class="ghost-button small" hidden>Instalar</button>
+        <button class="primary-button small" data-view-target="importView">Adicionar peça</button>
       </div>
-      <button id="installButton" class="ghost-button" hidden>Instalar</button>
     </header>
 
     <main>
-      <section id="homeView" class="view active" aria-labelledby="homeTitle">
-        <div class="hero-card">
+      <section id="libraryView" class="view active" aria-labelledby="libraryTitle">
+        <div class="library-hero">
           <div>
-            <p class="eyebrow">PRÁTICA SEM BLOQUEIOS</p>
-            <h2 id="homeTitle">Escolha o exercício que deseja tocar</h2>
-            <p>Treine livremente do iniciante ao avançado, com estudos para duas mãos e ritmos variados.</p>
+            <p class="eyebrow">SEU REPERTÓRIO</p>
+            <h1 id="libraryTitle">Aprenda a peça inteira, seguindo a partitura.</h1>
+            <p>Importe sua partitura, escolha o andamento e pratique enquanto o aplicativo acompanha cada ataque.</p>
           </div>
-          <button id="resumeButton" class="primary-button">Escolher exercício</button>
+          <button class="primary-button hero-action" data-view-target="importView">Importar partitura</button>
         </div>
 
-        <div class="stats-grid" aria-label="Resumo do progresso">
-          <article class="stat-card"><span>Exercícios concluídos</span><strong id="levelStat">0</strong></article>
-          <article class="stat-card"><span>Precisão</span><strong id="accuracyStat">0%</strong></article>
-          <article class="stat-card"><span>Notas certas</span><strong id="correctStat">0</strong></article>
-          <article class="stat-card"><span>Sequência</span><strong id="streakStat">0 dias</strong></article>
-        </div>
-
-        <section class="section-block">
+        <section class="section-block" aria-labelledby="piecesTitle">
           <div class="section-heading">
             <div>
-              <p class="eyebrow">SELEÇÃO LIVRE</p>
-              <h2>Exercícios recomendados</h2>
-              <p>Todos ficam disponíveis desde o início. A ordem é apenas uma sugestão.</p>
+              <p class="eyebrow">PEÇAS IMPORTADAS</p>
+              <h2 id="piecesTitle">Biblioteca</h2>
             </div>
-            <span id="lessonProgressLabel" class="pill">0% concluído · escolha livre</span>
+            <label class="search-box">
+              <span aria-hidden="true">⌕</span>
+              <input id="librarySearch" type="search" placeholder="Buscar por título ou compositor" />
+            </label>
           </div>
-          <div id="lessonList" class="lesson-list"></div>
+          <div id="pieceGrid" class="piece-grid"></div>
+        </section>
+
+        <section class="section-block rhythm-section" aria-labelledby="rhythmTitle">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">MANTIDOS DA VERSÃO ANTERIOR</p>
+              <h2 id="rhythmTitle">Exercícios de ritmo</h2>
+              <p>Escolha livremente. Não há fases nem bloqueios.</p>
+            </div>
+            <select id="rhythmFilter" aria-label="Filtrar exercícios de ritmo">
+              <option value="all">Todos os estilos</option>
+              <option value="Fundamentos">Fundamentos</option>
+              <option value="Jazz">Jazz</option>
+              <option value="Blues">Blues</option>
+              <option value="Forró/Baião">Forró/Baião</option>
+              <option value="Samba">Samba</option>
+              <option value="Gospel">Gospel</option>
+              <option value="Bossa nova">Bossa nova</option>
+              <option value="Pop/Rock">Pop/Rock</option>
+              <option value="Reggae">Reggae</option>
+              <option value="Funk/Soul">Funk/Soul</option>
+              <option value="Latino">Latino</option>
+              <option value="Valsa">Valsa</option>
+            </select>
+          </div>
+          <div id="rhythmGrid" class="rhythm-grid"></div>
         </section>
       </section>
 
-      <section id="practiceView" class="view" aria-labelledby="practiceTitle">
-        <div class="practice-header">
-          <button id="backToHome" class="icon-button" aria-label="Voltar">←</button>
-          <div>
-            <p id="practiceCategory" class="eyebrow">EXERCÍCIO</p>
-            <h2 id="practiceTitle">Leitura inicial</h2>
-          </div>
-          <div class="tempo-box"><span>Tempo</span><strong id="tempoValue">72</strong></div>
-        </div>
+      <section id="importView" class="view" aria-labelledby="importTitle">
+        <button class="back-link" data-view-target="libraryView">← Voltar ao repertório</button>
+        <div class="import-layout">
+          <section class="import-card">
+            <p class="eyebrow">NOVA PEÇA</p>
+            <h1 id="importTitle">Adicionar ao repertório</h1>
+            <p class="lead">Você pode importar apenas o PDF ou juntar PDF + MusicXML da mesma peça.</p>
 
-        <div class="practice-layout">
-          <section class="score-card">
-            <div class="score-toolbar">
-              <span id="scoreProgress">Nota 1 de 8</span>
-              <div class="progress-track"><div id="scoreProgressBar" class="progress-fill"></div></div>
-              <button id="toggleNoteNames" class="ghost-button small">Nomes: ligados</button>
-            </div>
-            <div id="scoreCanvas" class="score-canvas" role="img" aria-label="Pauta musical com as notas do exercício"></div>
-            <div class="target-note-panel">
-              <div>
-                <span>Toque agora</span>
-                <strong id="targetNote">Dó 4</strong>
+            <form id="importForm">
+              <div class="form-grid">
+                <label>
+                  <span>Título da peça</span>
+                  <input id="pieceTitle" name="title" required placeholder="Ex.: Dolannes Melodie" />
+                </label>
+                <label>
+                  <span>Compositor</span>
+                  <input id="pieceComposer" name="composer" placeholder="Ex.: Paul de Senneville" />
+                </label>
+                <label>
+                  <span>Andamento inicial</span>
+                  <div class="input-suffix"><input id="pieceBpm" name="bpm" type="number" min="30" max="240" value="72" required /><span>bpm</span></div>
+                </label>
+                <label>
+                  <span>Compasso</span>
+                  <select id="pieceTimeSignature" name="timeSignature">
+                    <option>4/4</option><option>3/4</option><option>2/4</option>
+                    <option>6/8</option><option>12/8</option><option>5/4</option>
+                  </select>
+                </label>
               </div>
-              <div class="detected-note-box">
-                <span>Detectado</span>
-                <strong id="detectedNote">—</strong>
-                <small id="tuningStatus">Microfone desligado</small>
-              </div>
+
+              <label class="drop-zone" id="dropZone">
+                <input id="pieceFiles" type="file" multiple accept=".pdf,.xml,.musicxml,application/pdf,application/vnd.recordare.musicxml+xml" />
+                <span class="drop-icon" aria-hidden="true">⇧</span>
+                <strong>Escolha o PDF e, se tiver, o MusicXML</strong>
+                <span>PDF mostra a partitura. MusicXML permite comparar notas e ritmos.</span>
+              </label>
+              <div id="selectedFiles" class="selected-files" aria-live="polite"></div>
+
+              <label class="rights-check">
+                <input id="rightsConfirmation" type="checkbox" required />
+                <span>Confirmo que tenho uma cópia legal destes arquivos e autorização para usá-los.</span>
+              </label>
+              <button class="primary-button wide" type="submit">Salvar no repertório</button>
+            </form>
+          </section>
+
+          <aside class="format-guide">
+            <h2>O que cada arquivo permite</h2>
+            <article>
+              <span class="file-badge">PDF</span>
+              <div><strong>Leitura e tempo</strong><p>A partitura aparece na tela e o microfone avalia se seus ataques estão próximos da grade rítmica.</p></div>
+            </article>
+            <article>
+              <span class="file-badge precise">XML</span>
+              <div><strong>Leitura musical estruturada</strong><p>O app conhece os ataques, pausas e alturas escritas e pode medir a execução da peça.</p></div>
+            </article>
+            <article>
+              <span class="file-badge midi">MIDI</span>
+              <div><strong>Entrada do instrumento</strong><p>Conecte um piano digital para captar acordes e tempos com maior precisão.</p></div>
+            </article>
+            <p class="legal-note">O aplicativo não fornece cópias de obras protegidas. Importe uma partitura adquirida legalmente.</p>
+          </aside>
+        </div>
+      </section>
+
+      <section id="practiceView" class="view practice-view" aria-labelledby="practiceTitle">
+        <header class="practice-header">
+          <button id="leavePracticeButton" class="icon-button" aria-label="Voltar ao repertório">←</button>
+          <div class="practice-title">
+            <p id="practiceComposer" class="eyebrow">COMPOSITOR</p>
+            <h1 id="practiceTitle">Peça</h1>
+          </div>
+          <div class="document-controls">
+            <button id="previousPageButton" class="ghost-button small" aria-label="Página anterior">← pág.</button>
+            <span id="pageLabel" class="status-pill">Partitura</span>
+            <button id="nextPageButton" class="ghost-button small" aria-label="Próxima página">pág. →</button>
+            <button id="zoomOutButton" class="ghost-button small" aria-label="Diminuir partitura">−</button>
+            <button id="zoomInButton" class="ghost-button small" aria-label="Aumentar partitura">+</button>
+          </div>
+        </header>
+
+        <div class="practice-workspace">
+          <section class="score-panel">
+            <div id="documentStage" class="document-stage">
+              <div class="loading-state">Carregando partitura…</div>
             </div>
           </section>
 
-          <aside class="coach-card">
-            <div id="feedbackBadge" class="feedback-badge neutral">Pronto para começar</div>
-            <h3 id="coachTitle">Posicione a mão direita</h3>
-            <p id="coachMessage">Use o dedo indicado e toque uma nota por vez. O aplicativo aguardará a nota correta.</p>
-
-            <div class="control-grid">
-              <button id="listenButton" class="primary-button">Ativar microfone</button>
-              <button id="demoButton" class="secondary-button">Ouvir exemplo</button>
-              <button id="metronomeButton" class="secondary-button">Metrônomo: desligado</button>
-              <button id="resetPracticeButton" class="ghost-button">Reiniciar</button>
+          <aside class="practice-console">
+            <div class="mode-row">
+              <span id="analysisModeBadge" class="mode-badge">Tempo pelo PDF</span>
+              <span id="screenStatus" class="screen-status">Tela ativa</span>
             </div>
 
-            <div class="input-mode-card">
-              <div>
-                <span>Entrada</span>
-                <strong id="inputModeLabel">Microfone</strong>
-              </div>
-              <button id="midiButton" class="ghost-button small">Conectar MIDI</button>
+            <div class="tempo-control">
+              <div><span>Andamento</span><strong><output id="tempoOutput">72</output> bpm</strong></div>
+              <input id="tempoSlider" type="range" min="30" max="180" value="72" />
             </div>
 
-            <details class="help-box">
-              <summary>Como melhorar a detecção</summary>
-              <p>Toque uma nota isolada, mantenha o celular a 50–100 cm do piano e reduza ruídos ao redor.</p>
+            <div id="pdfOnlyOptions" class="pdf-options">
+              <label><span>Subdivisão da grade</span>
+                <select id="subdivisionSelect">
+                  <option value="1">Semínimas</option>
+                  <option value="2">Colcheias</option>
+                  <option value="4">Semicolcheias</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="input-choice" role="group" aria-label="Entrada do instrumento">
+              <button id="microphoneModeButton" class="choice-button active">Microfone</button>
+              <button id="midiModeButton" class="choice-button">Piano MIDI</button>
+            </div>
+            <div class="level-meter" aria-label="Nível do microfone"><span id="levelBar"></span></div>
+
+            <button id="startPracticeButton" class="primary-button wide practice-start">Começar com contagem</button>
+            <button id="stopPracticeButton" class="ghost-button wide" disabled>Encerrar prática</button>
+
+            <div id="countInDisplay" class="count-in" aria-live="assertive"></div>
+            <div id="timingFeedback" class="timing-feedback neutral" aria-live="polite">
+              <span>PRONTO</span>
+              <strong>Observe a partitura</strong>
+              <small>O aplicativo contará um compasso antes de começar.</small>
+            </div>
+
+            <div class="practice-stats">
+              <div><span>No tempo</span><strong id="onTimeStat">0</strong></div>
+              <div><span>Adiantado</span><strong id="earlyStat">0</strong></div>
+              <div><span>Atrasado</span><strong id="lateStat">0</strong></div>
+              <div><span>Precisão</span><strong id="accuracyStat">0%</strong></div>
+            </div>
+
+            <div id="attemptTimeline" class="attempt-timeline" aria-label="Últimos ataques"></div>
+            <details class="limitations">
+              <summary>O que está sendo avaliado?</summary>
+              <p id="analysisExplanation">Com PDF, o microfone mede a proximidade de cada ataque à grade escolhida. Para conferir as notas e pausas exatas, importe também o MusicXML ou conecte MIDI.</p>
             </details>
           </aside>
         </div>
-
-        <section class="keyboard-section" aria-labelledby="keyboardTitle">
-          <div class="section-heading compact">
-            <div>
-              <p class="eyebrow">TECLADO DE APOIO</p>
-              <h2 id="keyboardTitle">Teste sem microfone</h2>
-            </div>
-            <span class="pill">Toque nas teclas</span>
-          </div>
-          <div id="pianoKeyboard" class="piano-keyboard" aria-label="Teclado virtual"></div>
-        </section>
-      </section>
-
-      <section id="catalogView" class="view" aria-labelledby="catalogTitle">
-        <div class="section-heading catalog-heading">
-          <div>
-            <p class="eyebrow">REPERTÓRIO DIDÁTICO</p>
-            <h2 id="catalogTitle">Catálogo</h2>
-            <p>Repertório histórico e exercícios rítmicos originais para duas mãos.</p>
-          </div>
-          <div class="catalog-controls">
-            <input id="catalogSearch" type="search" placeholder="Buscar música, ritmo ou técnica" aria-label="Buscar no catálogo" />
-            <select id="catalogFilter" aria-label="Filtrar catálogo">
-              <option value="all">Todas</option>
-              <option value="classical">Clássicas</option>
-              <option value="hymn">Hinos e gospel</option>
-              <option value="exercise">Exercícios</option>
-              <option value="rhythm">Todos os ritmos</option>
-              <option value="style:jazz">Jazz</option>
-              <option value="style:blues">Blues</option>
-              <option value="style:forro-baiao">Forró/Baião</option>
-              <option value="style:samba">Samba</option>
-              <option value="style:gospel">Gospel</option>
-              <option value="style:bossa-nova">Bossa nova</option>
-              <option value="style:pop-rock">Pop/Rock</option>
-              <option value="style:reggae">Reggae</option>
-              <option value="style:funk-soul">Funk/Soul</option>
-              <option value="style:latino">Latino</option>
-              <option value="style:valsa">Valsa</option>
-            </select>
-            <select id="catalogLevelFilter" aria-label="Filtrar por dificuldade">
-              <option value="all">Todos os níveis</option>
-              <option value="iniciante">Iniciante</option>
-              <option value="intermediario">Intermediário</option>
-              <option value="avancado">Avançado</option>
-            </select>
-          </div>
-        </div>
-        <div id="catalogGrid" class="catalog-grid"></div>
-      </section>
-
-      <section id="progressView" class="view" aria-labelledby="progressTitle">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">HISTÓRICO LOCAL</p>
-            <h2 id="progressTitle">Seu progresso</h2>
-            <p>Os dados permanecem somente neste dispositivo.</p>
-          </div>
-          <button id="resetProgressButton" class="ghost-button danger">Apagar progresso</button>
-        </div>
-        <div id="progressSummary" class="progress-summary"></div>
-        <div id="activityList" class="activity-list"></div>
-      </section>
-
-      <section id="settingsView" class="view" aria-labelledby="settingsTitle">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">PREFERÊNCIAS</p>
-            <h2 id="settingsTitle">Configurações</h2>
-          </div>
-        </div>
-        <div class="settings-grid">
-          <label class="setting-card">
-            <span>Afinação de referência</span>
-            <div><input id="concertPitch" type="range" min="438" max="442" value="440" /><strong id="concertPitchValue">440 Hz</strong></div>
-          </label>
-          <label class="setting-card">
-            <span>Tolerância da nota</span>
-            <div><input id="centsTolerance" type="range" min="20" max="60" step="5" value="40" /><strong id="centsToleranceValue">±40 cents</strong></div>
-          </label>
-          <label class="setting-card switch-row">
-            <span>Mostrar nomes das notas</span>
-            <input id="showNoteNamesSetting" type="checkbox" checked />
-          </label>
-          <label class="setting-card switch-row">
-            <span>Vibração ao acertar</span>
-            <input id="vibrationSetting" type="checkbox" checked />
-          </label>
-          <label class="setting-card switch-row wake-lock-setting">
-            <span>
-              Manter a tela ligada durante a prática
-              <small id="wakeLockStatus">Ativa ao abrir um exercício</small>
-            </span>
-            <input id="keepScreenAwakeSetting" type="checkbox" checked />
-          </label>
-        </div>
-        <article class="privacy-card">
-          <h3>Privacidade e funcionamento offline</h3>
-          <p>O áudio é analisado em tempo real no próprio navegador. Esta versão não envia gravações para servidores e não exige conta.</p>
-        </article>
       </section>
     </main>
 
-    <nav class="bottom-nav" aria-label="Navegação principal">
-      <button class="nav-button active" data-view="homeView"><span>⌂</span>Início</button>
-      <button class="nav-button" data-view="practiceView"><span>♫</span>Praticar</button>
-      <button class="nav-button" data-view="catalogView"><span>▤</span>Catálogo</button>
-      <button class="nav-button" data-view="progressView"><span>↗</span>Progresso</button>
-      <button class="nav-button" data-view="settingsView"><span>⚙</span>Ajustes</button>
+    <nav id="bottomNav" class="bottom-nav" aria-label="Navegação principal">
+      <button class="nav-button active" data-view-target="libraryView"><span>▤</span>Repertório</button>
+      <button class="nav-button" data-view-target="importView"><span>＋</span>Adicionar peça</button>
     </nav>
   </div>
 
+  <dialog id="resultDialog" class="result-dialog">
+    <div id="resultContent"></div>
+    <form method="dialog"><button class="primary-button wide">Continuar</button></form>
+  </dialog>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="./vendor/osmd/opensheetmusicdisplay.min.js"></script>
   <script type="module" src="./src/app.js"></script>
-  <script type="module" src="./src/core/playback-fixes.js"></script>
 </body>
 </html>

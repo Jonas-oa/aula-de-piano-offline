@@ -1,676 +1,696 @@
-import { catalog as t, lessons as e, getSong as n } from "./data/catalog.js";
-import { AudioPitchEngine as o, DemoSynth as a } from "./core/audio-engine.js";
+import { rhythmExercises } from "./data/rhythm-exercises.js";
 import {
-  categoryLabel as c,
-  centsFromMidi as i,
-  isBlackKey as r,
-  midiToFrequency as s,
-  midiToNote as l,
-  midiToPortuguese as d,
-  noteToMidi as u,
-} from "./core/music.js";
-import { renderScore as m } from "./ui/score-renderer.js";
+  deletePiece,
+  fileToStoredAsset,
+  listPieces,
+  savePiece,
+} from "./core/library-store.js";
+import { parseMusicXml } from "./core/musicxml.js";
+import { MidiInput, OnsetEngine } from "./core/onset-engine.js";
 import { ScreenWakeLockManager } from "./core/screen-wake-lock.js";
-const p = "aula-piano-progress-v1",
-  g = "aula-piano-settings-v1",
-  v = {
-    correct: 0,
-    attempts: 0,
-    completedLessons: [],
-    completedSongs: [],
-    bestBySong: {},
-    activities: [],
-    practiceDays: [],
-  };
-let h = ot(p, v),
-  f = ot(g, {
-    concertPitch: 440,
-    centsTolerance: 40,
-    showNoteNames: !0,
-    vibration: !0,
-    keepScreenAwake: !0,
-  }),
-  y = n(e[0].songId),
-  b = e[0],
-  C = 0,
-  $ = 0,
-  w = 0,
-  L = f.showNoteNames,
-  S = !1,
-  x = !1,
-  N = null,
-  M = "",
-  E = 0,
-  D = 0,
-  T = null,
-  B = 0,
-  P = 0,
-  suppressUntil = 0, // até quando o microfone deve ignorar sons emitidos pelo app
-  heldMidi = null; // última nota confirmada pelo microfone, ainda sustentada
-let currentView = "homeView";
-const onMetronomeBeat = () => {
-  suppressUntil = Math.max(suppressUntil, Date.now() + 160);
+import {
+  createPulseGrid,
+  eventsToSchedule,
+  markMissed,
+  matchOnset,
+  summarizeAttempts,
+} from "./core/timing-evaluator.js";
+import { DocumentViewer } from "./ui/document-viewer.js";
+import { renderScore } from "./ui/score-renderer.js";
+
+const byId = (id) => document.getElementById(id);
+const state = {
+  pieces: [],
+  selectedFiles: [],
+  currentItem: null,
+  currentEvents: null,
+  currentMusicXml: "",
+  currentView: "libraryView",
+  inputMode: "microphone",
+  practiceActive: false,
+  countInActive: false,
+  schedule: [],
+  attempts: [],
+  missed: 0,
+  animationFrame: null,
+  countTimers: [],
+  startedAt: 0,
+  exactMode: false,
+  lastMidiAttempt: null,
 };
-// Avaliação polifônica: notas MIDI que ainda faltam no evento atual.
-// Recalculada quando o índice do evento (ou a música) muda.
-let pendingMidis = [];
-let pendingKey = "";
-function eventMidis(event) {
-  return (event.pitches || [event]).map((p) => u(p.pitch));
-}
-function syncPending() {
-  const key = `${y.id}:${C}`;
-  if (key === pendingKey) return;
-  pendingKey = key;
-  const event = y.notes[C];
-  pendingMidis = event ? eventMidis(event) : [];
-}
-function targetLabel(event) {
-  return eventMidis(event)
-    .slice()
-    .sort((a, b) => a - b)
-    .map((midi) => d(midi))
-    .join(" + ");
-}
-function highlightPending() {
-  document
-    .querySelectorAll(".piano-key")
-    .forEach((t) => t.classList.toggle("target", pendingMidis.includes(Number(t.dataset.midi))));
-}
-const k = (t) => document.getElementById(t),
-  I = new a(),
-  A = new o({
-    concertPitch: f.concertPitch,
-    onPitch: function (t) {
-      if (!S) return;
-      // Ignora o intervalo em que o próprio app emite som (demonstração,
-      // teclado virtual, metrônomo) para o microfone não "ouvir" o app.
-      if (Date.now() < suppressUntil) return;
-      if (!t || t.clarity < 0.72)
-        return (
-          (heldMidi = null), // silêncio detectado: libera a próxima tentativa
-          (T = null),
-          (B = 0),
-          (k("detectedNote").textContent = "—"),
-          void (k("tuningStatus").textContent = "Aguardando nota estável")
-        );
-      ((k("detectedNote").textContent = d(t.midi)),
-        (k("tuningStatus").textContent = at(t.cents)),
-        R(t.midi),
-        T === t.midi ? (B += 1) : ((T = t.midi), (B = 1)));
-      // Nota ainda sustentada desde a última tentativa: mostra, mas não conta.
-      if (t.midi === heldMidi) return;
-      B >= 4 &&
-        Date.now() - D > 420 &&
-        (J(t.midi, t.cents, "microphone"), (heldMidi = t.midi), (B = 0));
-    },
-    onError: (t) => it(ct(t)),
-  });
-const wakeLock = new ScreenWakeLockManager({
-  onStatus: (status) => {
-    const label = k("wakeLockStatus");
-    if (!label) return;
-    label.textContent =
-      status === "active"
-        ? "Tela protegida durante a prática"
-        : status === "unsupported"
-          ? "Não disponível neste navegador"
-          : status === "error" || status === "released"
-            ? "O sistema liberou a tela; toque para reativar"
-            : f.keepScreenAwake
-              ? "Ativa ao abrir um exercício"
-              : "Desativada";
+
+const viewer = new DocumentViewer(byId("documentStage"), {
+  onPageChange: ({ page, pages, type }) => {
+    byId("pageLabel").textContent = type === "pdf" ? `${page} / ${pages}` : "Partitura";
+    byId("previousPageButton").disabled = type !== "pdf" || page <= 1;
+    byId("nextPageButton").disabled = type !== "pdf" || page >= pages;
   },
 });
 
-async function syncWakeLock(view = currentView) {
-  currentView = view;
-  await wakeLock.setEnabled(f.keepScreenAwake && currentView === "practiceView");
+const wakeLock = new ScreenWakeLockManager({
+  onStatus(status) {
+    const label = byId("screenStatus");
+    const labels = {
+      active: "Tela protegida",
+      unsupported: "Wake Lock indisponível",
+      error: "Toque na tela para reativar",
+      released: "Proteção liberada",
+    };
+    label.textContent = labels[status] || "Tela ativa";
+  },
+});
+
+const onsetEngine = new OnsetEngine({
+  onOnset: (timestamp) => handleOnset(timestamp, null),
+  onLevel: (level) => {
+    byId("levelBar").style.width = `${Math.round(level * 100)}%`;
+  },
+  onError: (error) => toast(readableError(error)),
+});
+
+const midiInput = new MidiInput({
+  onNote: ({ midi, timestamp }) => handleOnset(timestamp, midi),
+  onStatus: (status, count) => {
+    if (status === "connected") toast(`${count} entrada MIDI conectada${count > 1 ? "s" : ""}.`);
+    if (status === "empty") toast("Nenhum piano MIDI foi encontrado.");
+  },
+});
+
+function showView(viewId) {
+  state.currentView = viewId;
+  document.querySelectorAll(".view").forEach((view) => {
+    view.classList.toggle("active", view.id === viewId);
+  });
+  document.querySelectorAll(".nav-button").forEach((button) => {
+    button.classList.toggle("active", button.dataset.viewTarget === viewId);
+  });
+  byId("bottomNav").classList.toggle("hidden", viewId === "practiceView");
+  window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
-function normalizedSlug(value = "") {
+function escapeHtml(value = "") {
   return String(value)
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLocaleLowerCase("pt-BR")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, "");
-}
-
-function exerciseLevel(song) {
-  if (song.level) return song.level;
-  if (song.difficulty <= 2) return "iniciante";
-  if (song.difficulty === 3) return "intermediario";
-  return "avancado";
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
 }
 
 function levelLabel(level) {
-  return (
-    { iniciante: "Iniciante", intermediario: "Intermediário", avancado: "Avançado" }[level] ||
-    level
-  );
+  return { iniciante: "Iniciante", intermediario: "Intermediário", avancado: "Avançado" }[level] || level;
 }
-function q(t) {
-  (document.querySelectorAll(".view").forEach((e) => e.classList.toggle("active", e.id === t)),
-    document
-      .querySelectorAll(".nav-button")
-      .forEach((e) => e.classList.toggle("active", e.dataset.view === t)),
-    "progressView" === t && Y(),
-    void syncWakeLock(t),
-    window.scrollTo({ top: 0, behavior: "smooth" }));
+
+function beatsPerBar(timeSignature = "4/4") {
+  const [numerator, denominator] = String(timeSignature).split("/").map(Number);
+  if (!numerator || !denominator) return 4;
+  return denominator === 8 ? numerator / 2 : numerator;
 }
-function V() {
-  const accuracy = h.attempts ? Math.round((h.correct / h.attempts) * 100) : 0,
-    completed = new Set(h.completedLessons),
-    completedSongs = new Set(h.completedSongs || []),
-    completedChoices = e.filter(
-      (lesson) => completed.has(lesson.id) || completedSongs.has(lesson.songId),
-    ).length,
-    progress = Math.round((completedChoices / e.length) * 100);
-  ((k("levelStat").textContent = String(completedSongs.size)),
-    (k("accuracyStat").textContent = `${accuracy}%`),
-    (k("correctStat").textContent = String(h.correct)),
-    (k("streakStat").textContent = `${_(h.practiceDays)} dias`),
-    (k("lessonProgressLabel").textContent = `${progress}% concluído · escolha livre`));
-  const list = k("lessonList");
-  list.replaceChildren();
-  e.forEach((lesson) => {
-    const isCompleted = completed.has(lesson.id) || completedSongs.has(lesson.songId),
-      song = n(lesson.songId),
-      card = document.createElement("article");
-    ((card.className = "lesson-card" + (isCompleted ? " completed" : "")),
-      (card.innerHTML = `
-      <div class="lesson-index">${isCompleted ? "✓" : "♫"}</div>
-      <div class="lesson-copy">
-        <h3>${st(lesson.title)}</h3>
-        <p>${st(lesson.description)} · ${levelLabel(exerciseLevel(song))}</p>
+
+function renderLibrary() {
+  const query = byId("librarySearch").value.trim().toLocaleLowerCase("pt-BR");
+  const pieces = state.pieces
+    .filter((piece) => `${piece.title} ${piece.composer}`.toLocaleLowerCase("pt-BR").includes(query))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const grid = byId("pieceGrid");
+  grid.replaceChildren();
+
+  if (!pieces.length) {
+    const empty = document.createElement("div");
+    empty.className = "empty-library";
+    empty.innerHTML = `
+      <span class="score-thumbnail" aria-hidden="true"></span>
+      <strong>${query ? "Nenhuma peça encontrada" : "Seu repertório ainda está vazio"}</strong>
+      <span>${query ? "Tente outro título ou compositor." : "Importe um PDF para começar a estudar uma peça inteira."}</span>
+      ${query ? "" : '<button class="primary-button">Adicionar primeira peça</button>'}
+    `;
+    empty.querySelector("button")?.addEventListener("click", () => showView("importView"));
+    grid.append(empty);
+    return;
+  }
+
+  for (const piece of pieces) {
+    const card = document.createElement("article");
+    card.className = "piece-card";
+    const format = piece.musicXmlAsset ? "PDF + MusicXML" : piece.pdfAsset ? "PDF" : "MusicXML";
+    card.innerHTML = `
+      <div class="piece-card-top">
+        <span class="score-thumbnail" aria-hidden="true"></span>
+        <button class="card-menu" aria-label="Excluir ${escapeHtml(piece.title)}">×</button>
       </div>
-      <div class="lesson-meta">
-        <span>Meta livre</span><strong>${lesson.minAccuracy}%</strong>
+      <h3>${escapeHtml(piece.title)}</h3>
+      <p>${escapeHtml(piece.composer || "Compositor não informado")}</p>
+      <div class="card-tags">
+        <span class="tag">${format}</span>
+        <span class="tag">${piece.bpm} bpm</span>
+        <span class="tag">${escapeHtml(piece.timeSignature)}</span>
       </div>
-      <button class="secondary-button">${isCompleted ? "Repetir" : "Praticar"}</button>
-    `),
-      card.querySelector("button").addEventListener("click", () => H(lesson)),
-      list.append(card));
-  });
-}
-function H(t) {
-  ((b = t), j(n(t.songId), t, !0));
-}
-function j(t, e = null, n = !0) {
-  ((y = t), (b = e), F(!1), n && q("practiceView"));
-  if (x) I.startMetronome(y.bpm, onMetronomeBeat); // atualiza o andamento do metrônomo
-}
-function F(t = !0) {
-  ((C = 0),
-    ($ = 0),
-    (w = 0),
-    (T = null),
-    (B = 0),
-    (heldMidi = null),
-    (suppressUntil = 0),
-    (pendingKey = ""),
-    (M = ""),
-    (E = 0),
-    (D = 0),
-    (P += 1),
-    W(
-      "neutral",
-      "Pronto para começar",
-      "Observe a primeira nota",
-      "Toque uma nota por vez. O aplicativo avançará quando reconhecer a altura correta.",
-    ),
-    O(),
-    t && it("Exercício reiniciado."));
-}
-function O() {
-  const t = y.notes[C] || y.notes.at(-1);
-  ((k("practiceCategory").textContent = c(y.category).toUpperCase()),
-    (k("practiceTitle").textContent = y.title),
-    (k("tempoValue").textContent = String(y.bpm)),
-    (k("scoreProgress").textContent =
-      `Nota ${Math.min(C + 1, y.notes.length)} de ${y.notes.length}`),
-    (k("scoreProgressBar").style.width = (C / y.notes.length) * 100 + "%"),
-    (k("targetNote").textContent = targetLabel(t)),
-    (k("toggleNoteNames").textContent = "Nomes: " + (L ? "ligados" : "desligados")),
-    m(k("scoreCanvas"), y, C, L),
-    syncPending(),
-    highlightPending());
-}
-function z() {
-  const e = k("catalogSearch")?.value.trim().toLocaleLowerCase("pt-BR") || "",
-    n = k("catalogFilter")?.value || "all",
-    levelFilter = k("catalogLevelFilter")?.value || "all",
-    o = t.filter((t) => {
-      const categoryMatches =
-          "all" === n ||
-          t.category === n ||
-          (n.startsWith("style:") && normalizedSlug(t.style) === n.slice(6)),
-        levelMatches = levelFilter === "all" || exerciseLevel(t) === levelFilter,
-        searchable =
-          `${t.title} ${t.originalTitle} ${t.composer} ${t.style || ""} ${t.practiceFocus || ""}`.toLocaleLowerCase(
-            "pt-BR",
-          );
-      return categoryMatches && levelMatches && searchable.includes(e);
-    }),
-    a = k("catalogGrid");
-  a &&
-    (a.replaceChildren(),
-    o.forEach((t) => {
-      const e = h.bestBySong[t.id],
-        n = document.createElement("article");
-      ((n.className = "catalog-card"),
-        (n.innerHTML = `
-      <div class="catalog-card-top">
-        <div>
-          <h3>${st(t.title)}</h3>
-          <p>${t.practiceFocus ? st(t.practiceFocus) : `${st(t.originalTitle)}<br>${st(t.composer)}`}</p>
-        </div>
-        <span class="difficulty" title="Dificuldade">${t.difficulty}</span>
-      </div>
-      <div class="tags">
-        <span class="tag">${c(t.category)}</span>
-        ${t.style ? `<span class="tag">${st(t.style)}</span>` : ""}
-        <span class="tag">${levelLabel(exerciseLevel(t))}</span>
-        <span class="tag">${t.bpm} bpm</span>
-        <span class="tag">Tom: ${st(t.key)}</span>
-        ${t.timeSignature ? `<span class="tag">${st(t.timeSignature)}</span>` : ""}
-        ${e ? `<span class="tag">Melhor: ${e}%</span>` : ""}
-      </div>
-      <button class="secondary-button">Praticar trecho</button>
-    `),
-        n.querySelector("button").addEventListener("click", () =>
-          (function (t) {
-            ((b = null), j(t, null, !0));
-          })(t),
-        ),
-        a.append(n));
-    }),
-    o.length || (a.innerHTML = '<div class="empty-state">Nenhuma música encontrada.</div>'));
-}
-function R(t) {
-  const e = document.querySelector(`.piano-key[data-midi="${t}"]`);
-  e && (e.classList.add("active"), window.setTimeout(() => e.classList.remove("active"), 180));
-}
-async function U() {
-  if (S)
-    return (
-      await A.stop(),
-      (S = !1),
-      (k("listenButton").textContent = "Ativar microfone"),
-      (k("detectedNote").textContent = "—"),
-      (k("tuningStatus").textContent = "Microfone desligado"),
-      void W(
-        "neutral",
-        "Microfone pausado",
-        "Continue pelo teclado virtual",
-        "Você pode testar as notas usando as teclas na parte inferior.",
-      )
-    );
-  try {
-    (await A.start(),
-      (S = !0),
-      (k("listenButton").textContent = "Desativar microfone"),
-      (k("inputModeLabel").textContent = "Microfone"),
-      (k("tuningStatus").textContent = "Escutando…"),
-      W(
-        "neutral",
-        "Escutando o piano",
-        "Toque a nota indicada",
-        "Mantenha a nota por um instante para confirmar a leitura.",
-      ));
-  } catch (t) {
-    ((S = !1), (k("listenButton").textContent = "Ativar microfone"), it(ct(t)));
+      <button class="primary-button">Abrir partitura</button>
+    `;
+    card.querySelector(".primary-button").addEventListener("click", () => openPractice(piece));
+    card.querySelector(".card-menu").addEventListener("click", async () => {
+      if (!window.confirm(`Excluir “${piece.title}” deste aparelho?`)) return;
+      await deletePiece(piece.id);
+      state.pieces = state.pieces.filter((item) => item.id !== piece.id);
+      renderLibrary();
+      toast("Peça excluída do repertório local.");
+    });
+    grid.append(card);
   }
 }
-function J(t, e = 0, n = "unknown") {
-  if (C >= y.notes.length) return;
-  syncPending();
-  const c = Date.now();
-  const a = pendingMidis.includes(t) && Math.abs(e) <= f.centsTolerance;
-  if (a && pendingMidis.length > 1) {
-    // Nota correta de um acorde ainda incompleto: registra e aguarda as demais.
-    pendingMidis = pendingMidis.filter((midi) => midi !== t);
-    highlightPending();
-    D = c;
-    W(
-      "correct",
-      "Nota do acorde",
-      `Falta${pendingMidis.length > 1 ? "m" : ""} ${pendingMidis.length}`,
-      `Toque também: ${pendingMidis
-        .slice()
-        .sort((x, z) => x - z)
-        .map((midi) => d(midi))
-        .join(" + ")}.`,
+
+function renderRhythms() {
+  const style = byId("rhythmFilter").value;
+  const exercises = rhythmExercises.filter((exercise) => style === "all" || exercise.style === style);
+  const grid = byId("rhythmGrid");
+  grid.replaceChildren();
+
+  for (const exercise of exercises) {
+    const card = document.createElement("article");
+    card.className = "rhythm-card";
+    card.innerHTML = `
+      <div>
+        <span class="tag">${escapeHtml(exercise.style)}</span>
+        <span class="tag level-${exercise.level}">${levelLabel(exercise.level)}</span>
+      </div>
+      <h3>${escapeHtml(exercise.title)}</h3>
+      <p>${escapeHtml(exercise.focus)}</p>
+      <div class="card-tags">
+        <span class="tag">${exercise.timeSignature}</span>
+        <span class="tag">${exercise.bpm} bpm</span>
+        <span class="tag">Duas mãos</span>
+      </div>
+      <button class="ghost-button">Praticar exercício</button>
+    `;
+    card.querySelector("button").addEventListener("click", () => openPractice(exercise));
+    grid.append(card);
+  }
+}
+
+function renderSelectedFiles() {
+  const container = byId("selectedFiles");
+  container.replaceChildren();
+  for (const file of state.selectedFiles) {
+    const item = document.createElement("div");
+    item.className = "selected-file";
+    item.innerHTML = `<strong>${escapeHtml(file.name)}</strong><span>${formatBytes(file.size)}</span>`;
+    container.append(item);
+  }
+}
+
+function acceptFiles(files) {
+  const accepted = [...files].filter((file) =>
+    /\.pdf$/i.test(file.name) || /\.(xml|musicxml)$/i.test(file.name),
+  );
+  state.selectedFiles = accepted;
+  renderSelectedFiles();
+  if (accepted.length !== files.length) {
+    toast("Nesta versão, selecione arquivos PDF, XML ou MusicXML sem compactação.");
+  }
+}
+
+async function importPiece(event) {
+  event.preventDefault();
+  const pdfFile = state.selectedFiles.find((file) => /\.pdf$/i.test(file.name));
+  const xmlFile = state.selectedFiles.find((file) => /\.(xml|musicxml)$/i.test(file.name));
+  if (!pdfFile && !xmlFile) {
+    toast("Escolha ao menos um PDF ou MusicXML.");
+    return;
+  }
+
+  let parsed = null;
+  if (xmlFile) {
+    try {
+      parsed = parseMusicXml(await xmlFile.text());
+    } catch (error) {
+      toast(readableError(error));
+      return;
+    }
+  }
+
+  const piece = {
+    id: globalThis.crypto?.randomUUID?.() || `piece-${Date.now()}`,
+    type: "piece",
+    title: byId("pieceTitle").value.trim() || parsed?.title || "Peça importada",
+    composer: byId("pieceComposer").value.trim() || parsed?.composer || "",
+    bpm: Number(byId("pieceBpm").value) || 72,
+    timeSignature: byId("pieceTimeSignature").value,
+    pdfAsset: await fileToStoredAsset(pdfFile),
+    musicXmlAsset: await fileToStoredAsset(xmlFile),
+    createdAt: new Date().toISOString(),
+  };
+
+  try {
+    await savePiece(piece);
+    state.pieces.push(piece);
+    byId("importForm").reset();
+    byId("pieceBpm").value = "72";
+    state.selectedFiles = [];
+    renderSelectedFiles();
+    renderLibrary();
+    showView("libraryView");
+    toast("Peça salva neste aparelho.");
+  } catch (error) {
+    toast(`Não foi possível salvar: ${readableError(error)}`);
+  }
+}
+
+function xmlTextFromAsset(asset) {
+  if (!asset) return "";
+  return new TextDecoder().decode(asset.bytes);
+}
+
+function exerciseAsLegacyScore(exercise) {
+  return {
+    id: exercise.id,
+    title: exercise.title,
+    key: "",
+    bpm: exercise.bpm,
+    timeSignature: exercise.timeSignature,
+    beatsPerBar: exercise.beatsPerBar,
+    clef: "grand",
+    notes: exercise.events.map((event) => ({
+      pitch: event.pitches.at(-1),
+      duration: event.duration,
+      pitches: event.pitches.map((pitch) => ({
+        pitch,
+        duration: event.duration,
+        finger: null,
+      })),
+    })),
+  };
+}
+
+async function openPractice(item) {
+  await stopPractice({ showResult: false });
+  state.currentItem = item;
+  state.currentEvents = null;
+  state.currentMusicXml = "";
+  state.exactMode = item.type === "rhythm" || Boolean(item.musicXmlAsset);
+
+  byId("practiceTitle").textContent = item.title;
+  byId("practiceComposer").textContent = (item.composer || item.style || "EXERCÍCIO").toUpperCase();
+  byId("tempoSlider").value = String(item.bpm || 72);
+  byId("tempoOutput").value = String(item.bpm || 72);
+  resetPracticeUi();
+  showView("practiceView");
+  await wakeLock.setEnabled(true);
+
+  try {
+    if (item.type === "rhythm") {
+      state.currentEvents = item.events;
+      const legacyScore = exerciseAsLegacyScore(item);
+      viewer.showRhythm((container) => renderScore(container, legacyScore, 0, false));
+      setAnalysisMode("Exercício estruturado", "O aplicativo conhece cada ataque esperado. O microfone avalia o tempo; com um piano MIDI, também confere as alturas.");
+      byId("pdfOnlyOptions").hidden = true;
+      return;
+    }
+
+    if (item.musicXmlAsset) {
+      state.currentMusicXml = xmlTextFromAsset(item.musicXmlAsset);
+      state.currentEvents = parseMusicXml(state.currentMusicXml).events;
+    }
+
+    if (item.pdfAsset) {
+      await viewer.showPdf(item.pdfAsset);
+    } else if (state.currentMusicXml) {
+      await viewer.showMusicXml(state.currentMusicXml);
+    }
+
+    if (state.currentEvents?.length) {
+      setAnalysisMode("Partitura estruturada", "O MusicXML fornece os ataques e as notas esperadas. O microfone avalia o tempo; um piano MIDI também permite conferir as alturas.");
+      byId("pdfOnlyOptions").hidden = true;
+    } else {
+      setAnalysisMode("Tempo pelo PDF", "O PDF é visual: o microfone mede a proximidade de cada ataque à grade escolhida. Para conferir notas e pausas exatas, importe também o MusicXML.");
+      byId("pdfOnlyOptions").hidden = false;
+    }
+  } catch (error) {
+    byId("documentStage").innerHTML = `<div class="loading-state">${escapeHtml(readableError(error))}</div>`;
+    toast(readableError(error));
+  }
+}
+
+function setAnalysisMode(label, explanation) {
+  byId("analysisModeBadge").textContent = label;
+  byId("analysisExplanation").textContent = explanation;
+}
+
+async function selectInputMode(mode) {
+  if (state.practiceActive || state.countInActive) return;
+  state.inputMode = mode;
+  byId("microphoneModeButton").classList.toggle("active", mode === "microphone");
+  byId("midiModeButton").classList.toggle("active", mode === "midi");
+  byId("levelBar").style.width = "0";
+
+  if (mode === "midi") {
+    try {
+      const count = await midiInput.connect();
+      if (!count) toast("Conecte e ligue o piano MIDI, depois tente novamente.");
+    } catch (error) {
+      state.inputMode = "microphone";
+      byId("microphoneModeButton").classList.add("active");
+      byId("midiModeButton").classList.remove("active");
+      toast(readableError(error));
+    }
+  } else {
+    midiInput.disconnect();
+  }
+}
+
+async function startPractice() {
+  if (!state.currentItem || state.practiceActive || state.countInActive) return;
+  const bpm = Number(byId("tempoSlider").value);
+  const beatMs = 60_000 / bpm;
+  const countBeats = Math.max(2, Math.round(
+    state.currentItem.beatsPerBar || beatsPerBar(state.currentItem.timeSignature),
+  ));
+
+  state.schedule = [];
+  state.attempts = [];
+  state.missed = 0;
+  state.lastMidiAttempt = null;
+  state.countInActive = true;
+  resetPracticeUi();
+  byId("startPracticeButton").disabled = true;
+  byId("stopPracticeButton").disabled = false;
+  await wakeLock.setEnabled(true);
+
+  try {
+    if (state.inputMode === "microphone") await onsetEngine.start();
+    else if (!midiInput.access) await midiInput.connect();
+  } catch (error) {
+    state.countInActive = false;
+    byId("startPracticeButton").disabled = false;
+    byId("stopPracticeButton").disabled = true;
+    toast(readableError(error));
+    return;
+  }
+
+  const startAt = performance.now() + countBeats * beatMs + 120;
+  state.startedAt = startAt;
+  if (state.currentEvents?.length) {
+    state.schedule = eventsToSchedule(state.currentEvents, bpm, startAt);
+  } else {
+    state.schedule = createPulseGrid({
+      bpm,
+      startMs: startAt,
+      subdivision: Number(byId("subdivisionSelect").value),
+      beatsPerBar: beatsPerBar(state.currentItem.timeSignature),
+      bars: 64,
+    });
+  }
+
+  byId("countInDisplay").classList.add("visible");
+  for (let index = 0; index < countBeats; index += 1) {
+    const timer = window.setTimeout(() => {
+      const remaining = countBeats - index;
+      byId("countInDisplay").textContent = String(remaining);
+      playCountClick(index === 0);
+    }, index * beatMs);
+    state.countTimers.push(timer);
+  }
+
+  state.countTimers.push(window.setTimeout(() => {
+    byId("countInDisplay").textContent = "Toque";
+    window.setTimeout(() => byId("countInDisplay").classList.remove("visible"), 420);
+    state.countInActive = false;
+    state.practiceActive = true;
+    setFeedback("neutral", "VALENDO", "Acompanhe a partitura", "Escutando cada ataque.");
+    practiceTick();
+  }, countBeats * beatMs + 120));
+}
+
+function handleOnset(timestamp, midi) {
+  if (!state.practiceActive) return;
+
+  if (
+    midi !== null
+    && state.lastMidiAttempt
+    && timestamp - state.lastMidiAttempt.timestamp < 120
+    && state.lastMidiAttempt.event.midis?.length > 1
+  ) {
+    state.lastMidiAttempt.playedMidis.add(midi);
+    state.lastMidiAttempt.noteCorrect = state.lastMidiAttempt.event.midis.every((expected) =>
+      state.lastMidiAttempt.playedMidis.has(expected),
+    );
+    updateFeedbackForAttempt(state.lastMidiAttempt);
+    return;
+  }
+
+  const result = matchOnset(state.schedule, timestamp, {
+    toleranceMs: state.exactMode ? 125 : 115,
+    searchWindowMs: state.exactMode ? 430 : 280,
+  });
+  if (!result) {
+    setFeedback("late", "FORA DA GRADE", "Ataque não associado", "Tente manter o pulso interno.");
+    return;
+  }
+
+  const attempt = {
+    ...result,
+    timestamp,
+    midi,
+    playedMidis: new Set(midi === null ? [] : [midi]),
+    noteCorrect: midi === null || !result.event.midis?.length
+      ? null
+      : result.event.midis.includes(midi),
+  };
+  state.attempts.push(attempt);
+  state.lastMidiAttempt = midi === null ? null : attempt;
+  updateFeedbackForAttempt(attempt);
+  updateStats();
+  appendAttemptDot(attempt.grade);
+  advanceScore(attempt.event.index + 1);
+}
+
+function updateFeedbackForAttempt(attempt) {
+  const signed = attempt.offsetMs > 0 ? `+${attempt.offsetMs}` : String(attempt.offsetMs);
+  let detail = `${signed} ms do tempo esperado.`;
+  if (attempt.noteCorrect === true) detail += " Notas corretas.";
+  if (attempt.noteCorrect === false) detail += " Confira as notas tocadas.";
+  setFeedback(attempt.grade, attempt.label.toUpperCase(), attempt.label, detail);
+}
+
+function practiceTick() {
+  if (!state.practiceActive) return;
+
+  if (state.exactMode) {
+    const missed = markMissed(state.schedule, performance.now(), 430);
+    if (missed.length) {
+      state.missed += missed.length;
+      for (const event of missed) {
+        appendAttemptDot("missed");
+        advanceScore(event.index + 1);
+      }
+      setFeedback("missed", "PASSOU", "Ataque não detectado", "Retome no próximo pulso.");
+      updateStats();
+    }
+
+    const complete = state.schedule.length
+      && state.schedule.every((event) => event.matched || event.missed);
+    if (complete) {
+      stopPractice({ showResult: true });
+      return;
+    }
+  }
+
+  state.animationFrame = requestAnimationFrame(practiceTick);
+}
+
+function advanceScore(index) {
+  if (state.currentItem?.type === "rhythm") {
+    renderScore(
+      byId("documentStage"),
+      exerciseAsLegacyScore(state.currentItem),
+      index,
+      false,
     );
     return;
   }
-  if (a)
-    return (
-      ($ += 1),
-      (w += 1),
-      (h.attempts += 1),
-      (h.correct += 1),
-      (D = c),
-      W(
-        "correct",
-        "Nota correta",
-        "Muito bem!",
-        "microphone" === n
-          ? "A altura foi reconhecida. Prepare a próxima nota."
-          : "Entrada confirmada pelo teclado virtual.",
-      ),
-      f.vibration && navigator.vibrate && navigator.vibrate(35),
-      (C += 1),
-      et(),
-      void (C >= y.notes.length
-        ? (function () {
-            const t = $ ? Math.round((w / $) * 100) : 100;
-            ((h.bestBySong[y.id] = Math.max(h.bestBySong[y.id] || 0, t)),
-              h.completedSongs.includes(y.id) || h.completedSongs.push(y.id),
-              b &&
-                t >= b.minAccuracy &&
-                !h.completedLessons.includes(b.id) &&
-                h.completedLessons.push(b.id));
-            (h.activities.unshift({
-              id: crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`,
-              date: new Date().toISOString(),
-              songId: y.id,
-              songTitle: y.title,
-              accuracy: t,
-              correct: w,
-              attempts: $,
-            }),
-              (h.activities = h.activities.slice(0, 40)),
-              (function () {
-                const t = tt(new Date());
-                h.practiceDays.includes(t) ||
-                  (h.practiceDays.push(t), (h.practiceDays = h.practiceDays.slice(-90)), et());
-              })(),
-              et(),
-              O(),
-              (k("scoreProgressBar").style.width = "100%"),
-              (k("scoreProgress").textContent = `Concluído · ${t}% de precisão`),
-              W(
-                t >= (b?.minAccuracy || 75) ? "correct" : "neutral",
-                "Exercício concluído",
-                t >= (b?.minAccuracy || 75) ? "Meta atingida!" : "Vale repetir mais uma vez",
-                `Você acertou ${w} notas em ${$} tentativas. Precisão final: ${t}%.`,
-              ),
-              it(
-                t >= (b?.minAccuracy || 75)
-                  ? "Meta atingida. Todos os exercícios continuam disponíveis."
-                  : "Repita para aumentar a precisão.",
-              ),
-              V(),
-              z());
-          })()
-        : O())
-    );
-  const i = `${C}:${t}`;
-  if (i === M && c - E < 700) return;
-  ((M = i), (E = c), ($ += 1), (h.attempts += 1), et());
-  const o = pendingMidis
-    .slice()
-    .sort((x, z) => Math.abs(x - t) - Math.abs(z - t))[0];
-  const r = t < o ? "um pouco mais à direita/agudo" : "um pouco mais à esquerda/grave";
-  W("incorrect", "Quase", `Você tocou ${d(t)}`, `Procure ${d(o)}: vá ${r}.`);
-}
-function W(t, e, n, o) {
-  const a = k("feedbackBadge");
-  ((a.className = `feedback-badge ${t}`),
-    (a.textContent = e),
-    (k("coachTitle").textContent = n),
-    (k("coachMessage").textContent = o));
-}
-async function G() {
-  const t = ++P;
-  ((k("demoButton").disabled = !0), (k("demoButton").textContent = "Tocando…"));
-  const e = Math.max(0, C),
-    n = Math.min(y.notes.length, e + 8);
-  for (let o = e; o < n && t === P; o += 1) {
-    const t = y.notes[o],
-      e = (6e4 / y.bpm) * t.duration,
-      midis = eventMidis(t);
-    suppressUntil = Date.now() + e + 300;
-    midis.forEach((midi) => {
-      R(midi);
-      I.playFrequency(s(midi, f.concertPitch), Math.max(0.18, (e / 1e3) * 0.82));
-    });
-    await rt(e);
-  }
-  ((k("demoButton").disabled = !1), (k("demoButton").textContent = "Ouvir exemplo"));
-}
-async function K() {
-  ((x = !x),
-    x
-      ? (await I.startMetronome(y.bpm, onMetronomeBeat),
-        (k("metronomeButton").textContent = "Metrônomo: ligado"))
-      : (I.stopMetronome(), (k("metronomeButton").textContent = "Metrônomo: desligado")));
-}
-async function Q() {
-  if (navigator.requestMIDIAccess)
+  if (viewer.osmd?.cursor) {
     try {
-      const access = await navigator.requestMIDIAccess();
-      const bindInputs = () => {
-        const t = [...access.inputs.values()];
-        if (!t.length) {
-          k("inputModeLabel").textContent = "Teclado virtual";
-          return 0;
-        }
-        t.forEach((t) => {
-          t.onmidimessage = (t) => {
-            const [e, n, o] = t.data;
-            144 === (240 & e) &&
-              o > 0 &&
-              ((k("detectedNote").textContent = d(n)),
-              (k("tuningStatus").textContent = "Entrada MIDI precisa"),
-              R(n),
-              J(n, 0, "midi"));
-          };
-        });
-        k("inputModeLabel").textContent = `MIDI · ${t[0].name || "teclado"}`;
-        return t.length;
-      };
-      const count = bindInputs();
-      access.onstatechange = () => {
-        const total = bindInputs();
-        it(total ? `${total} entrada(s) MIDI conectada(s).` : "Teclado MIDI desconectado.");
-      };
-      if (!count)
-        return void it(
-          "Nenhum teclado MIDI foi encontrado. Conecte-o por USB: ele será reconhecido automaticamente.",
-        );
-      it(`${count} entrada(s) MIDI conectada(s).`);
-    } catch (t) {
-      it(`Não foi possível acessar o MIDI: ${t.message}`);
+      viewer.osmd.cursor.show();
+      viewer.osmd.cursor.next();
+    } catch {
+      // O cursor é um auxílio; a avaliação continua mesmo se a edição não o expuser.
     }
-  else it("Web MIDI não está disponível neste navegador. Use o microfone ou o teclado virtual.");
-}
-function Y() {
-  const accuracy = h.attempts ? Math.round((h.correct / h.attempts) * 100) : 0;
-  k("progressSummary").innerHTML = `
-    <article class="progress-card"><span>Precisão geral</span><strong>${accuracy}%</strong></article>
-    <article class="progress-card"><span>Exercícios concluídos</span><strong>${h.completedSongs.length}/${t.length}</strong></article>
-    <article class="progress-card"><span>Dias consecutivos</span><strong>${_(h.practiceDays)}</strong></article>
-  `;
-  const n = k("activityList");
-  (n.replaceChildren(),
-    h.activities.length
-      ? h.activities.forEach((t) => {
-          const e = document.createElement("article");
-          var o;
-          ((e.className = "activity-item"),
-            (e.innerHTML = `
-      <div><h3>${st(t.songTitle)}</h3><p>${((o = t.date), new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(o)))} · ${t.correct}/${t.attempts} notas</p></div>
-      <strong>${t.accuracy}%</strong>
-    `),
-            n.append(e));
-        })
-      : (n.innerHTML =
-          '<div class="empty-state">Conclua um exercício para iniciar o histórico.</div>'));
-}
-function X() {
-  window.confirm("Apagar todo o progresso salvo neste dispositivo?") &&
-    ((h = structuredClone(v)), et(), V(), z(), Y(), it("Progresso apagado."));
-}
-function _(t) {
-  if (!t.length) return 0;
-  const e = new Set(t);
-  let n = new Date(),
-    o = 0;
-  for (e.has(tt(n)) || n.setDate(n.getDate() - 1); e.has(tt(n));)
-    ((o += 1), n.setDate(n.getDate() - 1));
-  return o;
-}
-function tt(t) {
-  return [
-    t.getFullYear(),
-    String(t.getMonth() + 1).padStart(2, "0"),
-    String(t.getDate()).padStart(2, "0"),
-  ].join("-");
-}
-function et() {
-  localStorage.setItem(p, JSON.stringify(h));
-}
-function nt() {
-  localStorage.setItem(g, JSON.stringify(f));
-}
-function ot(t, e) {
-  try {
-    const n = JSON.parse(localStorage.getItem(t));
-    return n && "object" == typeof n ? { ...structuredClone(e), ...n } : structuredClone(e);
-  } catch {
-    return structuredClone(e);
   }
 }
-function at(t) {
-  return Math.abs(t) <= 8
-    ? "Afinada"
-    : t < 0
-      ? `${Math.abs(Math.round(t))} cents abaixo`
-      : `${Math.round(t)} cents acima`;
+
+async function stopPractice({ showResult = true } = {}) {
+  const hadActivity = state.practiceActive || state.countInActive || state.attempts.length;
+  state.practiceActive = false;
+  state.countInActive = false;
+  for (const timer of state.countTimers) window.clearTimeout(timer);
+  state.countTimers = [];
+  if (state.animationFrame) cancelAnimationFrame(state.animationFrame);
+  state.animationFrame = null;
+  byId("countInDisplay")?.classList.remove("visible");
+  byId("startPracticeButton").disabled = false;
+  byId("stopPracticeButton").disabled = true;
+  await onsetEngine.stop();
+
+  if (showResult && hadActivity) showPracticeResult();
 }
-function ct(t) {
-  return "NotAllowedError" === t?.name
-    ? "Permissão do microfone negada. Libere o acesso nas configurações do navegador."
-    : "NotFoundError" === t?.name
-      ? "Nenhum microfone foi encontrado neste dispositivo."
-      : t?.message || "Não foi possível ativar o microfone.";
+
+function resetPracticeUi() {
+  byId("onTimeStat").textContent = "0";
+  byId("earlyStat").textContent = "0";
+  byId("lateStat").textContent = "0";
+  byId("accuracyStat").textContent = "0%";
+  byId("attemptTimeline").replaceChildren();
+  setFeedback("neutral", "PRONTO", "Observe a partitura", "O aplicativo contará um compasso antes de começar.");
 }
-function it(t) {
-  const e = k("toast");
-  ((e.textContent = t),
-    e.classList.add("visible"),
-    clearTimeout(it.timer),
-    (it.timer = window.setTimeout(() => e.classList.remove("visible"), 3200)));
+
+function updateStats() {
+  const onTime = state.attempts.filter((attempt) => attempt.grade === "on-time").length;
+  const early = state.attempts.filter((attempt) => attempt.grade === "early").length;
+  const late = state.attempts.filter((attempt) => attempt.grade === "late").length;
+  const summary = summarizeAttempts(state.attempts, state.exactMode ? state.missed : 0);
+  byId("onTimeStat").textContent = String(onTime);
+  byId("earlyStat").textContent = String(early);
+  byId("lateStat").textContent = String(late);
+  byId("accuracyStat").textContent = `${summary.accuracy}%`;
 }
-function rt(t) {
-  return new Promise((e) => window.setTimeout(e, t));
+
+function appendAttemptDot(grade) {
+  const dot = document.createElement("span");
+  dot.className = `attempt-dot ${grade}`;
+  byId("attemptTimeline").append(dot);
+  while (byId("attemptTimeline").children.length > 36) {
+    byId("attemptTimeline").firstElementChild.remove();
+  }
 }
-function st(t) {
-  return String(t).replace(
-    /[&<>'"]/g,
-    (t) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[t],
-  );
+
+function setFeedback(grade, kicker, title, detail) {
+  const panel = byId("timingFeedback");
+  panel.className = `timing-feedback ${grade}`;
+  panel.innerHTML = `<span>${escapeHtml(kicker)}</span><strong>${escapeHtml(title)}</strong><small>${escapeHtml(detail)}</small>`;
 }
-(document.querySelectorAll(".nav-button").forEach((t) => {
-  t.addEventListener("click", () => q(t.dataset.view));
-}),
-  k("backToHome").addEventListener("click", () => q("homeView")),
-  k("resumeButton").addEventListener("click", () => q("catalogView")),
-  k("listenButton").addEventListener("click", U),
-  k("demoButton").addEventListener("click", G),
-  k("metronomeButton").addEventListener("click", K),
-  k("resetPracticeButton").addEventListener("click", F),
-  k("toggleNoteNames").addEventListener("click", () => {
-    ((L = !L),
-      (k("toggleNoteNames").textContent = "Nomes: " + (L ? "ligados" : "desligados")),
-      O());
-  }),
-  k("midiButton").addEventListener("click", Q),
-  k("catalogSearch").addEventListener("input", z),
-  k("catalogFilter").addEventListener("change", z),
-  k("catalogLevelFilter").addEventListener("change", z),
-  k("resetProgressButton").addEventListener("click", X),
-  k("concertPitch").addEventListener("input", (t) => {
-    ((f.concertPitch = Number(t.target.value)),
-      (k("concertPitchValue").textContent = `${f.concertPitch} Hz`),
-      A.setConcertPitch(f.concertPitch),
-      nt());
-  }),
-  k("centsTolerance").addEventListener("input", (t) => {
-    ((f.centsTolerance = Number(t.target.value)),
-      (k("centsToleranceValue").textContent = `±${f.centsTolerance} cents`),
-      nt());
-  }),
-  k("showNoteNamesSetting").addEventListener("change", (t) => {
-    ((f.showNoteNames = t.target.checked),
-      (L = t.target.checked),
-      (k("toggleNoteNames").textContent = "Nomes: " + (L ? "ligados" : "desligados")),
-      nt(),
-      O());
-  }),
-  k("vibrationSetting").addEventListener("change", (t) => {
-    ((f.vibration = t.target.checked), nt());
-  }),
-  k("keepScreenAwakeSetting").addEventListener("change", async (t) => {
-    f.keepScreenAwake = t.target.checked;
-    nt();
-    await syncWakeLock();
-    it(
-      f.keepScreenAwake
-        ? "A tela permanecerá ligada durante os exercícios."
-        : "Proteção de tela desativada.",
-    );
-  }),
-  (function () {
-    const t = k("pianoKeyboard");
-    t.replaceChildren();
-    for (let e = 36; e <= 84; e += 1) {
-      const n = document.createElement("button");
-      ((n.className = "piano-key" + (r(e) ? " black" : "")),
-        (n.dataset.midi = String(e)),
-        n.setAttribute("aria-label", d(e)),
-        (n.innerHTML = `<span>${r(e) ? "" : d(e, !1)}</span>`));
-      const o = () => {
-        ((suppressUntil = Date.now() + 650),
-          I.playFrequency(s(e, f.concertPitch), 0.4),
-          R(e),
-          J(e, 0, "virtual"));
-      };
-      (n.addEventListener("pointerdown", (t) => {
-        (t.preventDefault(), o());
-      }),
-        t.append(n));
-    }
-  })(),
-  V(),
-  z(),
-  Y(),
-  (k("concertPitch").value = String(f.concertPitch)),
-  (k("concertPitchValue").textContent = `${f.concertPitch} Hz`),
-  (k("centsTolerance").value = String(f.centsTolerance)),
-  (k("centsToleranceValue").textContent = `±${f.centsTolerance} cents`),
-  (k("showNoteNamesSetting").checked = f.showNoteNames),
-  (k("vibrationSetting").checked = f.vibration),
-  (k("keepScreenAwakeSetting").checked = f.keepScreenAwake),
-  (k("wakeLockStatus").textContent = wakeLock.supported
-    ? f.keepScreenAwake
-      ? "Ativa ao abrir um exercício"
-      : "Desativada"
-    : "Não disponível neste navegador"),
-  j(y, b, !1),
-  "serviceWorker" in navigator &&
-    window.addEventListener("load", () =>
-      navigator.serviceWorker.register("./sw.js").catch(() => {}),
-    ),
-  window.addEventListener("beforeinstallprompt", (t) => {
-    (t.preventDefault(), (N = t), (k("installButton").hidden = !1));
-  }),
-  k("installButton").addEventListener("click", async () => {
-    N && (N.prompt(), await N.userChoice, (N = null), (k("installButton").hidden = !0));
-  }),
-  window.addEventListener("pagehide", () => {
-    void wakeLock.destroy();
-  }));
+
+function showPracticeResult() {
+  const summary = summarizeAttempts(state.attempts, state.exactMode ? state.missed : 0);
+  const noteAttempts = state.attempts.filter((attempt) => attempt.noteCorrect !== null);
+  const correctNotes = noteAttempts.filter((attempt) => attempt.noteCorrect).length;
+  byId("resultContent").innerHTML = `
+    <p class="eyebrow">RESUMO DA PRÁTICA</p>
+    <h2>${escapeHtml(state.currentItem?.title || "Prática concluída")}</h2>
+    <p>${summary.accuracy >= 75 ? "O pulso está consistente. Continue aumentando o trecho aos poucos." : "Repita em um andamento mais lento e procure sentir a subdivisão antes de tocar."}</p>
+    <div class="result-grid">
+      <div><span>Precisão rítmica</span><strong>${summary.accuracy}%</strong></div>
+      <div><span>Desvio médio</span><strong>${summary.meanAbsoluteOffsetMs} ms</strong></div>
+      <div><span>Ataques captados</span><strong>${summary.played}</strong></div>
+      <div><span>Não detectados</span><strong>${summary.missed}</strong></div>
+      ${noteAttempts.length ? `<div><span>Notas MIDI</span><strong>${correctNotes}/${noteAttempts.length}</strong></div>` : ""}
+    </div>
+  `;
+  byId("resultDialog").showModal();
+}
+
+async function leavePractice() {
+  await stopPractice({ showResult: false });
+  await wakeLock.setEnabled(false);
+  midiInput.disconnect();
+  viewer.clear();
+  showView("libraryView");
+}
+
+let countAudioContext = null;
+async function playCountClick(accent = false) {
+  try {
+    countAudioContext ||= new (window.AudioContext || window.webkitAudioContext)();
+    await countAudioContext.resume();
+    const oscillator = countAudioContext.createOscillator();
+    const gain = countAudioContext.createGain();
+    const now = countAudioContext.currentTime;
+    oscillator.frequency.setValueAtTime(accent ? 1050 : 780, now);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.08, now + 0.004);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.055);
+    oscillator.connect(gain).connect(countAudioContext.destination);
+    oscillator.start(now);
+    oscillator.stop(now + 0.06);
+  } catch {
+    // A contagem visual continua funcionando se o áudio do sistema estiver bloqueado.
+  }
+}
+
+function readableError(error) {
+  if (error?.name === "NotAllowedError") return "Permita o acesso ao microfone nas configurações do navegador.";
+  if (error?.name === "QuotaExceededError") return "Não há espaço local suficiente para salvar este arquivo.";
+  return error?.message || String(error || "Ocorreu um erro.");
+}
+
+function formatBytes(bytes) {
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+let toastTimer = null;
+function toast(message) {
+  const element = byId("toast");
+  element.textContent = message;
+  element.classList.add("visible");
+  window.clearTimeout(toastTimer);
+  toastTimer = window.setTimeout(() => element.classList.remove("visible"), 3600);
+}
+
+let deferredInstallPrompt = null;
+window.addEventListener("beforeinstallprompt", (event) => {
+  event.preventDefault();
+  deferredInstallPrompt = event;
+  byId("installButton").hidden = false;
+});
+byId("installButton").addEventListener("click", async () => {
+  await deferredInstallPrompt?.prompt();
+  deferredInstallPrompt = null;
+  byId("installButton").hidden = true;
+});
+
+document.querySelectorAll("[data-view-target]").forEach((button) => {
+  button.addEventListener("click", () => showView(button.dataset.viewTarget));
+});
+byId("brandButton").addEventListener("click", () => showView("libraryView"));
+byId("librarySearch").addEventListener("input", renderLibrary);
+byId("rhythmFilter").addEventListener("change", renderRhythms);
+byId("pieceFiles").addEventListener("change", (event) => acceptFiles(event.target.files));
+byId("importForm").addEventListener("submit", importPiece);
+byId("dropZone").addEventListener("dragover", (event) => {
+  event.preventDefault();
+  byId("dropZone").classList.add("dragging");
+});
+byId("dropZone").addEventListener("dragleave", () => byId("dropZone").classList.remove("dragging"));
+byId("dropZone").addEventListener("drop", (event) => {
+  event.preventDefault();
+  byId("dropZone").classList.remove("dragging");
+  acceptFiles(event.dataTransfer.files);
+});
+byId("leavePracticeButton").addEventListener("click", leavePractice);
+byId("microphoneModeButton").addEventListener("click", () => selectInputMode("microphone"));
+byId("midiModeButton").addEventListener("click", () => selectInputMode("midi"));
+byId("startPracticeButton").addEventListener("click", startPractice);
+byId("stopPracticeButton").addEventListener("click", () => stopPractice({ showResult: true }));
+byId("tempoSlider").addEventListener("input", (event) => {
+  byId("tempoOutput").value = event.target.value;
+});
+byId("previousPageButton").addEventListener("click", () => viewer.previousPage());
+byId("nextPageButton").addEventListener("click", () => viewer.nextPage());
+byId("zoomOutButton").addEventListener("click", () => viewer.zoomBy(-0.12));
+byId("zoomInButton").addEventListener("click", () => viewer.zoomBy(0.12));
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && state.currentView === "practiceView") {
+    wakeLock.setEnabled(true);
+  }
+});
+
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js"));
+}
+
+try {
+  state.pieces = await listPieces();
+} catch (error) {
+  toast(`Biblioteca local indisponível: ${readableError(error)}`);
+}
+renderLibrary();
+renderRhythms();

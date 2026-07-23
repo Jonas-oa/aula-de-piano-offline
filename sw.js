@@ -1,47 +1,57 @@
-const CACHE_NAME = 'aula-piano-v10-rhythm-wakelock-040';
+const CACHE_NAME = "partitura-viva-v1-100";
 const APP_SHELL = [
-  './',
-  './index.html',
-  './styles.css',
-  './manifest.webmanifest',
-  './src/app.js',
-  './src/core/audio-engine.js',
-  './src/core/playback-fixes.js',
-  './src/core/screen-wake-lock.js',
-  './src/core/music.js',
-  './src/data/catalog.js',
-  './src/ui/score-renderer.js',
-  './src/ui/focus-mode.js',
-  './assets/icons/icon-192.png',
-  './assets/icons/icon-512.png'
+  "./",
+  "./index.html",
+  "./styles.css",
+  "./manifest.webmanifest",
+  "./src/app.js",
+  "./src/core/library-store.js",
+  "./src/core/music.js",
+  "./src/core/musicxml.js",
+  "./src/core/onset-engine.js",
+  "./src/core/screen-wake-lock.js",
+  "./src/core/timing-evaluator.js",
+  "./src/data/rhythm-exercises.js",
+  "./src/ui/document-viewer.js",
+  "./src/ui/score-renderer.js",
+  "./vendor/osmd/opensheetmusicdisplay.min.js",
+  "./vendor/pdfjs/pdf.min.mjs",
+  "./vendor/pdfjs/pdf.worker.min.mjs",
+  "./assets/icons/icon-192.png",
+  "./assets/icons/icon-512.png",
 ];
 
-self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)).then(() => self.skipWaiting()));
-});
-
-self.addEventListener('activate', (event) => {
+self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.keys()
-      .then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))))
-      .then(() => self.clients.claim())
+    caches.open(CACHE_NAME)
+      .then((cache) => cache.addAll(APP_SHELL))
+      .then(() => self.skipWaiting()),
   );
 });
 
-self.addEventListener('fetch', (event) => {
-  if (event.request.method !== 'GET') return;
+self.addEventListener("activate", (event) => {
+  event.waitUntil(
+    caches.keys()
+      .then((keys) => Promise.all(
+        keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)),
+      ))
+      .then(() => self.clients.claim()),
+  );
+});
+
+self.addEventListener("fetch", (event) => {
+  if (event.request.method !== "GET") return;
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
 
-  if (event.request.mode === 'navigate') {
+  if (event.request.mode === "navigate") {
     event.respondWith(
       fetch(event.request)
         .then((response) => {
-          const copy = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, response.clone()));
           return response;
         })
-        .catch(() => caches.match('./index.html'))
+        .catch(() => caches.match("./index.html")),
     );
     return;
   }
@@ -51,20 +61,15 @@ self.addEventListener('fetch', (event) => {
       const network = fetch(event.request)
         .then((response) => {
           if (response.ok) {
-            const copy = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, response.clone()));
           }
           return response;
         })
-        .catch(
-          () =>
-            cached ||
-            new Response('Recurso indisponível offline.', {
-              status: 503,
-              headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-            })
-        );
+        .catch(() => cached || new Response("Recurso indisponível offline.", {
+          status: 503,
+          headers: { "Content-Type": "text/plain; charset=utf-8" },
+        }));
       return cached || network;
-    })
+    }),
   );
 });
