@@ -2,12 +2,31 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   classifyTiming,
+  createCountInPattern,
   createPulseGrid,
   eventsToSchedule,
   markMissed,
   matchOnset,
   summarizeAttempts,
 } from "../src/core/timing-evaluator.js";
+
+test("contagem respeita compasso simples e composto", () => {
+  assert.deepEqual(createCountInPattern("3/8"), {
+    pulses: 3,
+    pulseBeats: 0.5,
+    totalBeats: 1.5,
+  });
+  assert.deepEqual(createCountInPattern("6/8"), {
+    pulses: 2,
+    pulseBeats: 1.5,
+    totalBeats: 3,
+  });
+  assert.deepEqual(createCountInPattern("4/4"), {
+    pulses: 4,
+    pulseBeats: 1,
+    totalBeats: 4,
+  });
+});
 
 test("classifica ataques adiantados, no tempo e atrasados", () => {
   assert.equal(classifyTiming(-160, 110).grade, "early");

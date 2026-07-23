@@ -1,6 +1,6 @@
 {
   "name": "partitura-viva",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "private": true,
   "type": "module",
   "description": "PWA offline para estudar peças completas pela partitura, com avaliação rítmica por microfone ou MIDI.",

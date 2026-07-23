@@ -1,5 +1,9 @@
 import { rhythmExercises } from "./data/rhythm-exercises.js";
 import {
+  getPublicDomainScore,
+  identifyPublicDomainScore,
+} from "./data/public-domain-scores.js";
+import {
   deletePiece,
   fileToStoredAsset,
   listPieces,
@@ -8,14 +12,22 @@ import {
 import { parseMusicXml } from "./core/musicxml.js";
 import { MidiInput, OnsetEngine } from "./core/onset-engine.js";
 import { ScreenWakeLockManager } from "./core/screen-wake-lock.js";
+import { exitStudyDisplay, requestStudyDisplay } from "./core/study-display.js";
 import {
+  createCountInPattern,
   createPulseGrid,
   eventsToSchedule,
   markMissed,
   matchOnset,
   summarizeAttempts,
 } from "./core/timing-evaluator.js";
-import { DocumentViewer } from "./ui/document-viewer.js";
+import { DocumentViewer, inspectPdfAsset } from "./ui/document-viewer.js";
+import {
+  flashKeyboardMidi,
+  pulseStudyKeyboard,
+  renderStudyKeyboard,
+  setKeyboardTargets,
+} from "./ui/piano-keyboard.js";
 import { renderScore } from "./ui/score-renderer.js";
 
 const byId = (id) => document.getElementById(id);
@@ -37,6 +49,8 @@ const state = {
   startedAt: 0,
   exactMode: false,
   lastMidiAttempt: null,
+  microphoneReady: false,
+  microphoneError: null,
 };
 
 const viewer = new DocumentViewer(byId("documentStage"), {
@@ -66,6 +80,7 @@ const onsetEngine = new OnsetEngine({
     byId("levelBar").style.width = `${Math.round(level * 100)}%`;
   },
   onError: (error) => toast(readableError(error)),
+  onState: (status, error) => updateMicrophoneStatus(status, error),
 });
 
 const midiInput = new MidiInput({
@@ -132,7 +147,9 @@ function renderLibrary() {
   for (const piece of pieces) {
     const card = document.createElement("article");
     card.className = "piece-card";
-    const format = piece.musicXmlAsset ? "PDF + MusicXML" : piece.pdfAsset ? "PDF" : "MusicXML";
+    const format = piece.structuredScoreId
+      ? "PDF reconhecido"
+      : piece.musicXmlAsset ? "PDF + MusicXML" : piece.pdfAsset ? "Estudo PDF" : "MusicXML";
     card.innerHTML = `
       <div class="piece-card-top">
         <span class="score-thumbnail" aria-hidden="true"></span>
@@ -144,6 +161,7 @@ function renderLibrary() {
         <span class="tag">${format}</span>
         <span class="tag">${piece.bpm} bpm</span>
         <span class="tag">${escapeHtml(piece.timeSignature)}</span>
+        ${piece.studyProfile?.pageCount ? `<span class="tag">${piece.studyProfile.pageCount} pág.</span>` : ""}
       </div>
       <button class="primary-button">Abrir partitura</button>
     `;
@@ -203,6 +221,10 @@ function acceptFiles(files) {
     /\.pdf$/i.test(file.name) || /\.(xml|musicxml)$/i.test(file.name),
   );
   state.selectedFiles = accepted;
+  const pdfFile = accepted.find((file) => /\.pdf$/i.test(file.name));
+  if (pdfFile && !byId("pieceTitle").value.trim()) {
+    byId("pieceTitle").value = pdfFile.name.replace(/\.pdf$/i, "").replaceAll(/[_-]+/g, " ").trim();
+  }
   renderSelectedFiles();
   if (accepted.length !== files.length) {
     toast("Nesta versão, selecione arquivos PDF, XML ou MusicXML sem compactação.");
@@ -228,15 +250,39 @@ async function importPiece(event) {
     }
   }
 
+  let pdfAsset = null;
+  let pdfInfo = null;
+  try {
+    pdfAsset = await fileToStoredAsset(pdfFile);
+    if (pdfAsset) pdfInfo = await inspectPdfAsset(pdfAsset);
+  } catch (error) {
+    toast(`O PDF não pôde ser preparado: ${readableError(error)}`);
+    return;
+  }
+  const musicXmlAsset = await fileToStoredAsset(xmlFile);
+  const recognizedScore = !musicXmlAsset && pdfAsset
+    ? await identifyPublicDomainScore(pdfAsset)
+    : null;
+  const fallbackTitle = pdfFile?.name.replace(/\.pdf$/i, "").replaceAll(/[_-]+/g, " ").trim();
   const piece = {
     id: globalThis.crypto?.randomUUID?.() || `piece-${Date.now()}`,
     type: "piece",
-    title: byId("pieceTitle").value.trim() || parsed?.title || "Peça importada",
-    composer: byId("pieceComposer").value.trim() || parsed?.composer || "",
-    bpm: Number(byId("pieceBpm").value) || 72,
-    timeSignature: byId("pieceTimeSignature").value,
-    pdfAsset: await fileToStoredAsset(pdfFile),
-    musicXmlAsset: await fileToStoredAsset(xmlFile),
+    title: recognizedScore?.title || byId("pieceTitle").value.trim() || parsed?.title || pdfInfo?.title || fallbackTitle || "Peça importada",
+    composer: recognizedScore?.composer || byId("pieceComposer").value.trim() || parsed?.composer || pdfInfo?.author || "",
+    bpm: recognizedScore?.bpm || Number(byId("pieceBpm").value) || 72,
+    timeSignature: recognizedScore?.timeSignature || byId("pieceTimeSignature").value,
+    pdfAsset,
+    musicXmlAsset,
+    structuredScoreId: recognizedScore?.id || null,
+    source: recognizedScore?.source || null,
+    studyProfile: {
+      version: 1,
+      mode: musicXmlAsset || recognizedScore ? "structured" : "pdf-grid",
+      pageCount: pdfInfo?.pageCount || 1,
+      pageWidth: pdfInfo?.pageWidth || null,
+      pageHeight: pdfInfo?.pageHeight || null,
+      preparedAt: new Date().toISOString(),
+    },
     createdAt: new Date().toISOString(),
   };
 
@@ -248,8 +294,10 @@ async function importPiece(event) {
     state.selectedFiles = [];
     renderSelectedFiles();
     renderLibrary();
-    showView("libraryView");
-    toast("Peça salva neste aparelho.");
+    toast(recognizedScore
+      ? `${recognizedScore.title} reconhecida · ${recognizedScore.events.length} ataques exatos.`
+      : `PDF preparado para estudo${pdfInfo?.pageCount ? ` · ${pdfInfo.pageCount} página${pdfInfo.pageCount > 1 ? "s" : ""}` : ""}.`);
+    await openPractice(piece);
   } catch (error) {
     toast(`Não foi possível salvar: ${readableError(error)}`);
   }
@@ -282,11 +330,32 @@ function exerciseAsLegacyScore(exercise) {
 }
 
 async function openPractice(item) {
+  const displayRequest = requestStudyDisplay();
+  document.body.classList.add("study-mode");
   await stopPractice({ showResult: false });
   state.currentItem = item;
   state.currentEvents = null;
   state.currentMusicXml = "";
-  state.exactMode = item.type === "rhythm" || Boolean(item.musicXmlAsset);
+  let recognizedScore = getPublicDomainScore(item.structuredScoreId);
+  if (!recognizedScore && item.pdfAsset && !item.musicXmlAsset) {
+    try {
+      recognizedScore = await identifyPublicDomainScore(item.pdfAsset);
+      if (recognizedScore) {
+        item.structuredScoreId = recognizedScore.id;
+        item.title = recognizedScore.title;
+        item.composer = recognizedScore.composer;
+        item.bpm = recognizedScore.bpm;
+        item.timeSignature = recognizedScore.timeSignature;
+        item.source = recognizedScore.source;
+        if (item.studyProfile) item.studyProfile.mode = "structured";
+        await savePiece(item);
+        renderLibrary();
+      }
+    } catch {
+      // Um PDF não reconhecido continua disponível no modo de grade rítmica.
+    }
+  }
+  state.exactMode = item.type === "rhythm" || Boolean(item.musicXmlAsset || recognizedScore);
 
   byId("practiceTitle").textContent = item.title;
   byId("practiceComposer").textContent = (item.composer || item.style || "EXERCÍCIO").toUpperCase();
@@ -295,6 +364,7 @@ async function openPractice(item) {
   resetPracticeUi();
   showView("practiceView");
   await wakeLock.setEnabled(true);
+  const microphoneRequest = activateMicrophone();
 
   try {
     if (item.type === "rhythm") {
@@ -303,12 +373,30 @@ async function openPractice(item) {
       viewer.showRhythm((container) => renderScore(container, legacyScore, 0, false));
       setAnalysisMode("Exercício estruturado", "O aplicativo conhece cada ataque esperado. O microfone avalia o tempo; com um piano MIDI, também confere as alturas.");
       byId("pdfOnlyOptions").hidden = true;
+      setKeyboardTargets(byId("studyKeyboard"), item.events[0]?.midis || []);
+      await microphoneRequest;
+      await displayRequest;
       return;
+    }
+
+    if (item.pdfAsset && !item.studyProfile) {
+      const pdfInfo = await inspectPdfAsset(item.pdfAsset);
+      item.studyProfile = {
+        version: 1,
+        mode: item.musicXmlAsset ? "structured" : "pdf-grid",
+        pageCount: pdfInfo.pageCount,
+        pageWidth: pdfInfo.pageWidth,
+        pageHeight: pdfInfo.pageHeight,
+        preparedAt: new Date().toISOString(),
+      };
+      await savePiece(item);
     }
 
     if (item.musicXmlAsset) {
       state.currentMusicXml = xmlTextFromAsset(item.musicXmlAsset);
       state.currentEvents = parseMusicXml(state.currentMusicXml).events;
+    } else if (recognizedScore) {
+      state.currentEvents = recognizedScore.events;
     }
 
     if (item.pdfAsset) {
@@ -318,12 +406,20 @@ async function openPractice(item) {
     }
 
     if (state.currentEvents?.length) {
-      setAnalysisMode("Partitura estruturada", "O MusicXML fornece os ataques e as notas esperadas. O microfone avalia o tempo; um piano MIDI também permite conferir as alturas.");
+      setAnalysisMode(
+        recognizedScore ? "Peça reconhecida" : "Partitura estruturada",
+        recognizedScore
+          ? `${recognizedScore.title} foi associada à edição pública correspondente. O microfone avalia os ${recognizedScore.events.length} ataques; um piano MIDI também confere as alturas.`
+          : "O MusicXML fornece os ataques e as notas esperadas. O microfone avalia o tempo; um piano MIDI também permite conferir as alturas.",
+      );
       byId("pdfOnlyOptions").hidden = true;
     } else {
       setAnalysisMode("Tempo pelo PDF", "O PDF é visual: o microfone mede a proximidade de cada ataque à grade escolhida. Para conferir notas e pausas exatas, importe também o MusicXML.");
       byId("pdfOnlyOptions").hidden = false;
     }
+    setKeyboardTargets(byId("studyKeyboard"), state.currentEvents?.[0]?.midis || []);
+    await microphoneRequest;
+    await displayRequest;
   } catch (error) {
     byId("documentStage").innerHTML = `<div class="loading-state">${escapeHtml(readableError(error))}</div>`;
     toast(readableError(error));
@@ -343,6 +439,7 @@ async function selectInputMode(mode) {
   byId("levelBar").style.width = "0";
 
   if (mode === "midi") {
+    await onsetEngine.stop();
     try {
       const count = await midiInput.connect();
       if (!count) toast("Conecte e ligue o piano MIDI, depois tente novamente.");
@@ -354,6 +451,23 @@ async function selectInputMode(mode) {
     }
   } else {
     midiInput.disconnect();
+    await activateMicrophone();
+  }
+}
+
+async function activateMicrophone() {
+  state.inputMode = "microphone";
+  byId("microphoneModeButton").classList.add("active");
+  byId("midiModeButton").classList.remove("active");
+  try {
+    await onsetEngine.start();
+    state.microphoneReady = true;
+    state.microphoneError = null;
+    return true;
+  } catch (error) {
+    state.microphoneReady = false;
+    state.microphoneError = error;
+    return false;
   }
 }
 
@@ -361,9 +475,9 @@ async function startPractice() {
   if (!state.currentItem || state.practiceActive || state.countInActive) return;
   const bpm = Number(byId("tempoSlider").value);
   const beatMs = 60_000 / bpm;
-  const countBeats = Math.max(2, Math.round(
-    state.currentItem.beatsPerBar || beatsPerBar(state.currentItem.timeSignature),
-  ));
+  const countIn = createCountInPattern(state.currentItem.timeSignature);
+  const countInMs = countIn.totalBeats * beatMs;
+  const countPulseMs = countIn.pulseBeats * beatMs;
 
   state.schedule = [];
   state.attempts = [];
@@ -386,7 +500,7 @@ async function startPractice() {
     return;
   }
 
-  const startAt = performance.now() + countBeats * beatMs + 120;
+  const startAt = performance.now() + countInMs + 120;
   state.startedAt = startAt;
   if (state.currentEvents?.length) {
     state.schedule = eventsToSchedule(state.currentEvents, bpm, startAt);
@@ -401,12 +515,12 @@ async function startPractice() {
   }
 
   byId("countInDisplay").classList.add("visible");
-  for (let index = 0; index < countBeats; index += 1) {
+  for (let index = 0; index < countIn.pulses; index += 1) {
     const timer = window.setTimeout(() => {
-      const remaining = countBeats - index;
+      const remaining = countIn.pulses - index;
       byId("countInDisplay").textContent = String(remaining);
       playCountClick(index === 0);
-    }, index * beatMs);
+    }, index * countPulseMs);
     state.countTimers.push(timer);
   }
 
@@ -417,10 +531,12 @@ async function startPractice() {
     state.practiceActive = true;
     setFeedback("neutral", "VALENDO", "Acompanhe a partitura", "Escutando cada ataque.");
     practiceTick();
-  }, countBeats * beatMs + 120));
+  }, countInMs + 120));
 }
 
 function handleOnset(timestamp, midi) {
+  if (midi === null) pulseStudyKeyboard(byId("studyKeyboard"));
+  else flashKeyboardMidi(byId("studyKeyboard"), midi);
   if (!state.practiceActive) return;
 
   if (
@@ -498,6 +614,7 @@ function practiceTick() {
 }
 
 function advanceScore(index) {
+  setKeyboardTargets(byId("studyKeyboard"), state.currentEvents?.[index]?.midis || []);
   if (state.currentItem?.type === "rhythm") {
     renderScore(
       byId("documentStage"),
@@ -528,7 +645,6 @@ async function stopPractice({ showResult = true } = {}) {
   byId("countInDisplay")?.classList.remove("visible");
   byId("startPracticeButton").disabled = false;
   byId("stopPracticeButton").disabled = true;
-  await onsetEngine.stop();
 
   if (showResult && hadActivity) showPracticeResult();
 }
@@ -589,10 +705,30 @@ function showPracticeResult() {
 
 async function leavePractice() {
   await stopPractice({ showResult: false });
+  await onsetEngine.stop();
   await wakeLock.setEnabled(false);
   midiInput.disconnect();
   viewer.clear();
+  setKeyboardTargets(byId("studyKeyboard"), []);
+  document.body.classList.remove("study-mode");
+  await exitStudyDisplay();
   showView("libraryView");
+}
+
+function updateMicrophoneStatus(status, error = null) {
+  const panel = byId("microphoneStatus");
+  const retry = byId("retryMicrophoneButton");
+  if (!panel) return;
+  panel.className = `microphone-status ${status}`;
+  retry.hidden = status !== "error";
+  const copy = {
+    requesting: ["Solicitando microfone", "Permita o acesso quando o navegador solicitar."],
+    active: ["Microfone ativo", "Calibrado e escutando o instrumento."],
+    stopped: ["Microfone pausado", "Selecione Microfone para reativar."],
+    error: ["Microfone bloqueado", readableError(error)],
+  }[status] || ["Preparando microfone", "Aguarde um instante."];
+  panel.querySelector("strong").textContent = copy[0];
+  panel.querySelector("small").textContent = copy[1];
 }
 
 let countAudioContext = null;
@@ -616,7 +752,10 @@ async function playCountClick(accent = false) {
 }
 
 function readableError(error) {
-  if (error?.name === "NotAllowedError") return "Permita o acesso ao microfone nas configurações do navegador.";
+  if (!globalThis.isSecureContext) return "Abra o aplicativo pelo endereço HTTPS para usar o microfone.";
+  if (error?.name === "NotAllowedError") return "Permita o microfone nas configurações do site e toque em “Tentar novamente”.";
+  if (error?.name === "NotFoundError") return "Nenhum microfone foi encontrado neste aparelho.";
+  if (error?.name === "NotReadableError") return "O microfone está sendo usado por outro aplicativo.";
   if (error?.name === "QuotaExceededError") return "Não há espaço local suficiente para salvar este arquivo.";
   return error?.message || String(error || "Ocorreu um erro.");
 }
@@ -666,6 +805,9 @@ byId("dropZone").addEventListener("drop", (event) => {
   acceptFiles(event.dataTransfer.files);
 });
 byId("leavePracticeButton").addEventListener("click", leavePractice);
+byId("fullscreenButton").addEventListener("click", () => requestStudyDisplay());
+byId("rotateFullscreenButton").addEventListener("click", () => requestStudyDisplay());
+byId("retryMicrophoneButton").addEventListener("click", activateMicrophone);
 byId("microphoneModeButton").addEventListener("click", () => selectInputMode("microphone"));
 byId("midiModeButton").addEventListener("click", () => selectInputMode("midi"));
 byId("startPracticeButton").addEventListener("click", startPractice);
@@ -677,10 +819,18 @@ byId("previousPageButton").addEventListener("click", () => viewer.previousPage()
 byId("nextPageButton").addEventListener("click", () => viewer.nextPage());
 byId("zoomOutButton").addEventListener("click", () => viewer.zoomBy(-0.12));
 byId("zoomInButton").addEventListener("click", () => viewer.zoomBy(0.12));
+renderStudyKeyboard(byId("studyKeyboard"), {
+  onPress: (midi) => handleOnset(performance.now(), midi),
+});
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && state.currentView === "practiceView") {
     wakeLock.setEnabled(true);
   }
+});
+let viewerResizeTimer = null;
+window.addEventListener("resize", () => {
+  window.clearTimeout(viewerResizeTimer);
+  viewerResizeTimer = window.setTimeout(() => viewer.resize(), 180);
 });
 
 if ("serviceWorker" in navigator) {
