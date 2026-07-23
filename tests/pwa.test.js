@@ -15,6 +15,7 @@ test('arquivos essenciais da PWA existem', () => {
     'src/app.js',
     'src/core/audio-engine.js',
     'src/core/music.js',
+    'src/core/screen-wake-lock.js',
     'src/data/catalog.js',
     'src/ui/score-renderer.js',
     'src/ui/focus-mode.js',
@@ -58,4 +59,15 @@ test('partitura ampliada no modo foco', () => {
   assert.match(focus, /35 20 850 245/);
   assert.match(focus, /clamp\(135px,28dvh,205px\)/);
   assert.match(focus, /applyScoreSizing/);
+});
+
+test('interface oferece exercícios livres e proteção de tela', () => {
+  const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+  const app = fs.readFileSync(path.join(root, 'src/app.js'), 'utf8');
+
+  assert.match(index, /PRÁTICA SEM BLOQUEIOS/);
+  assert.match(index, /catalogLevelFilter/);
+  assert.match(index, /keepScreenAwakeSetting/);
+  assert.match(app, /ScreenWakeLockManager/);
+  assert.doesNotMatch(app, /Bloqueada/);
 });

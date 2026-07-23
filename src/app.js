@@ -10,18 +10,26 @@ import {
   noteToMidi as u,
 } from "./core/music.js";
 import { renderScore as m } from "./ui/score-renderer.js";
+import { ScreenWakeLockManager } from "./core/screen-wake-lock.js";
 const p = "aula-piano-progress-v1",
   g = "aula-piano-settings-v1",
   v = {
     correct: 0,
     attempts: 0,
     completedLessons: [],
+    completedSongs: [],
     bestBySong: {},
     activities: [],
     practiceDays: [],
   };
 let h = ot(p, v),
-  f = ot(g, { concertPitch: 440, centsTolerance: 40, showNoteNames: !0, vibration: !0 }),
+  f = ot(g, {
+    concertPitch: 440,
+    centsTolerance: 40,
+    showNoteNames: !0,
+    vibration: !0,
+    keepScreenAwake: !0,
+  }),
   y = n(e[0].songId),
   b = e[0],
   C = 0,
@@ -39,6 +47,7 @@ let h = ot(p, v),
   P = 0,
   suppressUntil = 0, // até quando o microfone deve ignorar sons emitidos pelo app
   heldMidi = null; // última nota confirmada pelo microfone, ainda sustentada
+let currentView = "homeView";
 const onMetronomeBeat = () => {
   suppressUntil = Math.max(suppressUntil, Date.now() + 160);
 };
@@ -97,46 +106,92 @@ const k = (t) => document.getElementById(t),
     },
     onError: (t) => it(ct(t)),
   });
+const wakeLock = new ScreenWakeLockManager({
+  onStatus: (status) => {
+    const label = k("wakeLockStatus");
+    if (!label) return;
+    label.textContent =
+      status === "active"
+        ? "Tela protegida durante a prática"
+        : status === "unsupported"
+          ? "Não disponível neste navegador"
+          : status === "error" || status === "released"
+            ? "O sistema liberou a tela; toque para reativar"
+            : f.keepScreenAwake
+              ? "Ativa ao abrir um exercício"
+              : "Desativada";
+  },
+});
+
+async function syncWakeLock(view = currentView) {
+  currentView = view;
+  await wakeLock.setEnabled(f.keepScreenAwake && currentView === "practiceView");
+}
+
+function normalizedSlug(value = "") {
+  return String(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("pt-BR")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+}
+
+function exerciseLevel(song) {
+  if (song.level) return song.level;
+  if (song.difficulty <= 2) return "iniciante";
+  if (song.difficulty === 3) return "intermediario";
+  return "avancado";
+}
+
+function levelLabel(level) {
+  return (
+    { iniciante: "Iniciante", intermediario: "Intermediário", avancado: "Avançado" }[level] ||
+    level
+  );
+}
 function q(t) {
   (document.querySelectorAll(".view").forEach((e) => e.classList.toggle("active", e.id === t)),
     document
       .querySelectorAll(".nav-button")
       .forEach((e) => e.classList.toggle("active", e.dataset.view === t)),
     "progressView" === t && Y(),
+    void syncWakeLock(t),
     window.scrollTo({ top: 0, behavior: "smooth" }));
 }
 function V() {
-  const t = h.attempts ? Math.round((h.correct / h.attempts) * 100) : 0,
-    n = new Set(h.completedLessons),
-    o = Math.round((n.size / e.length) * 100);
-  ((k("levelStat").textContent = String(Math.min(e.length, n.size + 1))),
-    (k("accuracyStat").textContent = `${t}%`),
+  const accuracy = h.attempts ? Math.round((h.correct / h.attempts) * 100) : 0,
+    completed = new Set(h.completedLessons),
+    completedSongs = new Set(h.completedSongs || []),
+    completedChoices = e.filter(
+      (lesson) => completed.has(lesson.id) || completedSongs.has(lesson.songId),
+    ).length,
+    progress = Math.round((completedChoices / e.length) * 100);
+  ((k("levelStat").textContent = String(completedSongs.size)),
+    (k("accuracyStat").textContent = `${accuracy}%`),
     (k("correctStat").textContent = String(h.correct)),
     (k("streakStat").textContent = `${_(h.practiceDays)} dias`),
-    (k("lessonProgressLabel").textContent = `${o}% concluído`));
-  const a = k("lessonList");
-  a.replaceChildren();
-  const c = Z();
-  e.forEach((t, o) => {
-    const i = n.has(t.id),
-      r = 0 === o || n.has(e[o - 1].id) || i,
-      s = document.createElement("article");
-    ((s.className = "lesson-card" + (i ? " completed" : "")),
-      (s.innerHTML = `
-      <div class="lesson-index">${i ? "✓" : o + 1}</div>
+    (k("lessonProgressLabel").textContent = `${progress}% concluído · escolha livre`));
+  const list = k("lessonList");
+  list.replaceChildren();
+  e.forEach((lesson) => {
+    const isCompleted = completed.has(lesson.id) || completedSongs.has(lesson.songId),
+      song = n(lesson.songId),
+      card = document.createElement("article");
+    ((card.className = "lesson-card" + (isCompleted ? " completed" : "")),
+      (card.innerHTML = `
+      <div class="lesson-index">${isCompleted ? "✓" : "♫"}</div>
       <div class="lesson-copy">
-        <h3>${st(t.title)}</h3>
-        <p>${st(t.description)}</p>
+        <h3>${st(lesson.title)}</h3>
+        <p>${st(lesson.description)} · ${levelLabel(exerciseLevel(song))}</p>
       </div>
       <div class="lesson-meta">
-        <span>Meta</span><strong>${t.minAccuracy}%</strong>
+        <span>Meta livre</span><strong>${lesson.minAccuracy}%</strong>
       </div>
-      <button class="${t.id === c.id ? "primary-button" : "secondary-button"}" ${r ? "" : "disabled"}>
-        ${i ? "Repetir" : r ? (t.id === c.id ? "Começar" : "Abrir") : "Bloqueada"}
-      </button>
+      <button class="secondary-button">${isCompleted ? "Repetir" : "Praticar"}</button>
     `),
-      s.querySelector("button").addEventListener("click", () => r && H(t)),
-      a.append(s));
+      card.querySelector("button").addEventListener("click", () => H(lesson)),
+      list.append(card));
   });
 }
 function H(t) {
@@ -185,10 +240,18 @@ function O() {
 function z() {
   const e = k("catalogSearch")?.value.trim().toLocaleLowerCase("pt-BR") || "",
     n = k("catalogFilter")?.value || "all",
+    levelFilter = k("catalogLevelFilter")?.value || "all",
     o = t.filter((t) => {
-      const o = "all" === n || t.category === n,
-        a = `${t.title} ${t.originalTitle} ${t.composer}`.toLocaleLowerCase("pt-BR");
-      return o && a.includes(e);
+      const categoryMatches =
+          "all" === n ||
+          t.category === n ||
+          (n.startsWith("style:") && normalizedSlug(t.style) === n.slice(6)),
+        levelMatches = levelFilter === "all" || exerciseLevel(t) === levelFilter,
+        searchable =
+          `${t.title} ${t.originalTitle} ${t.composer} ${t.style || ""} ${t.practiceFocus || ""}`.toLocaleLowerCase(
+            "pt-BR",
+          );
+      return categoryMatches && levelMatches && searchable.includes(e);
     }),
     a = k("catalogGrid");
   a &&
@@ -201,14 +264,17 @@ function z() {
       <div class="catalog-card-top">
         <div>
           <h3>${st(t.title)}</h3>
-          <p>${st(t.originalTitle)}<br>${st(t.composer)}</p>
+          <p>${t.practiceFocus ? st(t.practiceFocus) : `${st(t.originalTitle)}<br>${st(t.composer)}`}</p>
         </div>
         <span class="difficulty" title="Dificuldade">${t.difficulty}</span>
       </div>
       <div class="tags">
         <span class="tag">${c(t.category)}</span>
+        ${t.style ? `<span class="tag">${st(t.style)}</span>` : ""}
+        <span class="tag">${levelLabel(exerciseLevel(t))}</span>
         <span class="tag">${t.bpm} bpm</span>
         <span class="tag">Tom: ${st(t.key)}</span>
+        ${t.timeSignature ? `<span class="tag">${st(t.timeSignature)}</span>` : ""}
         ${e ? `<span class="tag">Melhor: ${e}%</span>` : ""}
       </div>
       <button class="secondary-button">Praticar trecho</button>
@@ -301,6 +367,7 @@ function J(t, e = 0, n = "unknown") {
         ? (function () {
             const t = $ ? Math.round((w / $) * 100) : 100;
             ((h.bestBySong[y.id] = Math.max(h.bestBySong[y.id] || 0, t)),
+              h.completedSongs.includes(y.id) || h.completedSongs.push(y.id),
               b &&
                 t >= b.minAccuracy &&
                 !h.completedLessons.includes(b.id) &&
@@ -332,7 +399,7 @@ function J(t, e = 0, n = "unknown") {
               ),
               it(
                 t >= (b?.minAccuracy || 75)
-                  ? "Nova etapa liberada."
+                  ? "Meta atingida. Todos os exercícios continuam disponíveis."
                   : "Repita para aumentar a precisão.",
               ),
               V(),
@@ -421,10 +488,10 @@ async function Q() {
   else it("Web MIDI não está disponível neste navegador. Use o microfone ou o teclado virtual.");
 }
 function Y() {
-  const t = h.attempts ? Math.round((h.correct / h.attempts) * 100) : 0;
+  const accuracy = h.attempts ? Math.round((h.correct / h.attempts) * 100) : 0;
   k("progressSummary").innerHTML = `
-    <article class="progress-card"><span>Precisão geral</span><strong>${t}%</strong></article>
-    <article class="progress-card"><span>Aulas concluídas</span><strong>${h.completedLessons.length}/${e.length}</strong></article>
+    <article class="progress-card"><span>Precisão geral</span><strong>${accuracy}%</strong></article>
+    <article class="progress-card"><span>Exercícios concluídos</span><strong>${h.completedSongs.length}/${t.length}</strong></article>
     <article class="progress-card"><span>Dias consecutivos</span><strong>${_(h.practiceDays)}</strong></article>
   `;
   const n = k("activityList");
@@ -446,9 +513,6 @@ function Y() {
 function X() {
   window.confirm("Apagar todo o progresso salvo neste dispositivo?") &&
     ((h = structuredClone(v)), et(), V(), z(), Y(), it("Progresso apagado."));
-}
-function Z() {
-  return e.find((t) => !h.completedLessons.includes(t.id)) || e.at(-1);
 }
 function _(t) {
   if (!t.length) return 0;
@@ -514,9 +578,7 @@ function st(t) {
   t.addEventListener("click", () => q(t.dataset.view));
 }),
   k("backToHome").addEventListener("click", () => q("homeView")),
-  k("resumeButton").addEventListener("click", () => {
-    H(Z());
-  }),
+  k("resumeButton").addEventListener("click", () => q("catalogView")),
   k("listenButton").addEventListener("click", U),
   k("demoButton").addEventListener("click", G),
   k("metronomeButton").addEventListener("click", K),
@@ -529,6 +591,7 @@ function st(t) {
   k("midiButton").addEventListener("click", Q),
   k("catalogSearch").addEventListener("input", z),
   k("catalogFilter").addEventListener("change", z),
+  k("catalogLevelFilter").addEventListener("change", z),
   k("resetProgressButton").addEventListener("click", X),
   k("concertPitch").addEventListener("input", (t) => {
     ((f.concertPitch = Number(t.target.value)),
@@ -551,10 +614,20 @@ function st(t) {
   k("vibrationSetting").addEventListener("change", (t) => {
     ((f.vibration = t.target.checked), nt());
   }),
+  k("keepScreenAwakeSetting").addEventListener("change", async (t) => {
+    f.keepScreenAwake = t.target.checked;
+    nt();
+    await syncWakeLock();
+    it(
+      f.keepScreenAwake
+        ? "A tela permanecerá ligada durante os exercícios."
+        : "Proteção de tela desativada.",
+    );
+  }),
   (function () {
     const t = k("pianoKeyboard");
     t.replaceChildren();
-    for (let e = 48; e <= 84; e += 1) {
+    for (let e = 36; e <= 84; e += 1) {
       const n = document.createElement("button");
       ((n.className = "piano-key" + (r(e) ? " black" : "")),
         (n.dataset.midi = String(e)),
@@ -581,6 +654,12 @@ function st(t) {
   (k("centsToleranceValue").textContent = `±${f.centsTolerance} cents`),
   (k("showNoteNamesSetting").checked = f.showNoteNames),
   (k("vibrationSetting").checked = f.vibration),
+  (k("keepScreenAwakeSetting").checked = f.keepScreenAwake),
+  (k("wakeLockStatus").textContent = wakeLock.supported
+    ? f.keepScreenAwake
+      ? "Ativa ao abrir um exercício"
+      : "Desativada"
+    : "Não disponível neste navegador"),
   j(y, b, !1),
   "serviceWorker" in navigator &&
     window.addEventListener("load", () =>
@@ -591,4 +670,7 @@ function st(t) {
   }),
   k("installButton").addEventListener("click", async () => {
     N && (N.prompt(), await N.userChoice, (N = null), (k("installButton").hidden = !0));
+  }),
+  window.addEventListener("pagehide", () => {
+    void wakeLock.destroy();
   }));

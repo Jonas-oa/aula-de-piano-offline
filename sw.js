@@ -1,4 +1,4 @@
-const CACHE_NAME = 'aula-piano-v9-scroll-sustain-034';
+const CACHE_NAME = 'aula-piano-v10-rhythm-wakelock-040';
 const APP_SHELL = [
   './',
   './index.html',
@@ -7,6 +7,7 @@ const APP_SHELL = [
   './src/app.js',
   './src/core/audio-engine.js',
   './src/core/playback-fixes.js',
+  './src/core/screen-wake-lock.js',
   './src/core/music.js',
   './src/data/catalog.js',
   './src/ui/score-renderer.js',

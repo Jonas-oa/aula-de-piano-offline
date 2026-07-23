@@ -39,7 +39,12 @@ export function isBlackKey(midi) {
 }
 
 export function categoryLabel(category) {
-  return ({ classical: 'Clássica', hymn: 'Hino/Gospel', exercise: 'Exercício' })[category] || category;
+  return ({
+    classical: 'Clássica',
+    hymn: 'Hino/Gospel',
+    exercise: 'Exercício',
+    rhythm: 'Ritmo · duas mãos',
+  })[category] || category;
 }
 
 export function formatDuration(duration) {

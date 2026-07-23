@@ -19,10 +19,33 @@ import {
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 test('catálogo possui repertório inicial amplo e dividido por categoria', () => {
-  assert.ok(catalog.length >= 30);
+  assert.ok(catalog.length >= 60);
   assert.ok(catalog.filter((song) => song.category === 'classical').length >= 10);
   assert.ok(catalog.filter((song) => song.category === 'hymn').length >= 10);
   assert.ok(catalog.filter((song) => song.category === 'exercise').length >= 6);
+  assert.ok(catalog.filter((song) => song.category === 'rhythm').length >= 24);
+});
+
+test('biblioteca rítmica oferece escolha livre, duas mãos e níveis variados', () => {
+  const rhythm = catalog.filter((song) => song.category === 'rhythm');
+  const requiredStyles = ['Jazz', 'Blues', 'Forró/Baião', 'Samba', 'Gospel'];
+
+  assert.equal(rhythm.length, 24);
+  assert.deepEqual(new Set(rhythm.map((song) => song.level)), new Set(['iniciante', 'intermediario', 'avancado']));
+  requiredStyles.forEach((style) => {
+    assert.ok(rhythm.some((song) => song.style === style), `Ritmo ausente: ${style}`);
+  });
+
+  for (const song of rhythm) {
+    assert.equal(song.clef, 'grand', `${song.id} não usa pauta dupla`);
+    assert.ok(song.timeSignature, `${song.id} não informa compasso`);
+    assert.ok(song.practiceFocus, `${song.id} não informa objetivo`);
+    assert.match(song.license, /CC0-1\.0/);
+    const beats = song.notes.reduce((sum, event) => sum + event.duration, 0);
+    assert.equal(beats % song.beatsPerBar, 0, `${song.id} termina fora do compasso`);
+    assert.ok(song.notes.some((event) => event.pitches.some((pitch) => noteToMidi(pitch.pitch) < 60)));
+    assert.ok(song.notes.some((event) => event.pitches.some((pitch) => noteToMidi(pitch.pitch) >= 60)));
+  }
 });
 
 test('todas as músicas possuem eventos, notas e parâmetros didáticos válidos', () => {
@@ -153,10 +176,11 @@ test('melodias principais das aulas estão completas', () => {
   assert.ok(getSong('fur-elise').notes.length >= 80);
 });
 
-test('shell offline inclui os módulos da versão 0.3.4', () => {
+test('shell offline inclui os módulos da versão 0.4.0', () => {
   const worker = fs.readFileSync(path.join(root, 'sw.js'), 'utf8');
   const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
-  assert.match(worker, /aula-piano-v9-scroll-sustain-034/);
+  assert.match(worker, /aula-piano-v10-rhythm-wakelock-040/);
   assert.match(worker, /src\/core\/playback-fixes\.js/);
+  assert.match(worker, /src\/core\/screen-wake-lock\.js/);
   assert.match(index, /src\/core\/playback-fixes\.js/);
 });

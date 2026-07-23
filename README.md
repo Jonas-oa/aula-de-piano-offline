@@ -9,12 +9,14 @@ Protótipo funcional de um aplicativo educacional de piano que:
 - oferece **Modo Foco**, deixando apenas partitura e teclado na área principal;
 - rola a partitura suavemente conforme o exercício avança;
 - reproduz um timbre sintetizado mais próximo de piano;
-- progride por aulas com metas crescentes de precisão;
+- mantém a tela ligada enquanto a área de prática está aberta, quando o navegador permite;
+- permite escolher qualquer exercício, sem fases ou bloqueios;
+- inclui estudos originais de ritmo e coordenação para duas mãos;
 - guarda o progresso apenas no dispositivo;
 - funciona como PWA offline após o primeiro carregamento;
 - pode ser publicado diretamente no GitHub Pages.
 
-## Estado atual — versão 0.3.3
+## Estado atual — versão 0.4.0
 
 A partitura, o catálogo e a avaliação são **polifônicos**: eventos podem conter acordes e notas de duas mãos (notação `C3:4+E4:1`), a pauta dupla (claves de Sol e Fá) é desenhada quando a música usa `clef: "grand"`, e o exercício avança quando todas as notas do evento são tocadas — em qualquer ordem — via teclado MIDI ou teclado virtual.
 
@@ -24,7 +26,13 @@ A demonstração passou a respeitar a duração individual de cada nota do acord
 
 A partitura usa uma janela fixa e desloca somente a faixa interna das notas. Isso evita que o recorte acompanhe o movimento e mantém a nota atual próxima à linha-guia. A fórmula 3/8 de **Für Elise** também é considerada ao posicionar as barras de compasso.
 
-O catálogo inicial contém mais de 30 trechos didáticos entre clássicos, hinos/gospel históricos e exercícios técnicos. As transcrições devem passar por revisão musical antes de uma publicação comercial.
+O catálogo contém mais de 60 itens entre clássicos, hinos/gospel históricos, exercícios técnicos e 24 estudos rítmicos originais para duas mãos. Os estudos cobrem níveis iniciante, intermediário e avançado e incluem Jazz, Blues, Forró/Baião, Samba, Gospel, Bossa nova, Pop/Rock, Reggae, Funk/Soul, ritmos latinos e Valsa.
+
+Não existem fases bloqueadas: o aluno pode abrir qualquer item pelo catálogo ou pela seleção livre da tela inicial. Os filtros permitem escolher estilo e dificuldade.
+
+## Tela ligada durante a prática
+
+A preferência **Manter a tela ligada durante a prática** vem ativada por padrão. O app solicita o Screen Wake Lock ao abrir um exercício, libera o recurso ao sair da prática e tenta readquiri-lo quando a página volta ao primeiro plano. A função exige HTTPS ou `localhost` e depende do suporte do navegador e das condições do dispositivo.
 
 ## Modo Foco
 
@@ -63,6 +71,7 @@ src/
   app.js
   core/audio-engine.js
   core/playback-fixes.js
+  core/screen-wake-lock.js
   core/music.js
   data/catalog.js
   ui/score-renderer.js
@@ -80,6 +89,10 @@ tests/
 4. Reconhecimento polifônico offline usando modelo WebAssembly/WebGPU, mantendo MIDI como modo de alta precisão.
 5. Pedal de sustain e liberação real de notas para teclado MIDI.
 6. Painel de professor, criação de aulas e exportação de relatórios.
+
+## Referências dos estudos rítmicos
+
+Os padrões do catálogo foram compostos para o projeto e licenciados em CC0-1.0. As referências educacionais e os critérios de adaptação estão documentados em [`RHYTHM_REFERENCES.md`](./RHYTHM_REFERENCES.md).
 
 ## Privacidade
 
