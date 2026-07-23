@@ -426,7 +426,9 @@ function durationSymbol(duration) {
   if (duration >= 4) return '4 tempos';
   if (duration >= 2) return '2 tempos';
   if (duration >= 1) return '1 tempo';
-  return '½ tempo';
+  if (duration >= 0.5) return '½ tempo';
+  if (duration >= 0.25) return '¼ de tempo';
+  return 'subdivisão';
 }
 
 function safeId(value) {
@@ -439,5 +441,3 @@ function create(tag, attributes = {}, text = '') {
   if (text) node.textContent = text;
   return node;
 }
-
-import('./focus-mode.js').catch(() => {});

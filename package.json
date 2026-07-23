@@ -1,9 +1,9 @@
 {
-  "name": "aula-piano-offline",
-  "version": "0.4.0",
+  "name": "partitura-viva",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "PWA offline para ensino de piano com detecção de notas.",
+  "description": "PWA offline para estudar peças completas pela partitura, com avaliação rítmica por microfone ou MIDI.",
   "scripts": {
     "test": "node --test",
     "serve": "python3 -m http.server 8080"
