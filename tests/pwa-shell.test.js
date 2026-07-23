@@ -15,6 +15,7 @@ test("shell offline inclui leitores, biblioteca e avaliador rítmico", () => {
     "onset-engine.js",
     "study-display.js",
     "timing-evaluator.js",
+    "public-domain-scores.js",
     "rhythm-exercises.js",
     "document-viewer.js",
     "piano-keyboard.js",
@@ -24,7 +25,7 @@ test("shell offline inclui leitores, biblioteca e avaliador rítmico", () => {
   ]) {
     assert.match(worker, new RegExp(asset.replaceAll(".", "\\.")));
   }
-  assert.match(worker, /partitura-viva-v2-study-101/);
+  assert.match(worker, /partitura-viva-v2-study-102/);
 });
 
 test("interface é centrada em repertório, importação e partitura", () => {

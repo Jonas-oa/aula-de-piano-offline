@@ -38,6 +38,17 @@ export function createPulseGrid({
   return eventsToSchedule(events, bpm, startMs);
 }
 
+export function createCountInPattern(timeSignature = "4/4") {
+  const [numerator, denominator] = String(timeSignature).split("/").map(Number);
+  if (!numerator || !denominator) {
+    return { pulses: 4, pulseBeats: 1, totalBeats: 4 };
+  }
+  const compound = denominator === 8 && numerator > 3 && numerator % 3 === 0;
+  const pulses = compound ? numerator / 3 : numerator;
+  const pulseBeats = compound ? 1.5 : 4 / denominator;
+  return { pulses, pulseBeats, totalBeats: pulses * pulseBeats };
+}
+
 export function matchOnset(schedule, onsetMs, {
   toleranceMs = 110,
   searchWindowMs = 380,

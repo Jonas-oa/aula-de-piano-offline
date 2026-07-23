@@ -1,5 +1,9 @@
 import { rhythmExercises } from "./data/rhythm-exercises.js";
 import {
+  getPublicDomainScore,
+  identifyPublicDomainScore,
+} from "./data/public-domain-scores.js";
+import {
   deletePiece,
   fileToStoredAsset,
   listPieces,
@@ -10,6 +14,7 @@ import { MidiInput, OnsetEngine } from "./core/onset-engine.js";
 import { ScreenWakeLockManager } from "./core/screen-wake-lock.js";
 import { exitStudyDisplay, requestStudyDisplay } from "./core/study-display.js";
 import {
+  createCountInPattern,
   createPulseGrid,
   eventsToSchedule,
   markMissed,
@@ -142,7 +147,9 @@ function renderLibrary() {
   for (const piece of pieces) {
     const card = document.createElement("article");
     card.className = "piece-card";
-    const format = piece.musicXmlAsset ? "PDF + MusicXML" : piece.pdfAsset ? "Estudo PDF" : "MusicXML";
+    const format = piece.structuredScoreId
+      ? "PDF reconhecido"
+      : piece.musicXmlAsset ? "PDF + MusicXML" : piece.pdfAsset ? "Estudo PDF" : "MusicXML";
     card.innerHTML = `
       <div class="piece-card-top">
         <span class="score-thumbnail" aria-hidden="true"></span>
@@ -253,19 +260,24 @@ async function importPiece(event) {
     return;
   }
   const musicXmlAsset = await fileToStoredAsset(xmlFile);
+  const recognizedScore = !musicXmlAsset && pdfAsset
+    ? await identifyPublicDomainScore(pdfAsset)
+    : null;
   const fallbackTitle = pdfFile?.name.replace(/\.pdf$/i, "").replaceAll(/[_-]+/g, " ").trim();
   const piece = {
     id: globalThis.crypto?.randomUUID?.() || `piece-${Date.now()}`,
     type: "piece",
-    title: byId("pieceTitle").value.trim() || parsed?.title || pdfInfo?.title || fallbackTitle || "Peça importada",
-    composer: byId("pieceComposer").value.trim() || parsed?.composer || pdfInfo?.author || "",
-    bpm: Number(byId("pieceBpm").value) || 72,
-    timeSignature: byId("pieceTimeSignature").value,
+    title: recognizedScore?.title || byId("pieceTitle").value.trim() || parsed?.title || pdfInfo?.title || fallbackTitle || "Peça importada",
+    composer: recognizedScore?.composer || byId("pieceComposer").value.trim() || parsed?.composer || pdfInfo?.author || "",
+    bpm: recognizedScore?.bpm || Number(byId("pieceBpm").value) || 72,
+    timeSignature: recognizedScore?.timeSignature || byId("pieceTimeSignature").value,
     pdfAsset,
     musicXmlAsset,
+    structuredScoreId: recognizedScore?.id || null,
+    source: recognizedScore?.source || null,
     studyProfile: {
       version: 1,
-      mode: musicXmlAsset ? "structured" : "pdf-grid",
+      mode: musicXmlAsset || recognizedScore ? "structured" : "pdf-grid",
       pageCount: pdfInfo?.pageCount || 1,
       pageWidth: pdfInfo?.pageWidth || null,
       pageHeight: pdfInfo?.pageHeight || null,
@@ -282,7 +294,9 @@ async function importPiece(event) {
     state.selectedFiles = [];
     renderSelectedFiles();
     renderLibrary();
-    toast(`PDF preparado para estudo${pdfInfo?.pageCount ? ` · ${pdfInfo.pageCount} página${pdfInfo.pageCount > 1 ? "s" : ""}` : ""}.`);
+    toast(recognizedScore
+      ? `${recognizedScore.title} reconhecida · ${recognizedScore.events.length} ataques exatos.`
+      : `PDF preparado para estudo${pdfInfo?.pageCount ? ` · ${pdfInfo.pageCount} página${pdfInfo.pageCount > 1 ? "s" : ""}` : ""}.`);
     await openPractice(piece);
   } catch (error) {
     toast(`Não foi possível salvar: ${readableError(error)}`);
@@ -322,7 +336,26 @@ async function openPractice(item) {
   state.currentItem = item;
   state.currentEvents = null;
   state.currentMusicXml = "";
-  state.exactMode = item.type === "rhythm" || Boolean(item.musicXmlAsset);
+  let recognizedScore = getPublicDomainScore(item.structuredScoreId);
+  if (!recognizedScore && item.pdfAsset && !item.musicXmlAsset) {
+    try {
+      recognizedScore = await identifyPublicDomainScore(item.pdfAsset);
+      if (recognizedScore) {
+        item.structuredScoreId = recognizedScore.id;
+        item.title = recognizedScore.title;
+        item.composer = recognizedScore.composer;
+        item.bpm = recognizedScore.bpm;
+        item.timeSignature = recognizedScore.timeSignature;
+        item.source = recognizedScore.source;
+        if (item.studyProfile) item.studyProfile.mode = "structured";
+        await savePiece(item);
+        renderLibrary();
+      }
+    } catch {
+      // Um PDF não reconhecido continua disponível no modo de grade rítmica.
+    }
+  }
+  state.exactMode = item.type === "rhythm" || Boolean(item.musicXmlAsset || recognizedScore);
 
   byId("practiceTitle").textContent = item.title;
   byId("practiceComposer").textContent = (item.composer || item.style || "EXERCÍCIO").toUpperCase();
@@ -362,6 +395,8 @@ async function openPractice(item) {
     if (item.musicXmlAsset) {
       state.currentMusicXml = xmlTextFromAsset(item.musicXmlAsset);
       state.currentEvents = parseMusicXml(state.currentMusicXml).events;
+    } else if (recognizedScore) {
+      state.currentEvents = recognizedScore.events;
     }
 
     if (item.pdfAsset) {
@@ -371,7 +406,12 @@ async function openPractice(item) {
     }
 
     if (state.currentEvents?.length) {
-      setAnalysisMode("Partitura estruturada", "O MusicXML fornece os ataques e as notas esperadas. O microfone avalia o tempo; um piano MIDI também permite conferir as alturas.");
+      setAnalysisMode(
+        recognizedScore ? "Peça reconhecida" : "Partitura estruturada",
+        recognizedScore
+          ? `${recognizedScore.title} foi associada à edição pública correspondente. O microfone avalia os ${recognizedScore.events.length} ataques; um piano MIDI também confere as alturas.`
+          : "O MusicXML fornece os ataques e as notas esperadas. O microfone avalia o tempo; um piano MIDI também permite conferir as alturas.",
+      );
       byId("pdfOnlyOptions").hidden = true;
     } else {
       setAnalysisMode("Tempo pelo PDF", "O PDF é visual: o microfone mede a proximidade de cada ataque à grade escolhida. Para conferir notas e pausas exatas, importe também o MusicXML.");
@@ -435,9 +475,9 @@ async function startPractice() {
   if (!state.currentItem || state.practiceActive || state.countInActive) return;
   const bpm = Number(byId("tempoSlider").value);
   const beatMs = 60_000 / bpm;
-  const countBeats = Math.max(2, Math.round(
-    state.currentItem.beatsPerBar || beatsPerBar(state.currentItem.timeSignature),
-  ));
+  const countIn = createCountInPattern(state.currentItem.timeSignature);
+  const countInMs = countIn.totalBeats * beatMs;
+  const countPulseMs = countIn.pulseBeats * beatMs;
 
   state.schedule = [];
   state.attempts = [];
@@ -460,7 +500,7 @@ async function startPractice() {
     return;
   }
 
-  const startAt = performance.now() + countBeats * beatMs + 120;
+  const startAt = performance.now() + countInMs + 120;
   state.startedAt = startAt;
   if (state.currentEvents?.length) {
     state.schedule = eventsToSchedule(state.currentEvents, bpm, startAt);
@@ -475,12 +515,12 @@ async function startPractice() {
   }
 
   byId("countInDisplay").classList.add("visible");
-  for (let index = 0; index < countBeats; index += 1) {
+  for (let index = 0; index < countIn.pulses; index += 1) {
     const timer = window.setTimeout(() => {
-      const remaining = countBeats - index;
+      const remaining = countIn.pulses - index;
       byId("countInDisplay").textContent = String(remaining);
       playCountClick(index === 0);
-    }, index * beatMs);
+    }, index * countPulseMs);
     state.countTimers.push(timer);
   }
 
@@ -491,7 +531,7 @@ async function startPractice() {
     state.practiceActive = true;
     setFeedback("neutral", "VALENDO", "Acompanhe a partitura", "Escutando cada ataque.");
     practiceTick();
-  }, countBeats * beatMs + 120));
+  }, countInMs + 120));
 }
 
 function handleOnset(timestamp, midi) {
