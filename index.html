@@ -28,15 +28,15 @@
       <section id="homeView" class="view active" aria-labelledby="homeTitle">
         <div class="hero-card">
           <div>
-            <p class="eyebrow">SEU PRÓXIMO PASSO</p>
-            <h2 id="homeTitle">Treine uma nota de cada vez</h2>
-            <p>O app escuta o piano, compara com a pauta e avança quando você acerta.</p>
+            <p class="eyebrow">PRÁTICA SEM BLOQUEIOS</p>
+            <h2 id="homeTitle">Escolha o exercício que deseja tocar</h2>
+            <p>Treine livremente do iniciante ao avançado, com estudos para duas mãos e ritmos variados.</p>
           </div>
-          <button id="resumeButton" class="primary-button">Continuar aula</button>
+          <button id="resumeButton" class="primary-button">Escolher exercício</button>
         </div>
 
         <div class="stats-grid" aria-label="Resumo do progresso">
-          <article class="stat-card"><span>Nível</span><strong id="levelStat">1</strong></article>
+          <article class="stat-card"><span>Exercícios concluídos</span><strong id="levelStat">0</strong></article>
           <article class="stat-card"><span>Precisão</span><strong id="accuracyStat">0%</strong></article>
           <article class="stat-card"><span>Notas certas</span><strong id="correctStat">0</strong></article>
           <article class="stat-card"><span>Sequência</span><strong id="streakStat">0 dias</strong></article>
@@ -45,10 +45,11 @@
         <section class="section-block">
           <div class="section-heading">
             <div>
-              <p class="eyebrow">TRILHA ADAPTATIVA</p>
-              <h2>Aulas</h2>
+              <p class="eyebrow">SELEÇÃO LIVRE</p>
+              <h2>Exercícios recomendados</h2>
+              <p>Todos ficam disponíveis desde o início. A ordem é apenas uma sugestão.</p>
             </div>
-            <span id="lessonProgressLabel" class="pill">0% concluído</span>
+            <span id="lessonProgressLabel" class="pill">0% concluído · escolha livre</span>
           </div>
           <div id="lessonList" class="lesson-list"></div>
         </section>
@@ -129,15 +130,33 @@
           <div>
             <p class="eyebrow">REPERTÓRIO DIDÁTICO</p>
             <h2 id="catalogTitle">Catálogo</h2>
-            <p>Trechos simplificados de obras em domínio público, sem letras.</p>
+            <p>Repertório histórico e exercícios rítmicos originais para duas mãos.</p>
           </div>
           <div class="catalog-controls">
-            <input id="catalogSearch" type="search" placeholder="Buscar música ou compositor" aria-label="Buscar no catálogo" />
+            <input id="catalogSearch" type="search" placeholder="Buscar música, ritmo ou técnica" aria-label="Buscar no catálogo" />
             <select id="catalogFilter" aria-label="Filtrar catálogo">
               <option value="all">Todas</option>
               <option value="classical">Clássicas</option>
               <option value="hymn">Hinos e gospel</option>
               <option value="exercise">Exercícios</option>
+              <option value="rhythm">Todos os ritmos</option>
+              <option value="style:jazz">Jazz</option>
+              <option value="style:blues">Blues</option>
+              <option value="style:forro-baiao">Forró/Baião</option>
+              <option value="style:samba">Samba</option>
+              <option value="style:gospel">Gospel</option>
+              <option value="style:bossa-nova">Bossa nova</option>
+              <option value="style:pop-rock">Pop/Rock</option>
+              <option value="style:reggae">Reggae</option>
+              <option value="style:funk-soul">Funk/Soul</option>
+              <option value="style:latino">Latino</option>
+              <option value="style:valsa">Valsa</option>
+            </select>
+            <select id="catalogLevelFilter" aria-label="Filtrar por dificuldade">
+              <option value="all">Todos os níveis</option>
+              <option value="iniciante">Iniciante</option>
+              <option value="intermediario">Intermediário</option>
+              <option value="avancado">Avançado</option>
             </select>
           </div>
         </div>
@@ -180,6 +199,13 @@
           <label class="setting-card switch-row">
             <span>Vibração ao acertar</span>
             <input id="vibrationSetting" type="checkbox" checked />
+          </label>
+          <label class="setting-card switch-row wake-lock-setting">
+            <span>
+              Manter a tela ligada durante a prática
+              <small id="wakeLockStatus">Ativa ao abrir um exercício</small>
+            </span>
+            <input id="keepScreenAwakeSetting" type="checkbox" checked />
           </label>
         </div>
         <article class="privacy-card">

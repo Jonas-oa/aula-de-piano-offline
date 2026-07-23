@@ -10,5 +10,6 @@
 4. Para importações do PDMX, usar preferencialmente o subconjunto `no_license_conflict` e manter metadados de origem e licença.
 5. Para IMSLP, não presumir que qualquer arquivo esteja liberado em todos os países; validar a edição específica.
 6. Novos arranjos produzidos diretamente para o projeto devem ter autoria e licença registradas no JSON do catálogo.
+7. Exercícios de estilo e ritmo devem ser composições didáticas originais. Fontes externas podem orientar conceitos, mas não devem ser copiadas nota por nota; registrar as referências em `RHYTHM_REFERENCES.md`.
 
 Esta política é operacional e não substitui revisão jurídica para distribuição comercial.
