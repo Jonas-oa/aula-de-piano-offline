@@ -170,17 +170,16 @@
           </div>
 
           <div class="toolbar-controls">
-            <div class="input-choice small" role="group" aria-label="Modo de prática">
+            <div id="modeToggle" class="input-choice small" role="group" aria-label="Modo de prática">
               <button id="teacherModeButton" class="choice-button active">Professor</button>
               <button id="tempoModeButton" class="choice-button">Tempo</button>
             </div>
             <div class="input-choice small" role="group" aria-label="Entrada do instrumento">
               <button id="microphoneModeButton" class="choice-button active" aria-label="Microfone">🎤</button>
-              <button id="midiModeButton" class="choice-button">🎹 MIDI</button>
+              <button id="midiModeButton" class="choice-button">🎹</button>
             </div>
             <label class="tempo-chip"><span aria-hidden="true">♩</span><output id="tempoOutput">72</output>
               <input id="tempoSlider" type="range" min="30" max="180" value="72" aria-label="Andamento" /></label>
-            <button id="loopToggleButton" class="chip-button loop" aria-pressed="false">↻ Repetir A–B</button>
             <div id="pdfOnlyOptions" class="pdf-options">
               <select id="subdivisionSelect" aria-label="Subdivisão da grade">
                 <option value="1">Semínimas</option>
@@ -189,11 +188,11 @@
               </select>
             </div>
             <div class="document-controls">
-              <button id="previousPageButton" class="ghost-button small" aria-label="Página anterior">‹</button>
+              <button id="previousPageButton" class="ghost-button small" aria-label="Anterior">‹</button>
               <span id="pageLabel" class="status-pill">Partitura</span>
-              <button id="nextPageButton" class="ghost-button small" aria-label="Próxima página">›</button>
-              <button id="zoomOutButton" class="ghost-button small" aria-label="Diminuir partitura">−</button>
-              <button id="zoomInButton" class="ghost-button small" aria-label="Aumentar partitura">+</button>
+              <button id="nextPageButton" class="ghost-button small" aria-label="Próxima">›</button>
+              <button id="zoomOutButton" class="ghost-button small" aria-label="Diminuir">−</button>
+              <button id="zoomInButton" class="ghost-button small" aria-label="Aumentar">+</button>
             </div>
             <button id="startPracticeButton" class="primary-button small practice-start">▶ Começar</button>
             <button id="stopPracticeButton" class="icon-button stop" aria-label="Encerrar prática" disabled>■</button>
@@ -214,11 +213,12 @@
         </div>
 
         <div class="practice-bottombar">
-          <div class="loop-controls">
+          <span id="analysisModeBadge" class="mode-badge">Partitura</span>
+          <div id="loopControls" class="loop-controls">
             <button id="markAButton" class="chip-button loop">Marcar A</button>
             <button id="markBButton" class="chip-button loop">Marcar B</button>
             <button id="clearLoopButton" class="chip-button ghost">Limpar</button>
-            <span id="analysisModeBadge" class="mode-badge">Partitura</span>
+            <button id="loopToggleButton" class="chip-button loop" aria-pressed="false">↻ Repetir A–B</button>
           </div>
           <div class="practice-stats compact">
             <div><span>No tempo</span><strong id="onTimeStat">0</strong></div>

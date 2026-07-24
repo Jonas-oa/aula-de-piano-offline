@@ -463,6 +463,7 @@ async function openPractice(item) {
   state.viewIndex = 0;
   state.loop = { a: null, b: null, active: false, count: 0 };
   reflectLoopButtons();
+  state.practiceMode = "teacher"; // cada peça abre no modo professor; PDF cai para tempo abaixo
   state.exactMode = item.type === "rhythm" || Boolean(item.musicXmlAsset);
 
   byId("practiceTitle").textContent = item.title;
@@ -498,6 +499,7 @@ async function openPractice(item) {
       byId("pdfOnlyOptions").hidden = false;
     }
     applyPracticeModeAvailability();
+    applyPieceControls();
   } catch (error) {
     byId("documentStage").innerHTML = `<div class="loading-state">${escapeHtml(readableError(error))}</div>`;
     toast(readableError(error));
@@ -521,6 +523,16 @@ function applyPracticeModeAvailability() {
     : "Disponível apenas com MusicXML ou exercícios (o PDF não traz as notas).";
   if (!hasEvents) state.practiceMode = "tempo";
   reflectPracticeMode();
+}
+
+// Mostra apenas os controles que fazem sentido para a peça aberta, evitando
+// que a barra transborde e polua a tela.
+function applyPieceControls() {
+  const structured = Boolean(state.currentScore);
+  byId("loopControls").hidden = !structured;   // laço A–B só na partitura estruturada
+  byId("modeToggle").hidden = !structured;      // Professor/Tempo só quando há notas
+  byId("zoomOutButton").hidden = structured;    // zoom só no PDF
+  byId("zoomInButton").hidden = structured;
 }
 
 function reflectPracticeMode() {
