@@ -1,4 +1,4 @@
-const CACHE_NAME = "partitura-viva-v1-101";
+const CACHE_NAME = "partitura-viva-v1-102";
 const APP_SHELL = [
   "./",
   "./index.html",
