@@ -364,6 +364,13 @@ main { width: min(1380px, calc(100% - 28px)); margin: 0 auto; padding: 26px 0 46
 .limitations[open] { position: relative; }
 .limitations[open] p { position: absolute; right: 14px; bottom: 60px; z-index: 5; width: 300px; margin: 0; padding: 12px 14px; border-radius: 12px; background: var(--ink); color: #e7e9f4; line-height: 1.4; box-shadow: var(--shadow); }
 
+.convert-overlay { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 6; width: min(440px, calc(100% - 24px)); }
+.convert-overlay > div { display: grid; gap: 6px; justify-items: center; text-align: center; padding: 14px 16px; border-radius: 15px; background: rgba(23,27,47,.92); color: #eef0f6; box-shadow: var(--shadow); backdrop-filter: blur(3px); }
+.convert-overlay strong { font-size: .95rem; }
+.convert-overlay span { color: #b9c0da; font-size: .78rem; line-height: 1.35; }
+.convert-overlay .primary-button { margin-top: 4px; }
+.convert-overlay small { color: #d7a84b; font-size: .74rem; min-height: 1em; }
+
 /* Aviso de girar (retrato) */
 .rotate-overlay { display: none; }
 @media (orientation: portrait) {

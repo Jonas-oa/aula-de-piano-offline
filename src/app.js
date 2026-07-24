@@ -529,10 +529,52 @@ function applyPracticeModeAvailability() {
 // que a barra transborde e polua a tela.
 function applyPieceControls() {
   const structured = Boolean(state.currentScore);
+  const canConvert = !structured && Boolean(state.currentItem?.pdfAsset);
   byId("loopControls").hidden = !structured;   // laço A–B só na partitura estruturada
   byId("modeToggle").hidden = !structured;      // Professor/Tempo só quando há notas
   byId("zoomOutButton").hidden = structured;    // zoom só no PDF
   byId("zoomInButton").hidden = structured;
+  byId("convertOverlay").hidden = !canConvert;  // converter em notas só em PDF sem MusicXML
+  setConvertStatus("");
+}
+
+function setConvertStatus(message) {
+  const element = byId("convertStatus");
+  if (element) element.textContent = message || "";
+}
+
+// Converte um PDF já salvo em MusicXML (OMR) e reabre a peça no modo professor.
+async function convertCurrentPiece() {
+  const item = state.currentItem;
+  if (!item?.pdfAsset) return;
+  let apiKey = loadOmrApiKey();
+  if (!apiKey) {
+    apiKey = (window.prompt("Cole sua chave da API Anthropic (fica só neste aparelho):") || "").trim();
+    if (!apiKey) return;
+    saveOmrApiKey(apiKey);
+  }
+  const model = byId("omrModel")?.value.trim() || "claude-opus-4-8";
+  const button = byId("convertPieceButton");
+  button.disabled = true;
+  setConvertStatus("Preparando as páginas do PDF…");
+  try {
+    const { images, totalPages, usedPages } = await renderPdfToImages(item.pdfAsset, { maxPages: 4 });
+    setConvertStatus(`Enviando ${usedPages} de ${totalPages} página(s) ao modelo de visão…`);
+    const xml = await transcribeMusicXml({ apiKey, model, images, hints: `${item.title} ${item.composer || ""}`.trim() });
+    const parsed = parseMusicXml(xml);
+    item.musicXmlAsset = xmlStringToAsset(`${item.title}.musicxml`, xml);
+    await savePiece(item);
+    const index = state.pieces.findIndex((piece) => piece.id === item.id);
+    if (index >= 0) state.pieces[index] = item;
+    setConvertStatus(`Pronto: ${parsed.events.length} notas reconhecidas.`);
+    toast("Convertido! Agora com trecho atual, destaque e laço.");
+    await openPractice(item);
+  } catch (error) {
+    setConvertStatus(readableError(error));
+    toast(readableError(error));
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function reflectPracticeMode() {
@@ -1026,6 +1068,7 @@ byId("previousPageButton").addEventListener("click", () => (state.currentScore ?
 byId("nextPageButton").addEventListener("click", () => (state.currentScore ? stepStructured(1) : viewer.nextPage()));
 byId("zoomOutButton").addEventListener("click", () => viewer.zoomBy(-0.12));
 byId("zoomInButton").addEventListener("click", () => viewer.zoomBy(0.12));
+byId("convertPieceButton").addEventListener("click", convertCurrentPiece);
 byId("markAButton").addEventListener("click", () => markLoop("a"));
 byId("markBButton").addEventListener("click", () => markLoop("b"));
 byId("clearLoopButton").addEventListener("click", clearLoop);
