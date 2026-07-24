@@ -10,6 +10,35 @@ export class DocumentViewer {
     this.scale = 1.25;
     this.osmd = null;
     this.renderToken = 0;
+    this.cursorIndex = 0;
+  }
+
+  // Posiciona o cursor do OSMD no evento `index` (contado a partir do início)
+  // e rola a partitura para mantê-lo visível — a base do modo professor.
+  moveCursorTo(index, { reset = false } = {}) {
+    const cursor = this.osmd?.cursor;
+    if (!cursor) return;
+    try {
+      if (reset || index < this.cursorIndex) {
+        cursor.reset();
+        this.cursorIndex = 0;
+      }
+      cursor.show();
+      let guard = 0;
+      while (this.cursorIndex < index && !cursor.iterator?.EndReached && guard < 4096) {
+        cursor.next();
+        this.cursorIndex += 1;
+        guard += 1;
+      }
+      this.scrollCursorIntoView();
+    } catch {
+      // O cursor é um auxílio visual; a avaliação continua sem ele.
+    }
+  }
+
+  scrollCursorIntoView() {
+    const element = this.osmd?.cursor?.cursorElement;
+    element?.scrollIntoView?.({ behavior: "smooth", block: "center", inline: "nearest" });
   }
 
   async showPdf(asset) {
@@ -44,6 +73,7 @@ export class DocumentViewer {
     await this.osmd.load(xmlText);
     this.osmd.Zoom = 0.82;
     this.osmd.render();
+    this.cursorIndex = 0;
     this.onPageChange({ page: 1, pages: 1, type: "musicxml" });
   }
 
