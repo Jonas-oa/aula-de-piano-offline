@@ -5,8 +5,16 @@ import {
   listPieces,
   savePiece,
 } from "./core/library-store.js";
+import { midiToPortuguese } from "./core/music.js";
 import { parseMusicXml } from "./core/musicxml.js";
 import { MidiInput, OnsetEngine } from "./core/onset-engine.js";
+import {
+  createFollowState,
+  currentEvent as currentFollowEvent,
+  forceAdvance as forceFollowAdvance,
+  progress as followProgress,
+  registerNote as registerFollowNote,
+} from "./core/follow-evaluator.js";
 import { ScreenWakeLockManager } from "./core/screen-wake-lock.js";
 import {
   createPulseGrid,
@@ -27,6 +35,7 @@ const state = {
   currentMusicXml: "",
   currentView: "libraryView",
   inputMode: "microphone",
+  practiceMode: "teacher",
   practiceActive: false,
   countInActive: false,
   schedule: [],
@@ -37,6 +46,8 @@ const state = {
   startedAt: 0,
   exactMode: false,
   lastMidiAttempt: null,
+  follow: null,
+  followStats: { correct: 0, wrong: 0 },
 };
 
 const viewer = new DocumentViewer(byId("documentStage"), {
@@ -303,6 +314,7 @@ async function openPractice(item) {
       viewer.showRhythm((container) => renderScore(container, legacyScore, 0, false));
       setAnalysisMode("Exercício estruturado", "O aplicativo conhece cada ataque esperado. O microfone avalia o tempo; com um piano MIDI, também confere as alturas.");
       byId("pdfOnlyOptions").hidden = true;
+      applyPracticeModeAvailability();
       return;
     }
 
@@ -311,10 +323,12 @@ async function openPractice(item) {
       state.currentEvents = parseMusicXml(state.currentMusicXml).events;
     }
 
-    if (item.pdfAsset) {
-      await viewer.showPdf(item.pdfAsset);
-    } else if (state.currentMusicXml) {
+    // O MusicXML é a partitura interativa (cursor + rolagem do modo professor);
+    // o PDF é usado quando não há MusicXML.
+    if (state.currentMusicXml) {
       await viewer.showMusicXml(state.currentMusicXml);
+    } else if (item.pdfAsset) {
+      await viewer.showPdf(item.pdfAsset);
     }
 
     if (state.currentEvents?.length) {
@@ -324,6 +338,7 @@ async function openPractice(item) {
       setAnalysisMode("Tempo pelo PDF", "O PDF é visual: o microfone mede a proximidade de cada ataque à grade escolhida. Para conferir notas e pausas exatas, importe também o MusicXML.");
       byId("pdfOnlyOptions").hidden = false;
     }
+    applyPracticeModeAvailability();
   } catch (error) {
     byId("documentStage").innerHTML = `<div class="loading-state">${escapeHtml(readableError(error))}</div>`;
     toast(readableError(error));
@@ -333,6 +348,38 @@ async function openPractice(item) {
 function setAnalysisMode(label, explanation) {
   byId("analysisModeBadge").textContent = label;
   byId("analysisExplanation").textContent = explanation;
+}
+
+// O modo professor só faz sentido quando o app conhece as notas escritas
+// (MusicXML ou exercício). Com PDF puro não há altura para conferir, então
+// apenas o modo de tempo fica disponível.
+function applyPracticeModeAvailability() {
+  const hasEvents = Boolean(state.currentEvents?.length);
+  const teacherButton = byId("teacherModeButton");
+  teacherButton.disabled = !hasEvents;
+  teacherButton.title = hasEvents
+    ? "Espera você tocar a nota certa para avançar."
+    : "Disponível apenas com MusicXML ou exercícios (o PDF não traz as notas).";
+  if (!hasEvents) state.practiceMode = "tempo";
+  reflectPracticeMode();
+}
+
+function reflectPracticeMode() {
+  byId("teacherModeButton").classList.toggle("active", state.practiceMode === "teacher");
+  byId("tempoModeButton").classList.toggle("active", state.practiceMode === "tempo");
+  const teacher = state.practiceMode === "teacher";
+  byId("tempoControlWrap")?.classList.toggle("dimmed", teacher);
+  byId("startPracticeButton").textContent = teacher ? "Começar a seguir" : "Começar com contagem";
+}
+
+function selectPracticeMode(mode) {
+  if (state.practiceActive || state.countInActive) return;
+  if (mode === "teacher" && !state.currentEvents?.length) {
+    toast("Modo professor precisa de MusicXML ou exercício com notas.");
+    return;
+  }
+  state.practiceMode = mode;
+  reflectPracticeMode();
 }
 
 async function selectInputMode(mode) {
@@ -359,6 +406,49 @@ async function selectInputMode(mode) {
 
 async function startPractice() {
   if (!state.currentItem || state.practiceActive || state.countInActive) return;
+  if (state.practiceMode === "teacher" && state.currentEvents?.length) {
+    await startTeacherPractice();
+  } else {
+    await startTempoPractice();
+  }
+}
+
+async function startInput() {
+  if (state.inputMode === "microphone") await onsetEngine.start();
+  else if (!midiInput.access) await midiInput.connect();
+}
+
+async function startTeacherPractice() {
+  state.schedule = [];
+  state.attempts = [];
+  state.missed = 0;
+  state.lastMidiAttempt = null;
+  state.follow = createFollowState(state.currentEvents);
+  state.followStats = { correct: 0, wrong: 0 };
+  resetPracticeUi();
+  byId("startPracticeButton").disabled = true;
+  byId("stopPracticeButton").disabled = false;
+  await wakeLock.setEnabled(true);
+
+  try {
+    await startInput();
+  } catch (error) {
+    byId("startPracticeButton").disabled = false;
+    byId("stopPracticeButton").disabled = true;
+    toast(readableError(error));
+    return;
+  }
+
+  state.practiceActive = true;
+  showFollowCursor();
+  const micHint = state.inputMode === "microphone"
+    ? "No microfone, cada ataque avança um passo — o piano MIDI confere as notas."
+    : "Toque a nota certa para avançar. Se errar, o cursor espera.";
+  setFeedback("neutral", "SIGA A PARTITURA", "Toque a primeira nota", micHint);
+  updateFollowStats();
+}
+
+async function startTempoPractice() {
   const bpm = Number(byId("tempoSlider").value);
   const beatMs = 60_000 / bpm;
   const countBeats = Math.max(2, Math.round(
@@ -423,6 +513,11 @@ async function startPractice() {
 function handleOnset(timestamp, midi) {
   if (!state.practiceActive) return;
 
+  if (state.practiceMode === "teacher" && state.follow) {
+    handleFollowOnset(midi);
+    return;
+  }
+
   if (
     midi !== null
     && state.lastMidiAttempt
@@ -461,6 +556,73 @@ function handleOnset(timestamp, midi) {
   updateStats();
   appendAttemptDot(attempt.grade);
   advanceScore(attempt.event.index + 1);
+}
+
+function expectedNoteLabel(midis = []) {
+  const list = (midis || []).filter((value) => Number.isFinite(value));
+  if (!list.length) return "próxima nota";
+  return list.map((midi) => midiToPortuguese(midi)).join(" + ");
+}
+
+function handleFollowOnset(midi) {
+  const result = midi === null
+    ? forceFollowAdvance(state.follow)
+    : registerFollowNote(state.follow, midi);
+
+  if (result.type === "idle") return;
+
+  if (result.type === "wrong") {
+    state.followStats.wrong += 1;
+    const wanted = result.remaining?.length ? result.remaining : result.expected;
+    setFeedback("late", "NOTA ERRADA", "Ainda não é essa", `Toque: ${expectedNoteLabel(wanted)}`);
+    appendAttemptDot("late");
+    updateFollowStats();
+    return;
+  }
+
+  if (result.type === "progress") {
+    setFeedback("early", "QUASE", "Complete o acorde", `Falta: ${expectedNoteLabel(result.remaining)}`);
+    return;
+  }
+
+  // advance ou complete
+  state.followStats.correct += 1;
+  appendAttemptDot("on-time");
+  moveFollowCursorTo(result.index);
+  if (result.type === "complete") {
+    setFeedback("on-time", "FIM", "Peça concluída", "Muito bem — você seguiu até o fim.");
+    updateFollowStats();
+    stopPractice({ showResult: true });
+    return;
+  }
+  const next = currentFollowEvent(state.follow);
+  setFeedback("on-time", "CERTO", "Nota correta", next?.midis?.length
+    ? `Próxima: ${expectedNoteLabel(next.midis)}`
+    : "Siga para a próxima.");
+  updateFollowStats();
+}
+
+function showFollowCursor() {
+  moveFollowCursorTo(0, { reset: true });
+}
+
+function moveFollowCursorTo(index, { reset = false } = {}) {
+  if (state.currentItem?.type === "rhythm") {
+    renderScore(byId("documentStage"), exerciseAsLegacyScore(state.currentItem), index, false);
+    return;
+  }
+  viewer.moveCursorTo(index, { reset });
+}
+
+function updateFollowStats() {
+  const { done, total } = followProgress(state.follow);
+  byId("onTimeStat").textContent = String(state.followStats.correct);
+  byId("earlyStat").textContent = String(done);
+  byId("lateStat").textContent = String(state.followStats.wrong);
+  const attempts = state.followStats.correct + state.followStats.wrong;
+  const accuracy = attempts ? Math.round((state.followStats.correct / attempts) * 100) : 0;
+  byId("accuracyStat").textContent = `${accuracy}%`;
+  byId("pageLabel").textContent = total ? `Nota ${Math.min(done + 1, total)} / ${total}` : "Partitura";
 }
 
 function updateFeedbackForAttempt(attempt) {
@@ -569,6 +731,26 @@ function setFeedback(grade, kicker, title, detail) {
 }
 
 function showPracticeResult() {
+  if (state.practiceMode === "teacher" && state.follow) {
+    const { done, total } = followProgress(state.follow);
+    const attempts = state.followStats.correct + state.followStats.wrong;
+    const accuracy = attempts ? Math.round((state.followStats.correct / attempts) * 100) : 0;
+    byId("resultContent").innerHTML = `
+      <p class="eyebrow">RESUMO DO ESTUDO</p>
+      <h2>${escapeHtml(state.currentItem?.title || "Estudo concluído")}</h2>
+      <p>${done >= total && total
+        ? "Você seguiu a peça até o fim. Aumente o trecho ou o andamento aos poucos."
+        : "Você parou no meio — retome do trecho onde ficou e siga nota a nota."}</p>
+      <div class="result-grid">
+        <div><span>Notas seguidas</span><strong>${done}/${total}</strong></div>
+        <div><span>Acertos de primeira</span><strong>${state.followStats.correct}</strong></div>
+        <div><span>Notas erradas</span><strong>${state.followStats.wrong}</strong></div>
+        <div><span>Precisão</span><strong>${accuracy}%</strong></div>
+      </div>
+    `;
+    byId("resultDialog").showModal();
+    return;
+  }
   const summary = summarizeAttempts(state.attempts, state.exactMode ? state.missed : 0);
   const noteAttempts = state.attempts.filter((attempt) => attempt.noteCorrect !== null);
   const correctNotes = noteAttempts.filter((attempt) => attempt.noteCorrect).length;
@@ -668,6 +850,8 @@ byId("dropZone").addEventListener("drop", (event) => {
 byId("leavePracticeButton").addEventListener("click", leavePractice);
 byId("microphoneModeButton").addEventListener("click", () => selectInputMode("microphone"));
 byId("midiModeButton").addEventListener("click", () => selectInputMode("midi"));
+byId("teacherModeButton").addEventListener("click", () => selectPracticeMode("teacher"));
+byId("tempoModeButton").addEventListener("click", () => selectPracticeMode("tempo"));
 byId("startPracticeButton").addEventListener("click", startPractice);
 byId("stopPracticeButton").addEventListener("click", () => stopPractice({ showResult: true }));
 byId("tempoSlider").addEventListener("input", (event) => {
