@@ -21,7 +21,7 @@ test("shell offline inclui leitores, biblioteca e avaliador rítmico", () => {
   ]) {
     assert.match(worker, new RegExp(asset.replaceAll(".", "\\.")));
   }
-  assert.match(worker, /partitura-viva-v1-105/);
+  assert.match(worker, /partitura-viva-v1-106/);
 });
 
 test("interface é centrada em repertório, importação e partitura", () => {

@@ -281,19 +281,23 @@ main { width: min(1380px, calc(100% - 28px)); margin: 0 auto; padding: 26px 0 46
 /* ===== Prática — layout paisagem fixo, sem rolagem ===== */
 #practiceView.active {
   position: fixed; inset: 0; z-index: 60;
-  display: flex; flex-direction: column; gap: 8px;
-  padding: 10px; background: #e9ebf1; overflow: hidden;
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 8px; background: #e9ebf1; overflow: hidden;
 }
-.practice-title h1 { margin: 0; font-family: Georgia, serif; font-size: clamp(1.1rem, 2.4vw, 1.5rem); font-weight: 600; line-height: 1.05; }
+[hidden] { display: none !important; }
+.practice-title { min-width: 0; }
+.practice-title h1 { margin: 0; font-family: Georgia, serif; font-size: clamp(1rem, 2vw, 1.35rem); font-weight: 600; line-height: 1.05; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 26vw; }
+.practice-title .eyebrow { white-space: nowrap; }
 
 .practice-topbar {
   flex: 0 0 auto; display: flex; align-items: center; gap: 10px;
-  padding: 8px 12px; border-radius: 16px; background: var(--ink); color: #f4f1ea;
+  padding: 6px 10px; border-radius: 14px; background: var(--ink); color: #f4f1ea;
   box-shadow: var(--shadow);
 }
 .practice-topbar .practice-title .eyebrow { color: #8b93b5; margin: 0 0 1px; font-size: .58rem; }
 .practice-topbar .practice-title h1 { color: #f4f1ea; }
-.toolbar-controls { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.toolbar-controls { margin-left: auto; display: flex; align-items: center; gap: 7px; flex-wrap: nowrap; justify-content: flex-end; overflow-x: auto; scrollbar-width: none; }
+.toolbar-controls::-webkit-scrollbar { display: none; }
 
 .input-choice { display: inline-flex; padding: 3px; border-radius: 999px; background: var(--soft); gap: 3px; }
 .choice-button { min-height: 34px; padding: 0 12px; border: 0; border-radius: 999px; background: transparent; color: var(--muted); font-size: .78rem; font-weight: 850; cursor: pointer; }
@@ -345,7 +349,8 @@ main { width: min(1380px, calc(100% - 28px)); margin: 0 auto; padding: 26px 0 46
 .level-meter span { display: block; width: 0; height: 100%; border-radius: inherit; background: var(--success); transition: width 70ms linear; }
 
 /* Barra inferior */
-.practice-bottombar { flex: 0 0 auto; display: flex; align-items: center; gap: 14px; padding: 8px 14px; border-radius: 16px; background: white; box-shadow: var(--shadow); }
+.practice-bottombar { flex: 0 0 auto; display: flex; align-items: center; gap: 12px; padding: 6px 12px; border-radius: 14px; background: white; box-shadow: var(--shadow); overflow-x: auto; scrollbar-width: none; }
+.practice-bottombar::-webkit-scrollbar { display: none; }
 .loop-controls { display: flex; align-items: center; gap: 8px; }
 .screen-status { color: var(--success); font-size: .72rem; font-weight: 800; }
 .practice-stats.compact { margin-left: auto; display: flex; align-items: center; gap: 20px; }
