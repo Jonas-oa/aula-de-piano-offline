@@ -5,7 +5,7 @@
   "type": "module",
   "description": "PWA offline para estudar peças completas pela partitura, com avaliação rítmica por microfone ou MIDI.",
   "scripts": {
-    "test": "node --test",
+    "test": "node --test tests/*.test.js",
     "serve": "python3 -m http.server 8080"
   },
   "license": "MIT"
