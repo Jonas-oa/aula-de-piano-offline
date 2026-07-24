@@ -53,7 +53,7 @@ export function scoreTranslateXForIndex(song, currentIndex = 0) {
   return Math.min(0, PLAYHEAD_X - currentX);
 }
 
-export function renderScore(container, song, currentIndex = 0, showNames = true) {
+export function renderScore(container, song, currentIndex = 0, showNames = true, loop = null) {
   const scoreKey = `${song.id}:${showNames ? 1 : 0}`;
   let svg = container.querySelector('svg[data-score-key]');
 
@@ -63,15 +63,58 @@ export function renderScore(container, song, currentIndex = 0, showNames = true)
     container.append(svg);
   }
 
+  updateLoopRegion(svg, song, loop);
   updateScoreState(svg, song, currentIndex);
+}
+
+// Faixa de repetição A–B, desenhada dentro do track para rolar junto das notas.
+function updateLoopRegion(svg, song, loop) {
+  const track = svg.querySelector('.score-track');
+  if (!track) return;
+  track.querySelector('.score-loop')?.remove();
+
+  const noteCount = song.notes?.length || 0;
+  if (!loop || loop.a == null || loop.b == null || !noteCount) return;
+  const a = Math.max(0, Math.min(loop.a, loop.b, noteCount - 1));
+  const b = Math.min(noteCount - 1, Math.max(loop.a, loop.b));
+  if (b < a) return;
+
+  const hasBass = song.clef === 'grand';
+  const bottom = hasBass ? BASS_TOP + 60 : 150;
+  const xA = NOTE_START_X + a * NOTE_SPACING - 34;
+  const xB = NOTE_START_X + b * NOTE_SPACING + 34;
+  const group = create('g', { class: 'score-loop' });
+  group.append(create('rect', {
+    x: xA, y: 60, width: Math.max(0, xB - xA), height: bottom - 60, rx: 8,
+    fill: 'rgba(215,168,75,0.15)',
+  }));
+  [[xA, 'A'], [xB, 'B']].forEach(([x, label]) => {
+    group.append(create('line', { x1: x, y1: 54, x2: x, y2: bottom, stroke: '#d7a84b', 'stroke-width': 3 }));
+    group.append(create('rect', { x: x - 15, y: 40, width: 30, height: 22, rx: 6, fill: '#d7a84b' }));
+    group.append(create('text', {
+      x, y: 56, 'text-anchor': 'middle', 'font-size': 14, 'font-weight': 800, fill: '#1a1400',
+    }, label));
+  });
+  if (loop.count) {
+    const mid = (xA + xB) / 2;
+    group.append(create('rect', { x: mid - 26, y: 40, width: 52, height: 22, rx: 11, fill: '#33240a' }));
+    group.append(create('text', {
+      x: mid, y: 56, 'text-anchor': 'middle', 'font-size': 12, 'font-weight': 700, fill: '#f0cd85',
+    }, `↻ ${loop.count}`));
+  }
+  track.prepend(group);
 }
 
 function buildScore(song, showNames) {
   const hasBass = song.clef === 'grand';
-  const height = hasBass ? 430 : 310;
+  // Sem nomes de nota (modo prática) a pauta fica mais justa na vertical,
+  // ganhando largura útil na tela em paisagem.
+  const compact = !showNames;
+  const height = compact ? (hasBass ? 352 : 250) : (hasBass ? 430 : 310);
   const svg = create('svg', {
     viewBox: `0 0 ${SCORE_WIDTH} ${height}`,
     role: 'presentation',
+    preserveAspectRatio: 'xMidYMid meet',
     'data-score-key': `${song.id}:${showNames ? 1 : 0}`,
   });
   svg.dataset.focusViewBox = hasBass ? '35 20 850 375' : '35 20 850 245';
@@ -84,7 +127,7 @@ function buildScore(song, showNames) {
     x: 145,
     y: 42,
     width: 735,
-    height: hasBass ? 330 : 220,
+    height: compact ? (hasBass ? 300 : 196) : (hasBass ? 330 : 220),
   }));
   defs.append(clipPath);
   svg.append(defs);
@@ -213,24 +256,28 @@ function buildScore(song, showNames) {
       }, label));
     }
 
-    eventGroup.append(create('text', {
-      x,
-      y: durationY,
-      'text-anchor': 'middle',
-      'font-size': 12,
-      fill: '#8993a2',
-    }, durationSymbol(event.duration)));
+    if (!compact) {
+      eventGroup.append(create('text', {
+        x,
+        y: durationY,
+        'text-anchor': 'middle',
+        'font-size': 12,
+        fill: '#8993a2',
+      }, durationSymbol(event.duration)));
+    }
 
     track.append(eventGroup);
     runningBeat += Number(event.duration) || 0;
   });
 
-  svg.append(create('text', {
-    x: 55,
-    y: height - 28,
-    'font-size': 13,
-    fill: '#667085',
-  }, 'Dedilhado sugerido junto às notas · leitura simplificada'));
+  if (!compact) {
+    svg.append(create('text', {
+      x: 55,
+      y: height - 28,
+      'font-size': 13,
+      fill: '#667085',
+    }, 'Dedilhado sugerido junto às notas · leitura simplificada'));
+  }
 
   return svg;
 }

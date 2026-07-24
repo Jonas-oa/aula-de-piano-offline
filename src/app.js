@@ -15,6 +15,7 @@ import {
   forceAdvance as forceFollowAdvance,
   progress as followProgress,
   registerNote as registerFollowNote,
+  seekTo as seekFollow,
 } from "./core/follow-evaluator.js";
 import { ScreenWakeLockManager } from "./core/screen-wake-lock.js";
 import {
@@ -50,13 +51,22 @@ const state = {
   lastMidiAttempt: null,
   follow: null,
   followStats: { correct: 0, wrong: 0 },
+  currentScore: null,
+  viewIndex: 0,
+  loop: { a: null, b: null, active: false, count: 0 },
 };
 
 const viewer = new DocumentViewer(byId("documentStage"), {
   onPageChange: ({ page, pages, type }) => {
-    byId("pageLabel").textContent = type === "pdf" ? `${page} / ${pages}` : "Partitura";
-    byId("previousPageButton").disabled = type !== "pdf" || page <= 1;
-    byId("nextPageButton").disabled = type !== "pdf" || page >= pages;
+    if (type === "pdf") {
+      byId("pageLabel").textContent = `${page} / ${pages}`;
+      byId("previousPageButton").disabled = page <= 1;
+      byId("nextPageButton").disabled = page >= pages;
+    } else {
+      // Estruturada: os botões de página passam a andar nota a nota na partitura.
+      byId("previousPageButton").disabled = false;
+      byId("nextPageButton").disabled = false;
+    }
   },
 });
 
@@ -350,25 +360,98 @@ function xmlTextFromAsset(asset) {
   return new TextDecoder().decode(asset.bytes);
 }
 
-function exerciseAsLegacyScore(exercise) {
+// Converte uma peça estruturada (exercício ou MusicXML) no formato do
+// renderizador SVG próprio — a mesma pauta interativa para tudo.
+function structuredScore(item, events) {
   return {
-    id: exercise.id,
-    title: exercise.title,
-    key: "",
-    bpm: exercise.bpm,
-    timeSignature: exercise.timeSignature,
-    beatsPerBar: exercise.beatsPerBar,
+    id: item.id,
+    title: item.title,
+    key: item.key || "",
+    bpm: item.bpm,
+    timeSignature: item.timeSignature,
+    beatsPerBar: item.beatsPerBar || beatsPerBar(item.timeSignature),
     clef: "grand",
-    notes: exercise.events.map((event) => ({
-      pitch: event.pitches.at(-1),
-      duration: event.duration,
-      pitches: event.pitches.map((pitch) => ({
-        pitch,
+    notes: (events || []).map((event) => {
+      const pitches = (event.pitches || []).filter(Boolean);
+      return {
+        pitch: pitches.at(-1),
         duration: event.duration,
-        finger: null,
-      })),
-    })),
+        pitches: pitches.map((pitch) => ({ pitch, duration: event.duration, finger: null })),
+      };
+    }),
   };
+}
+
+function activeLoop() {
+  return { a: state.loop.a, b: state.loop.b, count: state.loop.count };
+}
+
+function renderStructured(index, { fresh = false } = {}) {
+  if (!state.currentScore) return;
+  state.viewIndex = index;
+  if (fresh) {
+    viewer.showRhythm((container) => renderScore(container, state.currentScore, index, false, activeLoop()));
+  } else {
+    renderScore(byId("documentStage"), state.currentScore, index, false, activeLoop());
+  }
+  if (!state.practiceActive && !state.countInActive) setStructuredPageLabel();
+}
+
+function setStructuredPageLabel() {
+  const total = state.currentScore?.notes?.length || 0;
+  byId("pageLabel").textContent = total ? `Nota ${Math.min(state.viewIndex + 1, total)} / ${total}` : "Partitura";
+}
+
+function stepStructured(delta) {
+  if (!state.currentScore || state.practiceActive || state.countInActive) return;
+  const total = state.currentScore.notes.length;
+  renderStructured(Math.max(0, Math.min(state.viewIndex + delta, total - 1)));
+}
+
+function normalizeLoop() {
+  if (state.loop.a != null && state.loop.b != null && state.loop.a > state.loop.b) {
+    [state.loop.a, state.loop.b] = [state.loop.b, state.loop.a];
+  }
+}
+
+function reflectLoopButtons() {
+  const ready = state.loop.a != null && state.loop.b != null;
+  const toggle = byId("loopToggleButton");
+  toggle.setAttribute("aria-pressed", String(state.loop.active && ready));
+  toggle.classList.toggle("active", state.loop.active && ready);
+  byId("clearLoopButton").disabled = state.loop.a == null && state.loop.b == null;
+}
+
+function refreshLoop() {
+  reflectLoopButtons();
+  if (state.currentScore) renderStructured(state.viewIndex);
+}
+
+function markLoop(point) {
+  if (!state.currentScore) {
+    toast("Disponível na partitura estruturada (MusicXML ou exercício).");
+    return;
+  }
+  state.loop[point] = state.viewIndex;
+  state.loop.count = 0;
+  normalizeLoop();
+  refreshLoop();
+  toast(point === "a" ? `Início A na nota ${state.viewIndex + 1}.` : `Fim B na nota ${state.viewIndex + 1}.`);
+}
+
+function clearLoop() {
+  state.loop = { a: null, b: null, active: false, count: 0 };
+  refreshLoop();
+}
+
+function toggleLoop() {
+  if (state.loop.a == null || state.loop.b == null) {
+    toast("Marque A e B primeiro.");
+    return;
+  }
+  state.loop.active = !state.loop.active;
+  reflectLoopButtons();
+  toast(state.loop.active ? "Repetição A–B ligada." : "Repetição A–B desligada.");
 }
 
 async function openPractice(item) {
@@ -376,6 +459,10 @@ async function openPractice(item) {
   state.currentItem = item;
   state.currentEvents = null;
   state.currentMusicXml = "";
+  state.currentScore = null;
+  state.viewIndex = 0;
+  state.loop = { a: null, b: null, active: false, count: 0 };
+  reflectLoopButtons();
   state.exactMode = item.type === "rhythm" || Boolean(item.musicXmlAsset);
 
   byId("practiceTitle").textContent = item.title;
@@ -389,32 +476,25 @@ async function openPractice(item) {
   try {
     if (item.type === "rhythm") {
       state.currentEvents = item.events;
-      const legacyScore = exerciseAsLegacyScore(item);
-      viewer.showRhythm((container) => renderScore(container, legacyScore, 0, false));
-      setAnalysisMode("Exercício estruturado", "O aplicativo conhece cada ataque esperado. O microfone avalia o tempo; com um piano MIDI, também confere as alturas.");
-      byId("pdfOnlyOptions").hidden = true;
-      applyPracticeModeAvailability();
-      return;
-    }
-
-    if (item.musicXmlAsset) {
+    } else if (item.musicXmlAsset) {
       state.currentMusicXml = xmlTextFromAsset(item.musicXmlAsset);
       state.currentEvents = parseMusicXml(state.currentMusicXml).events;
     }
 
-    // O MusicXML é a partitura interativa (cursor + rolagem do modo professor);
-    // o PDF é usado quando não há MusicXML.
-    if (state.currentMusicXml) {
-      await viewer.showMusicXml(state.currentMusicXml);
+    if (state.currentEvents?.length) {
+      // Partitura interativa unificada (SVG próprio): mesma pauta para
+      // exercícios e MusicXML, com destaque, rolagem fina e laço A–B.
+      state.currentScore = structuredScore(item, state.currentEvents);
+      renderStructured(0, { fresh: true });
+      setStructuredPageLabel();
+      setAnalysisMode(
+        item.type === "rhythm" ? "Exercício estruturado" : "Partitura estruturada",
+        "O app conhece cada nota. No modo professor o cursor espera a nota certa; marque A–B para repetir um trecho.",
+      );
+      byId("pdfOnlyOptions").hidden = true;
     } else if (item.pdfAsset) {
       await viewer.showPdf(item.pdfAsset);
-    }
-
-    if (state.currentEvents?.length) {
-      setAnalysisMode("Partitura estruturada", "O MusicXML fornece os ataques e as notas esperadas. O microfone avalia o tempo; um piano MIDI também permite conferir as alturas.");
-      byId("pdfOnlyOptions").hidden = true;
-    } else {
-      setAnalysisMode("Tempo pelo PDF", "O PDF é visual: o microfone mede a proximidade de cada ataque à grade escolhida. Para conferir notas e pausas exatas, importe também o MusicXML.");
+      setAnalysisMode("Tempo pelo PDF", "O PDF é visual: o microfone mede o ritmo. Converta o PDF em notas na importação para liberar o modo professor.");
       byId("pdfOnlyOptions").hidden = false;
     }
     applyPracticeModeAvailability();
@@ -446,9 +526,7 @@ function applyPracticeModeAvailability() {
 function reflectPracticeMode() {
   byId("teacherModeButton").classList.toggle("active", state.practiceMode === "teacher");
   byId("tempoModeButton").classList.toggle("active", state.practiceMode === "tempo");
-  const teacher = state.practiceMode === "teacher";
-  byId("tempoControlWrap")?.classList.toggle("dimmed", teacher);
-  byId("startPracticeButton").textContent = teacher ? "Começar a seguir" : "Começar com contagem";
+  byId("startPracticeButton").textContent = state.practiceMode === "teacher" ? "▶ Seguir" : "▶ Contar";
 }
 
 function selectPracticeMode(mode) {
@@ -667,6 +745,19 @@ function handleFollowOnset(midi) {
   // advance ou complete
   state.followStats.correct += 1;
   appendAttemptDot("on-time");
+
+  // Laço A–B: ao concluir a nota B, volta para A e conta a repetição.
+  if (state.loop.active && state.loop.a != null && state.loop.b != null
+    && result.completedIndex === state.loop.b) {
+    state.loop.count += 1;
+    seekFollow(state.follow, state.loop.a);
+    renderStructured(state.loop.a);
+    const target = expectedNoteLabel(currentFollowEvent(state.follow)?.midis);
+    setFeedback("on-time", `↻ REPETINDO ${state.loop.count}×`, "Voltando ao A", `Toque: ${target}`);
+    updateFollowStats();
+    return;
+  }
+
   moveFollowCursorTo(result.index);
   if (result.type === "complete") {
     setFeedback("on-time", "FIM", "Peça concluída", "Muito bem — você seguiu até o fim.");
@@ -682,15 +773,11 @@ function handleFollowOnset(midi) {
 }
 
 function showFollowCursor() {
-  moveFollowCursorTo(0, { reset: true });
+  renderStructured(0);
 }
 
-function moveFollowCursorTo(index, { reset = false } = {}) {
-  if (state.currentItem?.type === "rhythm") {
-    renderScore(byId("documentStage"), exerciseAsLegacyScore(state.currentItem), index, false);
-    return;
-  }
-  viewer.moveCursorTo(index, { reset });
+function moveFollowCursorTo(index) {
+  renderStructured(index);
 }
 
 function updateFollowStats() {
@@ -739,23 +826,7 @@ function practiceTick() {
 }
 
 function advanceScore(index) {
-  if (state.currentItem?.type === "rhythm") {
-    renderScore(
-      byId("documentStage"),
-      exerciseAsLegacyScore(state.currentItem),
-      index,
-      false,
-    );
-    return;
-  }
-  if (viewer.osmd?.cursor) {
-    try {
-      viewer.osmd.cursor.show();
-      viewer.osmd.cursor.next();
-    } catch {
-      // O cursor é um auxílio; a avaliação continua mesmo se a edição não o expuser.
-    }
-  }
+  if (state.currentScore) renderStructured(index);
 }
 
 async function stopPractice({ showResult = true } = {}) {
@@ -939,10 +1010,15 @@ byId("stopPracticeButton").addEventListener("click", () => stopPractice({ showRe
 byId("tempoSlider").addEventListener("input", (event) => {
   byId("tempoOutput").value = event.target.value;
 });
-byId("previousPageButton").addEventListener("click", () => viewer.previousPage());
-byId("nextPageButton").addEventListener("click", () => viewer.nextPage());
+byId("previousPageButton").addEventListener("click", () => (state.currentScore ? stepStructured(-1) : viewer.previousPage()));
+byId("nextPageButton").addEventListener("click", () => (state.currentScore ? stepStructured(1) : viewer.nextPage()));
 byId("zoomOutButton").addEventListener("click", () => viewer.zoomBy(-0.12));
 byId("zoomInButton").addEventListener("click", () => viewer.zoomBy(0.12));
+byId("markAButton").addEventListener("click", () => markLoop("a"));
+byId("markBButton").addEventListener("click", () => markLoop("b"));
+byId("clearLoopButton").addEventListener("click", clearLoop);
+byId("loopToggleButton").addEventListener("click", toggleLoop);
+reflectLoopButtons();
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && state.currentView === "practiceView") {
     wakeLock.setEnabled(true);
