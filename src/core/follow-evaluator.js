@@ -116,6 +116,16 @@ export function forceAdvance(state) {
   };
 }
 
+// Reposiciona o ponteiro num evento específico (usado pelo laço A–B).
+export function seekTo(state, index) {
+  if (!state) return;
+  const total = state.events.length;
+  const target = Math.max(0, Math.min(Number(index) || 0, total));
+  state.index = target;
+  state.satisfied = new Set();
+  state.done = total === 0 || target >= total;
+}
+
 export function progress(state) {
   const total = state?.events?.length || 0;
   const done = Math.min(state?.index ?? 0, total);

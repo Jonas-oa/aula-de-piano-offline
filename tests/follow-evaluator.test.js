@@ -5,6 +5,7 @@ import {
   currentEvent,
   registerNote,
   progress,
+  seekTo,
 } from "../src/core/follow-evaluator.js";
 
 const notes = (arr) => arr.map((midis) => ({ midis: Array.isArray(midis) ? midis : [midis] }));
@@ -58,6 +59,17 @@ test("modo insensível à oitava aceita a mesma classe de nota", () => {
   const ok = registerNote(state, 72, { octaveSensitive: false });
   assert.equal(ok.type, "advance");
   assert.equal(state.index, 1);
+});
+
+test("seekTo reposiciona o ponteiro e limpa o acorde parcial", () => {
+  const state = createFollowState(notes([60, [62, 65], 67]));
+  registerNote(state, 60);
+  registerNote(state, 62); // acorde parcial no índice 1
+  seekTo(state, 0);
+  assert.equal(state.index, 0);
+  assert.equal(state.done, false);
+  assert.equal(currentEvent(state).midis[0], 60);
+  assert.equal(registerNote(state, 60).type, "advance", "recomeça do zero após o seek");
 });
 
 test("progresso reflete o andamento e termina completo", () => {
