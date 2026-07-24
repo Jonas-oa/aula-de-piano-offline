@@ -1,121 +1,136 @@
-// OMR online opcional ("traga sua chave"): rasteriza as páginas do PDF e pede
-// a um modelo de visão para transcrever a partitura em MusicXML. A chave da API
-// fica apenas no aparelho do aluno; nada é armazenado em servidor do app.
-//
-// Limitações: a precisão é imperfeita, sobretudo em piano denso (duas mãos,
-// acordes). O resultado deve ser revisado. Requer conexão com a internet.
+// Cliente do serviço OMR. O reconhecimento acontece fora do PWA, em um
+// processo Audiveris isolado. O navegador envia o PDF uma única vez, acompanha
+// o trabalho pela API e recebe MusicXML validado — sem chave de IA no aparelho.
 
-const OMR_PROMPT = [
-  "Você é um sistema de OMR (reconhecimento óptico de partituras).",
-  "Recebe as imagens das páginas de uma partitura e deve transcrevê-la em",
-  "MusicXML 3.1 no formato score-partwise, o mais fiel possível: alturas,",
-  "durações, pausas, compassos, armadura de clave e fórmula de compasso.",
-  "Quando houver duas mãos, use as duas pautas (staff 1 e 2).",
-  "Responda APENAS com o documento MusicXML válido, sem comentários e sem",
-  "cercas de código.",
-].join(" ");
+const DEFAULT_TIMEOUT_MS = 12 * 60 * 1000;
+const DEFAULT_POLL_INTERVAL_MS = 1500;
 
-// Extrai o MusicXML da resposta do modelo, tolerando cercas de código ou prosa.
-// Função pura — testável sem navegador.
-export function extractMusicXml(text) {
-  if (!text || !text.trim()) {
-    throw new Error("O serviço de OMR não retornou conteúdo.");
-  }
-  let body = text.trim();
-  const fenced = body.match(/```(?:xml|musicxml)?\s*([\s\S]*?)```/i);
-  if (fenced) body = fenced[1].trim();
-
-  for (const root of ["score-partwise", "score-timewise"]) {
-    const start = body.indexOf(`<${root}`);
-    const closing = `</${root}>`;
-    const end = body.lastIndexOf(closing);
-    if (start !== -1 && end !== -1 && end > start) {
-      const xml = body.slice(start, end + closing.length);
-      const declaration = body.slice(0, start).includes("<?xml")
-        ? '<?xml version="1.0" encoding="UTF-8"?>\n'
-        : "";
-      return declaration + xml;
-    }
-  }
-  throw new Error("O serviço não retornou um MusicXML reconhecível.");
+function trimSlash(value) {
+  return String(value || "").trim().replace(/\/+$/, "");
 }
 
-// Rasteriza as primeiras páginas do PDF em imagens PNG (base64) para envio.
-export async function renderPdfToImages(asset, { maxPages = 4, maxWidth = 1600 } = {}) {
-  const pdfjs = await import("../../vendor/pdfjs/pdf.min.mjs");
-  pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-    "../../vendor/pdfjs/pdf.worker.min.mjs",
-    import.meta.url,
-  ).href;
-
-  const bytes = asset.bytes instanceof ArrayBuffer ? asset.bytes.slice(0) : asset.bytes;
-  const document_ = await pdfjs.getDocument({ data: bytes }).promise;
-  const totalPages = document_.numPages;
-  const usedPages = Math.min(totalPages, maxPages);
-  const images = [];
-
-  for (let number = 1; number <= usedPages; number += 1) {
-    const page = await document_.getPage(number);
-    const unscaled = page.getViewport({ scale: 1 });
-    const scale = Math.max(1, Math.min(2.5, maxWidth / unscaled.width));
-    const viewport = page.getViewport({ scale });
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.floor(viewport.width);
-    canvas.height = Math.floor(viewport.height);
-    const context = canvas.getContext("2d", { alpha: false });
-    context.fillStyle = "#ffffff";
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    await page.render({ canvasContext: context, viewport }).promise;
-    const dataUrl = canvas.toDataURL("image/png");
-    images.push({ mediaType: "image/png", base64: dataUrl.split(",")[1] });
-  }
-
-  document_.destroy?.();
-  return { images, totalPages, usedPages };
+export function configuredOmrServiceUrl(document_ = globalThis.document) {
+  const configured = document_
+    ?.querySelector?.('meta[name="partitura-viva-omr-url"]')
+    ?.getAttribute?.("content");
+  return trimSlash(configured);
 }
 
-// Envia as imagens ao modelo de visão e devolve o MusicXML transcrito.
-export async function transcribeMusicXml({ apiKey, model = "claude-opus-4-8", images, hints = "" }) {
-  if (!apiKey) throw new Error("Informe a chave da API para converter.");
-  if (!images?.length) throw new Error("Nenhuma página para converter.");
+function readableServiceError(payload, fallback) {
+  return payload?.error?.message
+    || payload?.message
+    || payload?.error
+    || fallback;
+}
 
-  const content = images.map((image) => ({
-    type: "image",
-    source: { type: "base64", media_type: image.mediaType, data: image.base64 },
-  }));
-  content.push({ type: "text", text: hints ? `${OMR_PROMPT}\n\nContexto: ${hints}` : OMR_PROMPT });
-
-  let response;
+async function jsonResponse(response, fallback) {
+  let payload = null;
   try {
-    response = await fetch("https://api.anthropic.com/v1/messages", {
+    payload = await response.json();
+  } catch {
+    // O proxy pode devolver uma página HTML em falhas de infraestrutura.
+  }
+  if (!response.ok) {
+    throw new Error(readableServiceError(payload, fallback || `Falha HTTP ${response.status}.`));
+  }
+  return payload;
+}
+
+function pdfBlob(asset) {
+  if (asset instanceof Blob) return asset;
+  if (asset?.bytes) {
+    return new Blob([asset.bytes], { type: asset.type || "application/pdf" });
+  }
+  throw new Error("O PDF não pôde ser preparado para conversão.");
+}
+
+function wait(ms, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason || new DOMException("Operação cancelada.", "AbortError"));
+      return;
+    }
+    const timeout = setTimeout(resolve, ms);
+    signal?.addEventListener("abort", () => {
+      clearTimeout(timeout);
+      reject(signal.reason || new DOMException("Operação cancelada.", "AbortError"));
+    }, { once: true });
+  });
+}
+
+export async function convertPdfWithOmrService({
+  asset,
+  fileName,
+  serviceUrl = configuredOmrServiceUrl(),
+  fetch_ = globalThis.fetch,
+  signal,
+  onProgress = () => {},
+  pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+}) {
+  const baseUrl = trimSlash(serviceUrl);
+  if (!baseUrl) {
+    throw new Error("O servidor de conversão ainda não está configurado.");
+  }
+  if (typeof fetch_ !== "function") {
+    throw new Error("Este navegador não oferece comunicação com o servidor de conversão.");
+  }
+
+  const form = new FormData();
+  form.append("score", pdfBlob(asset), fileName || asset?.name || "partitura.pdf");
+  onProgress({ status: "uploading", message: "Enviando o PDF com segurança…" });
+
+  let createdResponse;
+  try {
+    createdResponse = await fetch_(`${baseUrl}/v1/jobs`, {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true",
-      },
-      body: JSON.stringify({ model, max_tokens: 16000, messages: [{ role: "user", content }] }),
+      body: form,
+      signal,
+      headers: { Accept: "application/json" },
     });
   } catch (error) {
-    throw new Error(`Não foi possível contatar o serviço de OMR: ${error?.message || error}`);
+    if (error?.name === "AbortError") throw error;
+    throw new Error(`Não foi possível contatar o servidor de conversão: ${error?.message || error}`);
   }
+  const created = await jsonResponse(createdResponse, "O servidor recusou o PDF.");
+  if (!created?.id) throw new Error("O servidor não informou o identificador da conversão.");
 
-  if (!response.ok) {
-    let detail = String(response.status);
-    try {
-      const payload = await response.json();
-      detail = payload?.error?.message || detail;
-    } catch {
-      // resposta sem corpo JSON
+  const startedAt = Date.now();
+  let lastStatus = "";
+  while (Date.now() - startedAt < timeoutMs) {
+    const statusResponse = await fetch_(`${baseUrl}/v1/jobs/${encodeURIComponent(created.id)}`, {
+      headers: { Accept: "application/json" },
+      signal,
+    });
+    const job = await jsonResponse(statusResponse, "Não foi possível consultar a conversão.");
+    if (job.status !== lastStatus || job.message) {
+      onProgress(job);
+      lastStatus = job.status;
     }
-    throw new Error(`Falha no serviço de OMR: ${detail}`);
-  }
 
-  const data = await response.json();
-  const text = (data.content || [])
-    .filter((block) => block.type === "text")
-    .map((block) => block.text)
-    .join("\n");
-  return extractMusicXml(text);
+    if (job.status === "completed") {
+      const resultUrl = job.resultUrl || `${baseUrl}/v1/jobs/${encodeURIComponent(created.id)}/result`;
+      const response = await fetch_(new URL(resultUrl, `${baseUrl}/`).href, {
+        headers: { Accept: "application/vnd.recordare.musicxml+xml, application/xml, text/xml" },
+        signal,
+      });
+      if (!response.ok) {
+        throw new Error(`O MusicXML reconhecido não pôde ser baixado (HTTP ${response.status}).`);
+      }
+      const xml = await response.text();
+      if (!/<score-(?:partwise|timewise)\b/i.test(xml)) {
+        throw new Error("O servidor concluiu o trabalho, mas o resultado não é MusicXML válido.");
+      }
+      return { xml, job };
+    }
+
+    if (job.status === "failed") {
+      throw new Error(readableServiceError(job, "A partitura não pôde ser reconhecida."));
+    }
+    if (job.status === "cancelled") {
+      throw new Error("A conversão foi cancelada.");
+    }
+    await wait(pollIntervalMs, signal);
+  }
+  throw new Error("A conversão ultrapassou o tempo máximo. Tente novamente mais tarde.");
 }

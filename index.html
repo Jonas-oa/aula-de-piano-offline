@@ -4,6 +4,8 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#171b2f" />
+  <!-- Preenchido no deploy com a URL pública do microsserviço OMR AGPL. -->
+  <meta name="partitura-viva-omr-url" content="" />
   <meta name="description" content="Estude peças completas pela partitura, com acompanhamento rítmico pelo microfone ou MIDI." />
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="icon" href="./assets/icons/icon-192.png" />
@@ -120,18 +122,11 @@
               <div id="selectedFiles" class="selected-files" aria-live="polite"></div>
 
               <details id="omrPanel" class="omr-panel">
-                <summary>Converter PDF em notas (online, beta)</summary>
-                <p class="omr-note">Usa um modelo de visão para gerar o MusicXML a partir do PDF, deixando a partitura dinâmica no modo professor. A chave fica só neste aparelho. A precisão é imperfeita — revise depois.</p>
-                <label>
-                  <span>Chave da API (Anthropic)</span>
-                  <input id="omrApiKey" type="password" placeholder="sk-ant-…" autocomplete="off" spellcheck="false" />
-                </label>
-                <label>
-                  <span>Modelo de visão</span>
-                  <input id="omrModel" type="text" value="claude-opus-4-8" spellcheck="false" />
-                </label>
+                <summary>Converter PDF em partitura interativa</summary>
+                <p class="omr-note">O servidor analisa todas as páginas com um motor específico para partituras, valida o MusicXML e apaga os arquivos temporários automaticamente. Não é necessária chave de API. A conversão automática ainda pode exigir revisão.</p>
                 <button id="omrConvertButton" type="button" class="ghost-button wide">Converter PDF → MusicXML</button>
                 <div id="omrStatus" class="omr-status" aria-live="polite"></div>
+                <a class="omr-source" href="https://github.com/Jonas-oa/Conversor-PDF-em-MusicXML" target="_blank" rel="noopener">Código do serviço e licença AGPLv3</a>
               </details>
 
               <label class="rights-check">
@@ -214,7 +209,7 @@
             <div>
               <strong>Esta peça é um PDF (imagem)</strong>
               <span>Converta em notas para liberar o modo professor: só o trecho atual, nota destacada e laço A–B.</span>
-              <button id="convertPieceButton" type="button" class="primary-button small">✨ Converter em notas</button>
+              <button id="convertPieceButton" type="button" class="primary-button small">Converter em notas</button>
               <small id="convertStatus"></small>
             </div>
           </div>
