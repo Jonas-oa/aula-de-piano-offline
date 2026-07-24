@@ -1,4 +1,4 @@
-const CACHE_NAME = "partitura-viva-v1-103";
+const CACHE_NAME = "partitura-viva-v1-104";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -12,6 +12,7 @@ const APP_SHELL = [
   "./src/core/screen-wake-lock.js",
   "./src/core/timing-evaluator.js",
   "./src/core/follow-evaluator.js",
+  "./src/core/omr-vision.js",
   "./src/data/rhythm-exercises.js",
   "./src/ui/document-viewer.js",
   "./src/ui/score-renderer.js",

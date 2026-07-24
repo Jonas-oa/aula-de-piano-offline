@@ -119,6 +119,21 @@
               </label>
               <div id="selectedFiles" class="selected-files" aria-live="polite"></div>
 
+              <details id="omrPanel" class="omr-panel">
+                <summary>Converter PDF em notas (online, beta)</summary>
+                <p class="omr-note">Usa um modelo de visão para gerar o MusicXML a partir do PDF, deixando a partitura dinâmica no modo professor. A chave fica só neste aparelho. A precisão é imperfeita — revise depois.</p>
+                <label>
+                  <span>Chave da API (Anthropic)</span>
+                  <input id="omrApiKey" type="password" placeholder="sk-ant-…" autocomplete="off" spellcheck="false" />
+                </label>
+                <label>
+                  <span>Modelo de visão</span>
+                  <input id="omrModel" type="text" value="claude-opus-4-8" spellcheck="false" />
+                </label>
+                <button id="omrConvertButton" type="button" class="ghost-button wide">Converter PDF → MusicXML</button>
+                <div id="omrStatus" class="omr-status" aria-live="polite"></div>
+              </details>
+
               <label class="rights-check">
                 <input id="rightsConfirmation" type="checkbox" required />
                 <span>Confirmo que tenho uma cópia legal destes arquivos e autorização para usá-los.</span>

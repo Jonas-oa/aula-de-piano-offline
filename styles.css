@@ -261,6 +261,13 @@ main { width: min(1380px, calc(100% - 28px)); margin: 0 auto; padding: 26px 0 46
 .selected-file { display: flex; justify-content: space-between; gap: 10px; padding: 9px 11px; border-radius: 11px; background: var(--soft); font-size: .8rem; }
 .rights-check { display: flex; align-items: start; gap: 10px; margin: 16px 0; color: var(--muted); font-size: .82rem; line-height: 1.4; }
 .rights-check input { width: 20px; height: 20px; margin: 0; flex: 0 0 auto; }
+.omr-panel { margin: 14px 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: rgba(23, 27, 47, .02); }
+.omr-panel summary { cursor: pointer; font-weight: 700; font-size: .9rem; }
+.omr-panel[open] summary { margin-bottom: 10px; }
+.omr-panel label { display: grid; gap: 4px; margin: 8px 0; font-size: .82rem; }
+.omr-panel input { padding: 9px 11px; border: 1px solid var(--line); border-radius: 10px; font: inherit; }
+.omr-note { color: var(--muted); font-size: .8rem; line-height: 1.4; margin: 4px 0 8px; }
+.omr-status { margin-top: 8px; font-size: .82rem; color: var(--muted); min-height: 1em; }
 .format-guide { position: sticky; top: 86px; padding: 23px; }
 .format-guide h2 { margin: 0 0 18px; font-family: Georgia, serif; font-weight: 500; }
 .format-guide article { display: grid; grid-template-columns: 47px 1fr; gap: 12px; padding: 15px 0; border-top: 1px solid var(--line); }

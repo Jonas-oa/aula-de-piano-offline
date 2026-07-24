@@ -7,6 +7,7 @@ import {
 } from "./core/library-store.js";
 import { midiToPortuguese } from "./core/music.js";
 import { parseMusicXml } from "./core/musicxml.js";
+import { renderPdfToImages, transcribeMusicXml } from "./core/omr-vision.js";
 import { MidiInput, OnsetEngine } from "./core/onset-engine.js";
 import {
   createFollowState,
@@ -30,6 +31,7 @@ const byId = (id) => document.getElementById(id);
 const state = {
   pieces: [],
   selectedFiles: [],
+  omrXml: "",
   currentItem: null,
   currentEvents: null,
   currentMusicXml: "",
@@ -214,6 +216,8 @@ function acceptFiles(files) {
     /\.pdf$/i.test(file.name) || /\.(xml|musicxml)$/i.test(file.name),
   );
   state.selectedFiles = accepted;
+  state.omrXml = "";
+  setOmrStatus("");
   renderSelectedFiles();
   if (accepted.length !== files.length) {
     toast("Nesta versão, selecione arquivos PDF, XML ou MusicXML sem compactação.");
@@ -224,30 +228,36 @@ async function importPiece(event) {
   event.preventDefault();
   const pdfFile = state.selectedFiles.find((file) => /\.pdf$/i.test(file.name));
   const xmlFile = state.selectedFiles.find((file) => /\.(xml|musicxml)$/i.test(file.name));
-  if (!pdfFile && !xmlFile) {
+  const omrXml = !xmlFile && state.omrXml ? state.omrXml : "";
+  if (!pdfFile && !xmlFile && !omrXml) {
     toast("Escolha ao menos um PDF ou MusicXML.");
     return;
   }
 
   let parsed = null;
-  if (xmlFile) {
-    try {
-      parsed = parseMusicXml(await xmlFile.text());
-    } catch (error) {
-      toast(readableError(error));
-      return;
-    }
+  try {
+    if (xmlFile) parsed = parseMusicXml(await xmlFile.text());
+    else if (omrXml) parsed = parseMusicXml(omrXml);
+  } catch (error) {
+    toast(readableError(error));
+    return;
   }
 
+  const title = byId("pieceTitle").value.trim() || parsed?.title || "Peça importada";
+  const musicXmlAsset = xmlFile
+    ? await fileToStoredAsset(xmlFile)
+    : omrXml
+      ? xmlStringToAsset(`${title}.musicxml`, omrXml)
+      : null;
   const piece = {
     id: globalThis.crypto?.randomUUID?.() || `piece-${Date.now()}`,
     type: "piece",
-    title: byId("pieceTitle").value.trim() || parsed?.title || "Peça importada",
+    title,
     composer: byId("pieceComposer").value.trim() || parsed?.composer || "",
     bpm: Number(byId("pieceBpm").value) || 72,
     timeSignature: byId("pieceTimeSignature").value,
     pdfAsset: await fileToStoredAsset(pdfFile),
-    musicXmlAsset: await fileToStoredAsset(xmlFile),
+    musicXmlAsset,
     createdAt: new Date().toISOString(),
   };
 
@@ -256,13 +266,82 @@ async function importPiece(event) {
     state.pieces.push(piece);
     byId("importForm").reset();
     byId("pieceBpm").value = "72";
+    byId("omrApiKey").value = loadOmrApiKey();
     state.selectedFiles = [];
+    state.omrXml = "";
+    setOmrStatus("");
     renderSelectedFiles();
     renderLibrary();
     showView("libraryView");
     toast("Peça salva neste aparelho.");
   } catch (error) {
     toast(`Não foi possível salvar: ${readableError(error)}`);
+  }
+}
+
+function xmlStringToAsset(name, xml) {
+  return {
+    name,
+    type: "application/vnd.recordare.musicxml+xml",
+    bytes: new TextEncoder().encode(xml).buffer,
+  };
+}
+
+function setOmrStatus(message) {
+  const element = byId("omrStatus");
+  if (element) element.textContent = message || "";
+}
+
+function loadOmrApiKey() {
+  try {
+    return localStorage.getItem("partitura-viva-omr-key") || "";
+  } catch {
+    return "";
+  }
+}
+
+function saveOmrApiKey(value) {
+  try {
+    if (value) localStorage.setItem("partitura-viva-omr-key", value);
+    else localStorage.removeItem("partitura-viva-omr-key");
+  } catch {
+    // localStorage pode estar indisponível (modo privado); a chave só não persiste.
+  }
+}
+
+async function convertPdfToMusicXml() {
+  const pdfFile = state.selectedFiles.find((file) => /\.pdf$/i.test(file.name));
+  if (!pdfFile) {
+    toast("Selecione um PDF para converter.");
+    return;
+  }
+  const apiKey = byId("omrApiKey").value.trim();
+  if (!apiKey) {
+    toast("Informe a chave da API para converter.");
+    return;
+  }
+  const model = byId("omrModel").value.trim() || "claude-opus-4-8";
+  const button = byId("omrConvertButton");
+  button.disabled = true;
+  setOmrStatus("Preparando as páginas do PDF…");
+  try {
+    const asset = await fileToStoredAsset(pdfFile);
+    const { images, totalPages, usedPages } = await renderPdfToImages(asset, { maxPages: 4 });
+    setOmrStatus(`Enviando ${usedPages} de ${totalPages} página(s) ao modelo de visão…`);
+    const hints = `${byId("pieceTitle").value} ${byId("pieceComposer").value}`.trim();
+    const xml = await transcribeMusicXml({ apiKey, model, images, hints });
+    const parsed = parseMusicXml(xml);
+    state.omrXml = xml;
+    if (!byId("pieceTitle").value.trim() && parsed.title) byId("pieceTitle").value = parsed.title;
+    if (!byId("pieceComposer").value.trim() && parsed.composer) byId("pieceComposer").value = parsed.composer;
+    setOmrStatus(`Pronto: ${parsed.events.length} ataques reconhecidos. Salve para adicionar ao repertório com o modo professor.`);
+    toast("Conversão concluída. Revise e salve a peça.");
+  } catch (error) {
+    state.omrXml = "";
+    setOmrStatus(readableError(error));
+    toast(readableError(error));
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -837,6 +916,9 @@ byId("librarySearch").addEventListener("input", renderLibrary);
 byId("rhythmFilter").addEventListener("change", renderRhythms);
 byId("pieceFiles").addEventListener("change", (event) => acceptFiles(event.target.files));
 byId("importForm").addEventListener("submit", importPiece);
+byId("omrApiKey").value = loadOmrApiKey();
+byId("omrApiKey").addEventListener("change", (event) => saveOmrApiKey(event.target.value.trim()));
+byId("omrConvertButton").addEventListener("click", convertPdfToMusicXml);
 byId("dropZone").addEventListener("dragover", (event) => {
   event.preventDefault();
   byId("dropZone").classList.add("dragging");
