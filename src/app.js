@@ -7,6 +7,7 @@ import {
 } from "./core/library-store.js";
 import { midiToPortuguese } from "./core/music.js";
 import { parseMusicXml } from "./core/musicxml.js";
+import { musicXmlBlob, musicXmlFilename } from "./core/musicxml-export.js";
 import { renderPdfToImages, transcribeMusicXml } from "./core/omr-vision.js";
 import { convertViaService } from "./core/omr-service.js";
 import { MidiInput, OnsetEngine } from "./core/onset-engine.js";
@@ -175,9 +176,13 @@ function renderLibrary() {
         <span class="tag">${piece.bpm} bpm</span>
         <span class="tag">${escapeHtml(piece.timeSignature)}</span>
       </div>
-      <button class="primary-button">Abrir partitura</button>
+      <div class="card-actions">
+        <button class="primary-button open-piece-button">Abrir partitura</button>
+        <button class="ghost-button download-musicxml-button" type="button">↓ Baixar MusicXML</button>
+      </div>
     `;
-    card.querySelector(".primary-button").addEventListener("click", () => openPractice(piece));
+    card.querySelector(".open-piece-button").addEventListener("click", () => openPractice(piece));
+    card.querySelector(".download-musicxml-button").addEventListener("click", () => downloadPieceMusicXml(piece));
     card.querySelector(".card-menu").addEventListener("click", async () => {
       if (!window.confirm(`Excluir “${piece.title}” deste aparelho?`)) return;
       await deletePiece(piece.id);
@@ -302,6 +307,26 @@ function xmlStringToAsset(name, xml) {
     type: "application/vnd.recordare.musicxml+xml",
     bytes: new TextEncoder().encode(xml).buffer,
   };
+}
+
+function downloadPieceMusicXml(piece = state.currentItem) {
+  if (!piece?.musicXmlAsset) {
+    toast("Esta peça ainda não tem MusicXML. Converta o PDF em notas primeiro.");
+    return;
+  }
+  const filename = musicXmlFilename({
+    assetName: piece.musicXmlAsset.name,
+    title: piece.title,
+  });
+  const url = URL.createObjectURL(musicXmlBlob(piece.musicXmlAsset));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  toast(`MusicXML salvo como “${filename}”.`);
 }
 
 function setOmrStatus(message) {
@@ -613,6 +638,7 @@ function applyPieceControls() {
   byId("zoomOutButton").hidden = structured;    // zoom só no PDF
   byId("zoomInButton").hidden = structured;
   byId("convertOverlay").hidden = !canConvert;  // converter em notas só em PDF sem MusicXML
+  byId("downloadMusicXmlButton").hidden = !state.currentItem?.musicXmlAsset;
   setConvertStatus("");
 }
 
@@ -1196,6 +1222,7 @@ byId("nextPageButton").addEventListener("click", () => (state.currentScore ? ste
 byId("zoomOutButton").addEventListener("click", () => viewer.zoomBy(-0.12));
 byId("zoomInButton").addEventListener("click", () => viewer.zoomBy(0.12));
 byId("convertPieceButton").addEventListener("click", convertCurrentPiece);
+byId("downloadMusicXmlButton").addEventListener("click", () => downloadPieceMusicXml());
 byId("markAButton").addEventListener("click", () => markLoop("a"));
 byId("markBButton").addEventListener("click", () => markLoop("b"));
 byId("clearLoopButton").addEventListener("click", clearLoop);

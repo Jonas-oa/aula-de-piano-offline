@@ -186,7 +186,8 @@ main { width: min(1380px, calc(100% - 28px)); margin: 0 auto; padding: 26px 0 46
 .piece-card p, .rhythm-card p { margin: 0; color: var(--muted); font-size: .84rem; line-height: 1.45; }
 .card-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 14px 0; }
 .tag { padding: 5px 8px; border-radius: 999px; background: var(--soft); color: #424960; font-size: .7rem; font-weight: 800; }
-.piece-card .primary-button { margin-top: auto; }
+.piece-card .card-actions { display: grid; gap: 7px; margin-top: auto; }
+.piece-card .card-actions button { width: 100%; }
 .empty-library {
   grid-column: 1 / -1;
   display: grid;

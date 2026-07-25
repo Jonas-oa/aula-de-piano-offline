@@ -11,6 +11,7 @@ test("shell offline inclui leitores, biblioteca e avaliador rítmico", () => {
   for (const asset of [
     "library-store.js",
     "musicxml.js",
+    "musicxml-export.js",
     "onset-engine.js",
     "piano-recognition-engine.js",
     "timing-evaluator.js",
@@ -22,7 +23,7 @@ test("shell offline inclui leitores, biblioteca e avaliador rítmico", () => {
   ]) {
     assert.match(worker, new RegExp(asset.replaceAll(".", "\\.")));
   }
-  assert.match(worker, /partitura-viva-v1-110/);
+  assert.match(worker, /partitura-viva-v1-111/);
 });
 
 test("interface é centrada em repertório, importação e partitura", () => {
@@ -32,5 +33,6 @@ test("interface é centrada em repertório, importação e partitura", () => {
   assert.match(html, /id="practiceView"/);
   assert.match(html, /accept="[^"]*\.pdf/);
   assert.match(html, /MusicXML/);
+  assert.match(html, /id="downloadMusicXmlButton"/);
   assert.doesNotMatch(html, /Catálogo/);
 });
