@@ -1,4 +1,4 @@
-const CACHE_NAME = "partitura-viva-v1-109";
+const CACHE_NAME = "partitura-viva-v1-110";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -6,6 +6,7 @@ const APP_SHELL = [
   "./manifest.webmanifest",
   "./src/app.js",
   "./src/core/library-store.js",
+  "./src/core/midi-import.js",
   "./src/core/music.js",
   "./src/core/musicxml.js",
   "./src/core/onset-engine.js",

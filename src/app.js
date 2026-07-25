@@ -5,6 +5,7 @@ import {
   listPieces,
   savePiece,
 } from "./core/library-store.js";
+import { midiToMusicXml } from "./core/midi-import.js";
 import { midiToPortuguese } from "./core/music.js";
 import { parseMusicXml } from "./core/musicxml.js";
 import { renderPdfToImages, transcribeMusicXml } from "./core/omr-vision.js";
@@ -36,6 +37,7 @@ const state = {
   pieces: [],
   selectedFiles: [],
   omrXml: "",
+  midiXml: "",
   currentItem: null,
   currentEvents: null,
   currentMusicXml: "",
@@ -162,7 +164,11 @@ function renderLibrary() {
   for (const piece of pieces) {
     const card = document.createElement("article");
     card.className = "piece-card";
-    const format = piece.musicXmlAsset ? "PDF + MusicXML" : piece.pdfAsset ? "PDF" : "MusicXML";
+    const format = piece.musicXmlAsset && piece.pdfAsset
+      ? "PDF + MusicXML"
+      : piece.musicXmlAsset
+        ? "MusicXML"
+        : "PDF";
     card.innerHTML = `
       <div class="piece-card-top">
         <span class="score-thumbnail" aria-hidden="true"></span>
@@ -228,16 +234,61 @@ function renderSelectedFiles() {
   }
 }
 
+const isMidiFile = (file) => /\.midi?$/i.test(file.name);
+
 function acceptFiles(files) {
   const accepted = [...files].filter((file) =>
-    /\.pdf$/i.test(file.name) || /\.(xml|musicxml)$/i.test(file.name),
+    /\.pdf$/i.test(file.name) || /\.(xml|musicxml)$/i.test(file.name) || isMidiFile(file),
   );
   state.selectedFiles = accepted;
   state.omrXml = "";
+  state.midiXml = "";
   setOmrStatus("");
+  setMidiStatus("");
   renderSelectedFiles();
   if (accepted.length !== files.length) {
-    toast("Nesta versão, selecione arquivos PDF, XML ou MusicXML sem compactação.");
+    toast("Nesta versão, selecione arquivos PDF, MusicXML ou MIDI sem compactação.");
+  }
+  const midiFile = accepted.find(isMidiFile);
+  if (midiFile) void convertMidiSelection(midiFile);
+}
+
+function setMidiStatus(message) {
+  const element = byId("midiStatus");
+  if (element) element.textContent = message || "";
+}
+
+// Motor de conversão mais simples: o MIDI vira MusicXML aqui mesmo, assim que
+// o arquivo é escolhido — sem servidor, sem chave e sem internet. Já preenche
+// título, andamento e compasso com o que o arquivo declara.
+async function convertMidiSelection(file) {
+  setMidiStatus("Lendo o MIDI neste aparelho…");
+  try {
+    const result = midiToMusicXml(await file.arrayBuffer(), {
+      title: byId("pieceTitle").value,
+      composer: byId("pieceComposer").value,
+    });
+    state.midiXml = result.xml;
+
+    parseMusicXml(result.xml); // confere que o app consegue reler o que gerou
+    if (!byId("pieceTitle").value.trim() && result.detectedTitle) {
+      byId("pieceTitle").value = result.detectedTitle;
+    }
+    if (result.bpm >= 30 && result.bpm <= 240) byId("pieceBpm").value = String(result.bpm);
+    const timeSignature = byId("pieceTimeSignature");
+    if ([...timeSignature.options].some((option) => option.value === result.timeSignature)) {
+      timeSignature.value = result.timeSignature;
+    }
+
+    const tempo = result.bpm ? `, ${result.bpm} bpm` : "";
+    const warn = warningSummary(result.warnings);
+    setMidiStatus(
+      `MIDI convertido aqui mesmo: ${result.noteCount} notas, ${result.timeSignature}${tempo}.`
+        + `${warn ? ` ${warn}` : ""} Salve para praticar no modo professor.`,
+    );
+  } catch (error) {
+    state.midiXml = "";
+    setMidiStatus(readableError(error));
   }
 }
 
@@ -245,15 +296,17 @@ async function importPiece(event) {
   event.preventDefault();
   const pdfFile = state.selectedFiles.find((file) => /\.pdf$/i.test(file.name));
   const xmlFile = state.selectedFiles.find((file) => /\.(xml|musicxml)$/i.test(file.name));
-  const omrXml = !xmlFile && state.omrXml ? state.omrXml : "";
-  if (!pdfFile && !xmlFile && !omrXml) {
-    toast("Escolha ao menos um PDF ou MusicXML.");
+  const midiXml = !xmlFile && state.midiXml ? state.midiXml : "";
+  const omrXml = !xmlFile && !midiXml && state.omrXml ? state.omrXml : "";
+  if (!pdfFile && !xmlFile && !midiXml && !omrXml) {
+    toast("Escolha ao menos um PDF, MusicXML ou MIDI.");
     return;
   }
 
   let parsed = null;
   try {
     if (xmlFile) parsed = parseMusicXml(await xmlFile.text());
+    else if (midiXml) parsed = parseMusicXml(midiXml);
     else if (omrXml) parsed = parseMusicXml(omrXml);
   } catch (error) {
     toast(readableError(error));
@@ -261,10 +314,11 @@ async function importPiece(event) {
   }
 
   const title = byId("pieceTitle").value.trim() || parsed?.title || "Peça importada";
+  const generatedXml = midiXml || omrXml;
   const musicXmlAsset = xmlFile
     ? await fileToStoredAsset(xmlFile)
-    : omrXml
-      ? xmlStringToAsset(`${title}.musicxml`, omrXml)
+    : generatedXml
+      ? xmlStringToAsset(`${title}.musicxml`, generatedXml)
       : null;
   const piece = {
     id: globalThis.crypto?.randomUUID?.() || `piece-${Date.now()}`,
@@ -286,7 +340,9 @@ async function importPiece(event) {
     byId("omrApiKey").value = loadOmrApiKey();
     state.selectedFiles = [];
     state.omrXml = "";
+    state.midiXml = "";
     setOmrStatus("");
+    setMidiStatus("");
     renderSelectedFiles();
     renderLibrary();
     showView("libraryView");

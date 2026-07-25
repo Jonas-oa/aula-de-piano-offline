@@ -112,16 +112,17 @@
               </div>
 
               <label class="drop-zone" id="dropZone">
-                <input id="pieceFiles" type="file" multiple accept=".pdf,.xml,.musicxml,application/pdf,application/vnd.recordare.musicxml+xml" />
+                <input id="pieceFiles" type="file" multiple accept=".pdf,.xml,.musicxml,.mid,.midi,application/pdf,application/vnd.recordare.musicxml+xml,audio/midi" />
                 <span class="drop-icon" aria-hidden="true">⇧</span>
-                <strong>Escolha o PDF e, se tiver, o MusicXML</strong>
-                <span>PDF mostra a partitura. MusicXML permite comparar notas e ritmos.</span>
+                <strong>Escolha o PDF, o MusicXML ou um MIDI</strong>
+                <span>PDF mostra a partitura. MusicXML e MIDI permitem comparar notas e ritmos.</span>
               </label>
               <div id="selectedFiles" class="selected-files" aria-live="polite"></div>
+              <div id="midiStatus" class="omr-status" aria-live="polite"></div>
 
               <details id="omrPanel" class="omr-panel">
                 <summary>Converter PDF em notas (online, beta)</summary>
-                <p class="omr-note">Transforma o PDF em pauta viva (modo professor: trecho atual, destaque, laço). Preencha <strong>uma</strong> das opções abaixo — fica só neste aparelho. A precisão do OMR é imperfeita; revise depois.</p>
+                <p class="omr-note">Se você já tem o <strong>MIDI</strong> da peça, não precisa de nada disto: solte o arquivo <code>.mid</code> acima e o aplicativo converte no próprio aparelho, sem internet. Este painel é só para converter um <strong>PDF</strong> em pauta viva. Preencha <strong>uma</strong> das opções abaixo — fica só neste aparelho. A precisão do OMR é imperfeita; revise depois.</p>
                 <label>
                   <span>Serviço Audiveris (recomendado) — URL</span>
                   <input id="omrService" type="url" placeholder="https://seu-conversor.exemplo" autocomplete="off" spellcheck="false" />
@@ -158,7 +159,7 @@
             </article>
             <article>
               <span class="file-badge midi">MIDI</span>
-              <div><strong>Entrada do instrumento</strong><p>Conecte um piano digital para captar acordes e tempos com maior precisão.</p></div>
+              <div><strong>Arquivo .mid: o caminho mais simples</strong><p>Solte o arquivo e o app o converte em partitura aqui mesmo — sem servidor, sem chave e sem internet. Também é o formato do piano digital ligado por cabo, para captar acordes e tempos com precisão.</p></div>
             </article>
             <p class="legal-note">O aplicativo não fornece cópias de obras protegidas. Importe uma partitura adquirida legalmente.</p>
           </aside>

@@ -10,6 +10,7 @@ test("shell offline inclui leitores, biblioteca e avaliador rítmico", () => {
   const worker = fs.readFileSync(path.join(root, "sw.js"), "utf8");
   for (const asset of [
     "library-store.js",
+    "midi-import.js",
     "musicxml.js",
     "onset-engine.js",
     "piano-recognition-engine.js",
@@ -22,7 +23,7 @@ test("shell offline inclui leitores, biblioteca e avaliador rítmico", () => {
   ]) {
     assert.match(worker, new RegExp(asset.replaceAll(".", "\\.")));
   }
-  assert.match(worker, /partitura-viva-v1-109/);
+  assert.match(worker, /partitura-viva-v1-110/);
 });
 
 test("interface é centrada em repertório, importação e partitura", () => {
