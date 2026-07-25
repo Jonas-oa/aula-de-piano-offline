@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   createFollowState,
   currentEvent,
+  registerChord,
   registerNote,
   progress,
   seekTo,
@@ -46,6 +47,23 @@ test("nota fora do acorde é erro e não avança", () => {
   const wrong = registerNote(state, 62);
   assert.equal(wrong.type, "wrong");
   assert.deepEqual(wrong.remaining, [64, 67]);
+});
+
+test("quadro acústico só avança com o acorde completo e sem notas extras", () => {
+  const state = createFollowState(notes([[60, 64, 67], 69]));
+  const incomplete = registerChord(state, [60, 67]);
+  assert.equal(incomplete.type, "wrong");
+  assert.deepEqual(incomplete.missing, [64]);
+  assert.equal(state.index, 0);
+
+  const extra = registerChord(state, [60, 64, 67, 70]);
+  assert.equal(extra.type, "wrong");
+  assert.deepEqual(extra.extra, [70]);
+  assert.equal(state.index, 0);
+
+  const correct = registerChord(state, [67, 60, 64]);
+  assert.equal(correct.type, "advance");
+  assert.equal(state.index, 1);
 });
 
 test("modo sem alturas avança a cada ataque", () => {

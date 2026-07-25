@@ -1,7 +1,8 @@
 export class OnsetEngine {
-  constructor({ onOnset, onLevel, onError } = {}) {
+  constructor({ onOnset, onLevel, onSamples, onError } = {}) {
     this.onOnset = onOnset || (() => {});
     this.onLevel = onLevel || (() => {});
+    this.onSamples = onSamples || (() => {});
     this.onError = onError || (() => {});
     this.running = false;
     this.context = null;
@@ -37,7 +38,9 @@ export class OnsetEngine {
       await this.context.resume();
       this.source = this.context.createMediaStreamSource(this.stream);
       this.analyser = this.context.createAnalyser();
-      this.analyser.fftSize = 2048;
+      // 4096 amostras dão resolução suficiente para as notas graves do piano
+      // sem introduzir a latência de uma janela de 8192 amostras.
+      this.analyser.fftSize = 4096;
       this.analyser.smoothingTimeConstant = 0;
       this.buffer = new Float32Array(this.analyser.fftSize);
       this.source.connect(this.analyser);
@@ -86,6 +89,7 @@ export class OnsetEngine {
       && now - this.lastOnsetAt > 75;
 
     this.onLevel(Math.min(1, rms / Math.max(threshold * 2.5, 0.04)));
+    this.onSamples(this.buffer, this.context.sampleRate, now);
     if (isAttack) {
       this.lastOnsetAt = now;
       this.onOnset(now);
