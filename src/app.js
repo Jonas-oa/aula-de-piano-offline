@@ -10,11 +10,13 @@ import { parseMusicXml } from "./core/musicxml.js";
 import { renderPdfToImages, transcribeMusicXml } from "./core/omr-vision.js";
 import { convertViaService } from "./core/omr-service.js";
 import { MidiInput, OnsetEngine } from "./core/onset-engine.js";
+import { PianoRecognitionEngine } from "./core/piano-recognition-engine.js";
 import {
   createFollowState,
   currentEvent as currentFollowEvent,
   forceAdvance as forceFollowAdvance,
   progress as followProgress,
+  registerChord as registerFollowChord,
   registerNote as registerFollowNote,
   seekTo as seekFollow,
 } from "./core/follow-evaluator.js";
@@ -86,11 +88,15 @@ const wakeLock = new ScreenWakeLockManager({
 
 const onsetEngine = new OnsetEngine({
   onOnset: (timestamp) => handleOnset(timestamp, null),
+  onSamples: (samples, sampleRate, timestamp) =>
+    handlePitchSamples(samples, sampleRate, timestamp),
   onLevel: (level) => {
     byId("levelBar").style.width = `${Math.round(level * 100)}%`;
   },
   onError: (error) => toast(readableError(error)),
 });
+
+const pianoRecognition = new PianoRecognitionEngine();
 
 const midiInput = new MidiInput({
   onNote: ({ midi, timestamp }) => handleOnset(timestamp, midi),
@@ -680,6 +686,7 @@ async function startTeacherPractice() {
   state.lastMidiAttempt = null;
   state.follow = createFollowState(state.currentEvents);
   state.followStats = { correct: 0, wrong: 0 };
+  pianoRecognition.reset();
   resetPracticeUi();
   byId("startPracticeButton").disabled = true;
   byId("stopPracticeButton").disabled = false;
@@ -697,7 +704,7 @@ async function startTeacherPractice() {
   state.practiceActive = true;
   showFollowCursor();
   const micHint = state.inputMode === "microphone"
-    ? "No microfone, cada ataque avança um passo — o piano MIDI confere as notas."
+    ? "O microfone confere a nota ou o acorde escrito antes de avançar."
     : "Toque a nota certa para avançar. Se errar, o cursor espera.";
   setFeedback("neutral", "SIGA A PARTITURA", "Toque a primeira nota", micHint);
   updateFollowStats();
@@ -769,6 +776,21 @@ function handleOnset(timestamp, midi) {
   if (!state.practiceActive) return;
 
   if (state.practiceMode === "teacher" && state.follow) {
+    if (midi === null) {
+      const expected = currentFollowEvent(state.follow)?.midis || [];
+      if (!expected.length) {
+        handleFollowResult(forceFollowAdvance(state.follow));
+        return;
+      }
+      pianoRecognition.startAttempt(expected, timestamp);
+      setFeedback(
+        "neutral",
+        "OUVINDO",
+        expected.length > 1 ? "Reconhecendo o acorde" : "Reconhecendo a nota",
+        `Esperado: ${expectedNoteLabel(expected)}`,
+      );
+      return;
+    }
     handleFollowOnset(midi);
     return;
   }
@@ -820,16 +842,48 @@ function expectedNoteLabel(midis = []) {
 }
 
 function handleFollowOnset(midi) {
-  const result = midi === null
-    ? forceFollowAdvance(state.follow)
-    : registerFollowNote(state.follow, midi);
+  handleFollowResult(registerFollowNote(state.follow, midi));
+}
+
+function handlePitchSamples(samples, sampleRate, timestamp) {
+  if (
+    !state.practiceActive
+    || state.practiceMode !== "teacher"
+    || state.inputMode !== "microphone"
+    || !state.follow
+  ) return;
+
+  const analysis = pianoRecognition.process(samples, sampleRate, timestamp);
+  if (!analysis) return;
+  if (analysis.outcome === "match") {
+    handleFollowResult(registerFollowChord(state.follow, analysis.detected));
+    return;
+  }
+  if (analysis.outcome === "wrong") {
+    handleFollowResult(registerFollowChord(state.follow, analysis.detected));
+    return;
+  }
+
+  if (analysis.status === "incomplete") {
+    setFeedback("early", "QUASE", "Complete o acorde", `Falta: ${expectedNoteLabel(analysis.missing)}`);
+  } else if (analysis.status === "extra") {
+    setFeedback("late", "NOTA EXTRA", "Confira o acorde", `Extra: ${expectedNoteLabel(analysis.extra)}`);
+  } else if (analysis.status === "wrong" && analysis.detected.length) {
+    setFeedback("late", "NOTA DIFERENTE", "O cursor vai esperar", `Ouvi: ${expectedNoteLabel(analysis.detected)}`);
+  }
+}
+
+function handleFollowResult(result) {
 
   if (result.type === "idle") return;
 
   if (result.type === "wrong") {
     state.followStats.wrong += 1;
     const wanted = result.remaining?.length ? result.remaining : result.expected;
-    setFeedback("late", "NOTA ERRADA", "Ainda não é essa", `Toque: ${expectedNoteLabel(wanted)}`);
+    const detail = result.extra?.length
+      ? `Extra: ${expectedNoteLabel(result.extra)} · Toque: ${expectedNoteLabel(wanted)}`
+      : `Toque: ${expectedNoteLabel(wanted)}`;
+    setFeedback("late", "NOTA ERRADA", "Ainda não é essa", detail);
     appendAttemptDot("late");
     updateFollowStats();
     return;
@@ -938,6 +992,7 @@ async function stopPractice({ showResult = true } = {}) {
   byId("countInDisplay")?.classList.remove("visible");
   byId("startPracticeButton").disabled = false;
   byId("stopPracticeButton").disabled = true;
+  pianoRecognition.reset();
   await onsetEngine.stop();
 
   if (showResult && hadActivity) showPracticeResult();

@@ -100,6 +100,58 @@ export function registerNote(state, midi, { octaveSensitive = true } = {}) {
   };
 }
 
+// Registra simultaneamente as alturas reconhecidas pelo microfone. Diferente
+// do MIDI (que chega nota a nota), um quadro acústico representa o acorde
+// inteiro: notas ausentes ou extras não avançam o cursor.
+export function registerChord(state, midis, { octaveSensitive = true } = {}) {
+  if (!state || state.done) {
+    return { type: "idle", index: state?.index ?? 0, done: true };
+  }
+  const event = currentEvent(state);
+  const expected = expectedMidis(event);
+  if (!expected.length) return forceAdvance(state);
+
+  const played = [...new Set((midis || [])
+    .filter((value) => Number.isFinite(value))
+    .map((value) => Math.round(value)))];
+  const comparable = (value) => octaveSensitive
+    ? value
+    : ((value % 12) + 12) % 12;
+  const expectedComparable = expected.map(comparable);
+  const playedComparable = played.map(comparable);
+  const missing = expected.filter((value, index) =>
+    !playedComparable.includes(expectedComparable[index]),
+  );
+  const extra = played.filter((value, index) =>
+    !expectedComparable.includes(playedComparable[index]),
+  );
+  if (missing.length || extra.length) {
+    return {
+      type: "wrong",
+      index: state.index,
+      expected,
+      remaining: missing,
+      missing,
+      extra,
+      played,
+    };
+  }
+
+  const completedIndex = state.index;
+  const finished = advance(state);
+  return {
+    type: finished ? "complete" : "advance",
+    index: state.index,
+    completedIndex,
+    done: state.done,
+    expected,
+    remaining: [],
+    missing: [],
+    extra: [],
+    played,
+  };
+}
+
 // Avança o evento atual sem conferir alturas. Usado quando a entrada não
 // informa a nota (por exemplo, um ataque captado pelo microfone).
 export function forceAdvance(state) {

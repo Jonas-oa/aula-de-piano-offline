@@ -7,7 +7,8 @@ Aplicativo web offline para estudar peças completas com a partitura aberta e re
 - repertório formado por arquivos importados pelo próprio aluno;
 - leitura de PDF com troca de página e zoom;
 - MusicXML opcional para fornecer ataques, pausas e alturas estruturadas;
-- avaliação do tempo pelo microfone, diretamente no navegador;
+- reconhecimento de notas e acordes pelo microfone no modo professor com MusicXML;
+- avaliação do tempo pelo microfone em partituras PDF, diretamente no navegador;
 - entrada Web MIDI para captar notas e acordes com maior precisão;
 - 24 exercícios rítmicos originais para duas mãos, sem fases ou bloqueios;
 - armazenamento local com IndexedDB e proteção de tela durante a prática;
@@ -17,7 +18,10 @@ Aplicativo web offline para estudar peças completas com a partitura aberta e re
 
 Um PDF descreve páginas, não eventos musicais. Com apenas o PDF, o aplicativo mostra a partitura e compara os ataques captados com uma grade de tempo configurável. Para verificar exatamente as notas, pausas e durações escritas, importe também o MusicXML correspondente.
 
-O microfone detecta ataques acústicos para avaliar o ritmo. Em acordes de piano, a identificação exata de todas as alturas é mais confiável usando um piano digital conectado por MIDI.
+Com MusicXML, o motor acústico usa o evento esperado para reconhecer notas
+avulsas e acordes, incluindo notas ausentes e extras. Em PDF puro, onde as
+alturas não são conhecidas, o microfone continua avaliando somente os ataques
+rítmicos. MIDI permanece a opção de maior precisão em ambientes ruidosos.
 
 O projeto não distribui partituras protegidas. O usuário deve importar arquivos que adquiriu legalmente ou que estejam em domínio público.
 
