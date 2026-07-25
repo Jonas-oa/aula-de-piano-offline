@@ -8,6 +8,7 @@ import {
 import { midiToPortuguese } from "./core/music.js";
 import { parseMusicXml } from "./core/musicxml.js";
 import { renderPdfToImages, transcribeMusicXml } from "./core/omr-vision.js";
+import { convertViaService } from "./core/omr-service.js";
 import { MidiInput, OnsetEngine } from "./core/onset-engine.js";
 import {
   createFollowState,
@@ -319,32 +320,79 @@ function saveOmrApiKey(value) {
   }
 }
 
+function loadOmrService() {
+  try {
+    return (localStorage.getItem("partitura-viva-omr-service") || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function saveOmrService(value) {
+  try {
+    if (value) localStorage.setItem("partitura-viva-omr-service", value);
+    else localStorage.removeItem("partitura-viva-omr-service");
+  } catch {
+    // sem persistência disponível
+  }
+}
+
+// Escolhe o motor de conversão: serviço Audiveris (preferido, se configurado)
+// ou o modelo de visão (traga sua chave). Devolve { xml, warnings }.
+async function runOmr({ pdfAsset, title = "", composer = "", onProgress = () => {} }) {
+  const serviceUrl = loadOmrService();
+  if (serviceUrl) {
+    const bytes = pdfAsset.bytes instanceof ArrayBuffer ? pdfAsset.bytes : pdfAsset.bytes?.buffer || pdfAsset.bytes;
+    return convertViaService({ baseUrl: serviceUrl, pdfBytes: bytes, filename: pdfAsset.name || `${title || "partitura"}.pdf`, onProgress });
+  }
+  let apiKey = loadOmrApiKey();
+  if (!apiKey) {
+    apiKey = (window.prompt("Configure o serviço Audiveris (na importação) ou cole sua chave da API Anthropic (fica só neste aparelho):") || "").trim();
+    if (!apiKey) throw new Error("Conversão cancelada: configure o serviço ou uma chave de API.");
+    saveOmrApiKey(apiKey);
+  }
+  const model = byId("omrModel")?.value.trim() || "claude-opus-4-8";
+  onProgress("Preparando as páginas do PDF…");
+  const { images, totalPages, usedPages } = await renderPdfToImages(pdfAsset, { maxPages: 4 });
+  onProgress(`Enviando ${usedPages} de ${totalPages} página(s) ao modelo de visão…`);
+  const xml = await transcribeMusicXml({ apiKey, model, images, hints: `${title} ${composer}`.trim() });
+  return { xml, warnings: [] };
+}
+
+function warningSummary(warnings) {
+  if (!warnings?.length) return "";
+  const shown = warnings.slice(0, 2).join(" ");
+  return warnings.length > 2 ? `${shown} (+${warnings.length - 2} avisos)` : shown;
+}
+
 async function convertPdfToMusicXml() {
   const pdfFile = state.selectedFiles.find((file) => /\.pdf$/i.test(file.name));
   if (!pdfFile) {
     toast("Selecione um PDF para converter.");
     return;
   }
-  const apiKey = byId("omrApiKey").value.trim();
-  if (!apiKey) {
-    toast("Informe a chave da API para converter.");
+  saveOmrService(byId("omrService").value.trim());
+  saveOmrApiKey(byId("omrApiKey").value.trim());
+  if (!loadOmrService() && !loadOmrApiKey()) {
+    toast("Informe a URL do serviço Audiveris ou a chave da API.");
     return;
   }
-  const model = byId("omrModel").value.trim() || "claude-opus-4-8";
   const button = byId("omrConvertButton");
   button.disabled = true;
-  setOmrStatus("Preparando as páginas do PDF…");
   try {
     const asset = await fileToStoredAsset(pdfFile);
-    const { images, totalPages, usedPages } = await renderPdfToImages(asset, { maxPages: 4 });
-    setOmrStatus(`Enviando ${usedPages} de ${totalPages} página(s) ao modelo de visão…`);
-    const hints = `${byId("pieceTitle").value} ${byId("pieceComposer").value}`.trim();
-    const xml = await transcribeMusicXml({ apiKey, model, images, hints });
+    const { xml, warnings } = await runOmr({
+      pdfAsset: asset,
+      title: byId("pieceTitle").value,
+      composer: byId("pieceComposer").value,
+      onProgress: setOmrStatus,
+    });
     const parsed = parseMusicXml(xml);
     state.omrXml = xml;
     if (!byId("pieceTitle").value.trim() && parsed.title) byId("pieceTitle").value = parsed.title;
     if (!byId("pieceComposer").value.trim() && parsed.composer) byId("pieceComposer").value = parsed.composer;
-    setOmrStatus(`Pronto: ${parsed.events.length} ataques reconhecidos. Salve para adicionar ao repertório com o modo professor.`);
+    const warn = warningSummary(warnings);
+    setOmrStatus(`Pronto: ${parsed.events.length} notas.${warn ? ` Revise: ${warn}` : ""} Salve para adicionar ao repertório.`);
     toast("Conversão concluída. Revise e salve a peça.");
   } catch (error) {
     state.omrXml = "";
@@ -547,27 +595,23 @@ function setConvertStatus(message) {
 async function convertCurrentPiece() {
   const item = state.currentItem;
   if (!item?.pdfAsset) return;
-  let apiKey = loadOmrApiKey();
-  if (!apiKey) {
-    apiKey = (window.prompt("Cole sua chave da API Anthropic (fica só neste aparelho):") || "").trim();
-    if (!apiKey) return;
-    saveOmrApiKey(apiKey);
-  }
-  const model = byId("omrModel")?.value.trim() || "claude-opus-4-8";
   const button = byId("convertPieceButton");
   button.disabled = true;
-  setConvertStatus("Preparando as páginas do PDF…");
   try {
-    const { images, totalPages, usedPages } = await renderPdfToImages(item.pdfAsset, { maxPages: 4 });
-    setConvertStatus(`Enviando ${usedPages} de ${totalPages} página(s) ao modelo de visão…`);
-    const xml = await transcribeMusicXml({ apiKey, model, images, hints: `${item.title} ${item.composer || ""}`.trim() });
+    const { xml, warnings } = await runOmr({
+      pdfAsset: item.pdfAsset,
+      title: item.title,
+      composer: item.composer,
+      onProgress: setConvertStatus,
+    });
     const parsed = parseMusicXml(xml);
     item.musicXmlAsset = xmlStringToAsset(`${item.title}.musicxml`, xml);
     await savePiece(item);
     const index = state.pieces.findIndex((piece) => piece.id === item.id);
     if (index >= 0) state.pieces[index] = item;
-    setConvertStatus(`Pronto: ${parsed.events.length} notas reconhecidas.`);
-    toast("Convertido! Agora com trecho atual, destaque e laço.");
+    const warn = warningSummary(warnings);
+    setConvertStatus(`Pronto: ${parsed.events.length} notas.${warn ? ` Revise: ${warn}` : ""}`);
+    toast(warn ? "Convertido — há trechos a revisar." : "Convertido! Agora com trecho atual, destaque e laço.");
     await openPractice(item);
   } catch (error) {
     setConvertStatus(readableError(error));
@@ -1043,6 +1087,8 @@ byId("pieceFiles").addEventListener("change", (event) => acceptFiles(event.targe
 byId("importForm").addEventListener("submit", importPiece);
 byId("omrApiKey").value = loadOmrApiKey();
 byId("omrApiKey").addEventListener("change", (event) => saveOmrApiKey(event.target.value.trim()));
+byId("omrService").value = loadOmrService();
+byId("omrService").addEventListener("change", (event) => saveOmrService(event.target.value.trim()));
 byId("omrConvertButton").addEventListener("click", convertPdfToMusicXml);
 byId("dropZone").addEventListener("dragover", (event) => {
   event.preventDefault();

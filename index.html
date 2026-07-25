@@ -121,9 +121,13 @@
 
               <details id="omrPanel" class="omr-panel">
                 <summary>Converter PDF em notas (online, beta)</summary>
-                <p class="omr-note">Usa um modelo de visão para gerar o MusicXML a partir do PDF, deixando a partitura dinâmica no modo professor. A chave fica só neste aparelho. A precisão é imperfeita — revise depois.</p>
+                <p class="omr-note">Transforma o PDF em pauta viva (modo professor: trecho atual, destaque, laço). Preencha <strong>uma</strong> das opções abaixo — fica só neste aparelho. A precisão do OMR é imperfeita; revise depois.</p>
                 <label>
-                  <span>Chave da API (Anthropic)</span>
+                  <span>Serviço Audiveris (recomendado) — URL</span>
+                  <input id="omrService" type="url" placeholder="https://seu-conversor.exemplo" autocomplete="off" spellcheck="false" />
+                </label>
+                <label>
+                  <span>Ou chave da API Anthropic (modelo de visão)</span>
                   <input id="omrApiKey" type="password" placeholder="sk-ant-…" autocomplete="off" spellcheck="false" />
                 </label>
                 <label>
