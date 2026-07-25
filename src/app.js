@@ -343,13 +343,36 @@ function saveOmrService(value) {
   }
 }
 
+function loadOmrServiceKey() {
+  try {
+    return localStorage.getItem("partitura-viva-omr-service-key") || "";
+  } catch {
+    return "";
+  }
+}
+
+function saveOmrServiceKey(value) {
+  try {
+    if (value) localStorage.setItem("partitura-viva-omr-service-key", value);
+    else localStorage.removeItem("partitura-viva-omr-service-key");
+  } catch {
+    // A chave fica somente na sessão quando o armazenamento está indisponível.
+  }
+}
+
 // Escolhe o motor de conversão: serviço Audiveris (preferido, se configurado)
 // ou o modelo de visão (traga sua chave). Devolve { xml, warnings }.
 async function runOmr({ pdfAsset, title = "", composer = "", onProgress = () => {} }) {
   const serviceUrl = loadOmrService();
   if (serviceUrl) {
     const bytes = pdfAsset.bytes instanceof ArrayBuffer ? pdfAsset.bytes : pdfAsset.bytes?.buffer || pdfAsset.bytes;
-    return convertViaService({ baseUrl: serviceUrl, pdfBytes: bytes, filename: pdfAsset.name || `${title || "partitura"}.pdf`, onProgress });
+    return convertViaService({
+      baseUrl: serviceUrl,
+      accessKey: loadOmrServiceKey(),
+      pdfBytes: bytes,
+      filename: pdfAsset.name || `${title || "partitura"}.pdf`,
+      onProgress,
+    });
   }
   let apiKey = loadOmrApiKey();
   if (!apiKey) {
@@ -378,6 +401,7 @@ async function convertPdfToMusicXml() {
     return;
   }
   saveOmrService(byId("omrService").value.trim());
+  saveOmrServiceKey(byId("omrServiceKey").value.trim());
   saveOmrApiKey(byId("omrApiKey").value.trim());
   if (!loadOmrService() && !loadOmrApiKey()) {
     toast("Informe a URL do serviço Audiveris ou a chave da API.");
@@ -1144,6 +1168,8 @@ byId("omrApiKey").value = loadOmrApiKey();
 byId("omrApiKey").addEventListener("change", (event) => saveOmrApiKey(event.target.value.trim()));
 byId("omrService").value = loadOmrService();
 byId("omrService").addEventListener("change", (event) => saveOmrService(event.target.value.trim()));
+byId("omrServiceKey").value = loadOmrServiceKey();
+byId("omrServiceKey").addEventListener("change", (event) => saveOmrServiceKey(event.target.value.trim()));
 byId("omrConvertButton").addEventListener("click", convertPdfToMusicXml);
 byId("dropZone").addEventListener("dragover", (event) => {
   event.preventDefault();
