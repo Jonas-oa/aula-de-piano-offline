@@ -1,14 +1,10 @@
+import { midiToNote } from "./music.js";
+
 const SAMPLE_MIDIS = [
   21, 24, 27, 30, 33, 36, 39, 42, 45, 48,
   51, 54, 57, 60, 63, 66, 69, 72, 75, 78,
   81, 84, 87, 90, 93, 96, 99, 102, 105, 108,
 ];
-
-const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-
-function midiName(midi) {
-  return `${NOTE_NAMES[midi % 12]}${Math.floor(midi / 12) - 1}`;
-}
 
 export function sampleForMidi(midi) {
   const numericMidi = Number(midi);
@@ -16,7 +12,7 @@ export function sampleForMidi(midi) {
   const sampleMidi = SAMPLE_MIDIS.reduce((nearest, candidate) =>
     Math.abs(candidate - target) < Math.abs(nearest - target) ? candidate : nearest,
   );
-  const filename = `${midiName(sampleMidi)}v10.mp3`;
+  const filename = `${midiToNote(sampleMidi)}v10.mp3`;
   return {
     midi: sampleMidi,
     filename,
@@ -259,7 +255,13 @@ export class PianoPlaybackEngine {
   }
 
   async scheduleEvent(event, when, secondsPerBeat) {
-    for (const [noteIndex, midi] of (event.midis || []).entries()) {
+    const midis = event.midis || [];
+    // O acento é do ataque, não de cada nota: usar a posição dentro do acorde
+    // fazia notas do mesmo acorde saírem com volumes diferentes sem motivo.
+    const accent = 0.92 + (event.originalIndex % 4 === 0 ? 0.08 : 0);
+    const chordGain = 0.76 / Math.sqrt(Math.max(1, midis.length));
+
+    for (const midi of midis) {
       const definition = sampleForMidi(midi);
       const buffer = await this.loadSample(definition.midi);
       if (!this.session || when < this.context.currentTime - 0.04) continue;
@@ -268,8 +270,6 @@ export class PianoPlaybackEngine {
       const noteSeconds = Math.max(0.08, event.duration * secondsPerBeat);
       const releaseSeconds = Math.min(1.1, Math.max(0.38, noteSeconds * 0.55));
       const startAt = Math.max(when, this.context.currentTime);
-      const chordGain = 0.76 / Math.sqrt(Math.max(1, event.midis.length));
-      const accent = 0.92 + ((event.originalIndex + noteIndex) % 4 === 0 ? 0.08 : 0);
 
       source.buffer = buffer;
       source.playbackRate.value = definition.playbackRate;

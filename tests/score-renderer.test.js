@@ -4,6 +4,9 @@ import assert from "node:assert/strict";
 import {
   bassClefGeometry,
   isExplicitMeasureBoundary,
+  isOnBassStaff,
+  noteY,
+  scoreHeadline,
   scoreIndexForDrag,
   scoreIndexesToRefresh,
   scoreVerticalBounds,
@@ -77,9 +80,49 @@ test("clave de Fá referencia a quarta linha da pauta, entre os dois pontos", ()
   assert.ok(geometry.dotYs[1] > geometry.fLineY);
 });
 
+test("a clave segue o staff do MusicXML, não o corte pelo dó central", () => {
+  // Mão esquerda escrita acima do dó central: pertence à clave de fá.
+  assert.equal(isOnBassStaff({ pitch: "E4", staff: 2 }, true), true);
+  // Mão direita cruzando para o grave: continua na clave de sol.
+  assert.equal(isOnBassStaff({ pitch: "A2", staff: 1 }, true), false);
+  // Sem staff (exercícios e transcrições antigas), vale o palpite pelo dó central.
+  assert.equal(isOnBassStaff({ pitch: "A2" }, true), true);
+  assert.equal(isOnBassStaff({ pitch: "E4" }, true), false);
+  // Pauta simples nunca manda nada para a clave de fá.
+  assert.equal(isOnBassStaff({ pitch: "A2", staff: 2 }, false), false);
+  assert.equal(isOnBassStaff({ pitch: "inválido" }, true), false);
+});
+
+test("cabeçalho não exibe separador solto quando falta a tonalidade", () => {
+  const base = { id: "x", bpm: 72, timeSignature: "3/4", notes: [] };
+
+  assert.equal(scoreHeadline(base), "72 bpm · 3/4");
+  assert.equal(scoreHeadline({ ...base, key: "Dó maior" }), "Dó maior · 72 bpm · 3/4");
+  assert.equal(scoreHeadline({ ...base, key: "", timeSignature: "", beatsPerBar: 0 }), "72 bpm");
+  assert.doesNotMatch(scoreHeadline(base), /^\s*·/);
+});
+
 test("arrastar a pauta converte o deslocamento em avanço e retorno de notas", () => {
   assert.equal(scoreIndexForDrag(10, -88, 850, 660), 11);
   assert.equal(scoreIndexForDrag(10, 88, 850, 660), 9);
   assert.equal(scoreIndexForDrag(0, 880, 850, 660), 0);
   assert.equal(scoreIndexForDrag(659, -880, 850, 660), 659);
+});
+
+test("cada nota cai na linha ou espaço certo das duas claves", () => {
+  // Clave de sol: linhas Mi4, Sol4, Si4, Ré5, Fá5 (80 a 128, passo de 6 por grau).
+  assert.equal(noteY("E4"), 128, "Mi4 é a primeira linha da clave de sol");
+  assert.equal(noteY("F5"), 80, "Fá5 é a quinta linha");
+  assert.equal(noteY("A5"), 68, "Lá5 fica na primeira suplementar acima");
+  assert.equal(noteY("C4"), 140, "o dó central fica na primeira suplementar abaixo");
+
+  // Clave de fá: linhas Sol2, Si2, Ré3, Fá3, Lá3 (180 a 228).
+  assert.equal(noteY("G2", true), 228, "Sol2 é a primeira linha da clave de fá");
+  assert.equal(noteY("A3", true), 180, "Lá3 é a quinta linha");
+  assert.equal(noteY("C4", true), 168, "o dó central fica na suplementar acima");
+  assert.equal(noteY("C2", true), 252, "Dó2 fica na segunda suplementar abaixo");
+
+  // A alteração não muda a linha: Fá♯4 e Fá4 ocupam o mesmo lugar.
+  assert.equal(noteY("F#4"), noteY("F4"));
+  assert.equal(noteY("Bb3", true), noteY("B3", true));
 });

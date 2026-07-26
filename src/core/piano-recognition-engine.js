@@ -1,4 +1,4 @@
-import { midiToFrequency } from "./music.js";
+import { midiToFrequency, sameMidis, uniqueMidis } from "./music.js";
 
 const DEFAULTS = {
   minRms: 0.004,
@@ -6,57 +6,74 @@ const DEFAULTS = {
   expectedRelativeThreshold: 0.075,
   extraRelativeThreshold: 0.36,
   scanPaddingSemitones: 12,
+  // Um vizinho precisa ser bem mais forte para o pico ser tratado como vazamento.
+  sidebandRatio: 2,
+  // Bins mínimos entre semitons para o quadro conseguir distingui-los.
+  resolutionBins: 1.5,
   stableFrames: 2,
   analysisIntervalMs: 36,
   attemptWindowMs: 460,
 };
 
-function uniqueMidis(midis) {
-  return [...new Set((midis || [])
-    .filter((midi) => Number.isFinite(midi))
-    .map((midi) => Math.round(midi)))]
-    .sort((a, b) => a - b);
-}
-
-function sameMidis(left, right) {
-  return left.length === right.length
-    && left.every((midi, index) => midi === right[index]);
-}
-
 function rmsOf(samples) {
   if (!samples?.length) return 0;
-  let mean = 0;
-  for (const sample of samples) mean += sample;
-  mean /= samples.length;
-  let sum = 0;
-  for (const sample of samples) {
-    const centered = sample - mean;
-    sum += centered * centered;
+  let total = 0;
+  let squares = 0;
+  for (let index = 0; index < samples.length; index += 1) {
+    const sample = samples[index];
+    total += sample;
+    squares += sample * sample;
   }
-  return Math.sqrt(sum / samples.length);
+  const mean = total / samples.length;
+  return Math.sqrt(Math.max(0, squares / samples.length - mean * mean));
 }
 
-function goertzelAmplitude(samples, sampleRate, frequency) {
+// A janela de Hann e o buffer de trabalho dependem só do tamanho do quadro, que
+// na prática nunca muda. Antes o cosseno da janela era recalculado para cada
+// altura pesquisada — dezenas de vezes por quadro, em torno de sete milhões de
+// chamadas por segundo num acorde de duas mãos.
+const WINDOW_CACHE = new Map();
+
+function windowFor(length) {
+  let cached = WINDOW_CACHE.get(length);
+  if (cached) return cached;
+  const shape = new Float32Array(length);
+  const denominator = Math.max(1, length - 1);
+  let sum = 0;
+  for (let index = 0; index < length; index += 1) {
+    shape[index] = 0.5 - 0.5 * Math.cos((2 * Math.PI * index) / denominator);
+    sum += shape[index];
+  }
+  cached = { shape, sum: Math.max(1, sum), windowed: new Float32Array(length) };
+  if (WINDOW_CACHE.size > 4) WINDOW_CACHE.clear();
+  WINDOW_CACHE.set(length, cached);
+  return cached;
+}
+
+function applyWindow(samples) {
+  const cached = windowFor(samples.length);
+  for (let index = 0; index < samples.length; index += 1) {
+    cached.windowed[index] = samples[index] * cached.shape[index];
+  }
+  return cached;
+}
+
+function goertzelAmplitude(windowed, sampleRate, frequency, windowSum) {
   const omega = (2 * Math.PI * frequency) / sampleRate;
   const coefficient = 2 * Math.cos(omega);
   let previous = 0;
   let previousPrevious = 0;
-  let windowSum = 0;
-  const denominator = Math.max(1, samples.length - 1);
 
-  for (let index = 0; index < samples.length; index += 1) {
-    const window = 0.5 - 0.5 * Math.cos((2 * Math.PI * index) / denominator);
-    const value = samples[index] * window;
-    const current = value + coefficient * previous - previousPrevious;
+  for (let index = 0; index < windowed.length; index += 1) {
+    const current = windowed[index] + coefficient * previous - previousPrevious;
     previousPrevious = previous;
     previous = current;
-    windowSum += window;
   }
 
   const power = previousPrevious * previousPrevious
     + previous * previous
     - coefficient * previous * previousPrevious;
-  return (2 * Math.sqrt(Math.max(0, power))) / Math.max(1, windowSum);
+  return (2 * Math.sqrt(Math.max(0, power))) / windowSum;
 }
 
 function isHarmonicAlias(midi, amplitude, amplitudes, expectedSet, minAmplitude) {
@@ -109,9 +126,13 @@ export function analyzeExpectedChord(samples, sampleRate, expectedMidis, options
 
   const low = Math.max(21, expected[0] - config.scanPaddingSemitones);
   const high = Math.min(108, expected.at(-1) + config.scanPaddingSemitones);
+  const { windowed, sum: windowSum } = applyWindow(samples);
   const amplitudes = new Map();
   for (let midi = low; midi <= high; midi += 1) {
-    amplitudes.set(midi, goertzelAmplitude(samples, sampleRate, midiToFrequency(midi)));
+    amplitudes.set(
+      midi,
+      goertzelAmplitude(windowed, sampleRate, midiToFrequency(midi), windowSum),
+    );
   }
 
   const strongest = Math.max(0, ...amplitudes.values());
@@ -132,22 +153,41 @@ export function analyzeExpectedChord(samples, sampleRate, expectedMidis, options
     config.minAmplitude * 1.6,
     expectedStrongest * config.extraRelativeThreshold,
   );
+  // Limite físico do quadro: com N amostras a R Hz, dois semitons vizinhos só se
+  // separam acima de certa frequência. No grave do piano a distância entre
+  // semitons é menor que um bin — Dó2 e Dó♯2 caem no mesmo lugar. Apontar "nota
+  // extra" nessa região seria inventar erro, então o motor se cala ali. A nota
+  // esperada continua sendo conferida por presença, que não exige separá-la da
+  // vizinha.
+  const binHz = sampleRate / samples.length;
+  const semitoneRatio = 2 ** (1 / 12) - 1;
+  const canResolveNeighbours = (midi) =>
+    midiToFrequency(midi) * semitoneRatio >= binHz * config.resolutionBins;
+
   const extras = [];
   for (const [midi, amplitude] of amplitudes) {
     if (expectedSet.has(midi) || amplitude < extraThreshold) continue;
+    if (!canResolveNeighbours(midi)) continue;
     if (isHarmonicAlias(midi, amplitude, amplitudes, expectedSet, config.minAmplitude)) continue;
     extras.push(midi);
   }
 
-  // Picos vizinhos podem aparecer por pequena desafinação. Mantém somente o
-  // pico mais forte dentro de cada grupo cromático contíguo.
-  const compactExtras = extras.filter((midi) =>
-    !extras.some((other) =>
-      other !== midi
-      && Math.abs(other - midi) <= 1
-      && (amplitudes.get(other) || 0) > (amplitudes.get(midi) || 0),
-    ),
-  );
+  // Picos vizinhos aparecem por vazamento espectral, e o vizinho mais forte
+  // costuma ser a própria nota esperada — comparar apenas extras entre si fazia
+  // a banda lateral de uma nota certa virar "nota extra".
+  //
+  // A proporção separa os dois casos com folga: medido em quadro de 4096
+  // amostras, o vazamento fica perto de 2,5% do pico vizinho, enquanto um erro
+  // real de semitom (tocar Fá♯ junto do Sol escrito) chega a 100%. Sem esse
+  // limiar, o engano mais comum do aluno passaria despercebido.
+  const compactExtras = extras.filter((midi) => {
+    const amplitude = amplitudes.get(midi) || 0;
+    for (const neighbour of [midi - 1, midi + 1]) {
+      const neighbourAmplitude = amplitudes.get(neighbour) || 0;
+      if (neighbourAmplitude > amplitude * config.sidebandRatio) return false;
+    }
+    return true;
+  });
   const missing = expected.filter((midi) => !presentExpected.includes(midi));
   const detected = [...presentExpected, ...compactExtras].sort((a, b) => a - b);
   const completeness = expected.length

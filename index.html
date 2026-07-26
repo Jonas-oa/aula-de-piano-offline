@@ -187,7 +187,7 @@
               aria-expanded="false"
               aria-label="Ajustar andamento"
             ><span class="tempo-chip-label">Andamento</span><span aria-hidden="true">♩</span><output id="tempoOutput">72</output>
-              <input id="tempoSlider" class="collapsible-control" type="range" min="30" max="180" value="72" aria-label="Andamento" /></label>
+              <input id="tempoSlider" class="collapsible-control" type="range" min="30" max="240" value="72" aria-label="Andamento" /></label>
             <div id="pdfOnlyOptions" class="pdf-options collapsible-control">
               <select id="subdivisionSelect" aria-label="Subdivisão da grade">
                 <option value="1">Semínimas</option>
@@ -256,9 +256,9 @@
             <button id="loopToggleButton" class="chip-button loop" aria-pressed="false">↻ Repetir A–B</button>
           </div>
           <div id="practiceStats" class="practice-stats compact">
-            <div><span>No tempo</span><strong id="onTimeStat">0</strong></div>
-            <div><span>Adiantado</span><strong id="earlyStat">0</strong></div>
-            <div><span>Atrasado</span><strong id="lateStat">0</strong></div>
+            <div><span data-stat-label="first">No tempo</span><strong id="onTimeStat">0</strong></div>
+            <div><span data-stat-label="second">Adiantado</span><strong id="earlyStat">0</strong></div>
+            <div><span data-stat-label="third">Atrasado</span><strong id="lateStat">0</strong></div>
             <div><span>Precisão</span><strong id="accuracyStat">0%</strong></div>
           </div>
           <div id="practiceBottomControls" class="bottombar-end bottombar-collapsible">
@@ -268,7 +268,7 @@
               <p id="analysisExplanation">Com MusicXML, o microfone confere notas e acordes no modo professor. Com PDF puro, mede a proximidade de cada ataque à grade.</p>
             </details>
           </div>
-          <div id="attemptTimeline" class="attempt-timeline bottombar-collapsible" aria-label="Últimos ataques" hidden></div>
+          <div id="attemptTimeline" class="attempt-timeline bottombar-collapsible" role="img" aria-label="Últimos ataques"></div>
         </div>
 
         <div id="rotateOverlay" class="rotate-overlay" hidden>
@@ -289,7 +289,6 @@
   </dialog>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
-  <script src="./vendor/osmd/opensheetmusicdisplay.min.js"></script>
   <script type="module" src="./src/app.js"></script>
 </body>
 </html>

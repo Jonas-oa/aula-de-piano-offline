@@ -5,7 +5,7 @@ import {
   listPieces,
   savePiece,
 } from "./core/library-store.js";
-import { midiToPortuguese, noteToMidi } from "./core/music.js";
+import { beatsPerBarFromSignature, midiToPortuguese, noteToMidi } from "./core/music.js";
 import { parseMusicXml } from "./core/musicxml.js";
 import { musicXmlBlob, musicXmlFilename } from "./core/musicxml-export.js";
 import { MidiInput, OnsetEngine } from "./core/onset-engine.js";
@@ -42,7 +42,6 @@ const state = {
   selectedFiles: [],
   currentItem: null,
   currentEvents: null,
-  currentMusicXml: "",
   currentMusicMetadata: null,
   currentView: "libraryView",
   inputMode: "microphone",
@@ -54,7 +53,6 @@ const state = {
   missed: 0,
   animationFrame: null,
   countTimers: [],
-  startedAt: 0,
   exactMode: false,
   lastMidiAttempt: null,
   follow: null,
@@ -157,17 +155,22 @@ function levelLabel(level) {
   return { iniciante: "Iniciante", intermediario: "Intermediário", avancado: "Avançado" }[level] || level;
 }
 
-function beatsPerBar(timeSignature = "4/4") {
-  const [numerator, denominator] = String(timeSignature).split("/").map(Number);
-  if (!numerator || !denominator) return 4;
-  return denominator === 8 ? numerator / 2 : numerator;
+// Uma única fonte para "tempos por compasso" da peça aberta. A fórmula lida no
+// MusicXML vence o valor escolhido no formulário de importação, que costuma
+// ficar no 4/4 padrão mesmo quando a partitura está em outro compasso.
+function currentBeatsPerBar(item = state.currentItem, metadata = state.currentMusicMetadata) {
+  const candidates = [metadata?.beatsPerBar, item?.beatsPerBar];
+  for (const candidate of candidates) {
+    if (Number.isFinite(Number(candidate)) && Number(candidate) > 0) return Number(candidate);
+  }
+  return beatsPerBarFromSignature(item?.timeSignature);
 }
 
 function renderLibrary() {
   const query = byId("librarySearch").value.trim().toLocaleLowerCase("pt-BR");
   const pieces = state.pieces
     .filter((piece) => `${piece.title} ${piece.composer}`.toLocaleLowerCase("pt-BR").includes(query))
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
   const grid = byId("pieceGrid");
   grid.replaceChildren();
 
@@ -357,21 +360,22 @@ function structuredScore(item, events, metadata = null) {
     key: item.key || "",
     bpm: item.bpm,
     timeSignature,
-    beatsPerBar: metadata?.beatsPerBar || item.beatsPerBar || beatsPerBar(timeSignature),
+    beatsPerBar: currentBeatsPerBar(item, metadata),
     pickupBeats: metadata?.pickupBeats || 0,
     clef: "grand",
-    notes: (events || []).map((event) => {
-      const pitches = (event.pitches || []).filter(Boolean);
-      return {
-        pitch: pitches.at(-1),
-        beat: event.beat,
-        duration: event.duration,
-        measureIndex: event.measureIndex,
-        measureNumber: event.measureNumber,
-        measureStart: event.measureStart,
-        pitches: pitches.map((pitch) => ({ pitch, duration: event.duration, finger: null })),
-      };
-    }),
+    notes: (events || []).map((event) => ({
+      beat: event.beat,
+      duration: event.duration,
+      measureIndex: event.measureIndex,
+      measureNumber: event.measureNumber,
+      // `notes` traz altura, mão (staff) e dedilhado vindos do MusicXML.
+      pitches: (event.notes || []).map((note) => ({
+        pitch: note.pitch,
+        duration: note.duration ?? event.duration,
+        staff: note.staff,
+        finger: note.finger ?? null,
+      })),
+    })),
   };
 }
 
@@ -384,13 +388,12 @@ function renderStructured(index, { fresh = false, immediate = false } = {}) {
   state.viewIndex = index;
   if (fresh) {
     viewer.showRhythm((container) =>
-      renderScore(container, state.currentScore, index, false, activeLoop(), { immediate }));
+      renderScore(container, state.currentScore, index, activeLoop(), { immediate }));
   } else {
     renderScore(
       byId("documentStage"),
       state.currentScore,
       index,
-      false,
       activeLoop(),
       { immediate },
     );
@@ -684,7 +687,6 @@ async function openPractice(item) {
   playbackEngine.stop({ preserveCursor: true });
   state.currentItem = item;
   state.currentEvents = null;
-  state.currentMusicXml = "";
   state.currentMusicMetadata = null;
   state.currentScore = null;
   state.viewIndex = 0;
@@ -705,8 +707,7 @@ async function openPractice(item) {
     if (item.type === "rhythm") {
       state.currentEvents = item.events;
     } else if (item.musicXmlAsset) {
-      state.currentMusicXml = xmlTextFromAsset(item.musicXmlAsset);
-      state.currentMusicMetadata = parseMusicXml(state.currentMusicXml);
+      state.currentMusicMetadata = parseMusicXml(xmlTextFromAsset(item.musicXmlAsset));
       state.currentEvents = state.currentMusicMetadata.events;
     }
 
@@ -733,6 +734,14 @@ async function openPractice(item) {
     byId("documentStage").innerHTML = `<div class="loading-state">${escapeHtml(readableError(error))}</div>`;
     toast(readableError(error));
   }
+}
+
+// Estado dos botões de iniciar/encerrar, que antes era repetido em quatro
+// pontos diferentes e saía de sincronia com facilidade.
+function reflectPracticeRunning(running) {
+  byId("startPracticeButton").disabled = running;
+  byId("stopPracticeButton").hidden = !running;
+  byId("stopPracticeButton").disabled = !running;
 }
 
 function setAnalysisMode(label, explanation) {
@@ -778,10 +787,11 @@ function applyPieceControls() {
 }
 
 function selectedPlaybackBounds() {
+  const total = state.currentEvents?.length || 0;
   const hasRegion = state.loop.a != null && state.loop.b != null;
   return {
     startIndex: hasRegion ? state.loop.a : state.viewIndex,
-    endIndex: hasRegion ? state.loop.b : state.currentEvents.length - 1,
+    endIndex: hasRegion ? state.loop.b : Math.max(0, total - 1),
   };
 }
 
@@ -834,6 +844,14 @@ function reflectPlaybackState(status) {
 
 const PANEL_PREFS_KEY = "partitura-viva-study-side-panels";
 
+function hasSavedPanelPreferences() {
+  try {
+    return localStorage.getItem(PANEL_PREFS_KEY) !== null;
+  } catch {
+    return false;
+  }
+}
+
 function loadPanelPreferences() {
   try {
     const saved = JSON.parse(localStorage.getItem(PANEL_PREFS_KEY) || "{}");
@@ -858,6 +876,10 @@ function setPanelExpanded(panel, expanded, { persist = true } = {}) {
     : `Mostrar ferramentas à ${top ? "esquerda" : "direita"}`;
 
   bar.classList.toggle("is-collapsed", !expanded);
+  if (!top) {
+    // A barra de ações precisa saber que o painel da direita ocupou o espaço.
+    byId("practiceView").classList.toggle("right-panel-open", expanded);
+  }
   button.setAttribute("aria-expanded", String(expanded));
   button.setAttribute("aria-label", label);
   button.title = label;
@@ -886,8 +908,12 @@ function setPanelExpanded(panel, expanded, { persist = true } = {}) {
 
 function restorePanelPreferences() {
   const preferences = loadPanelPreferences();
-  setPanelExpanded("top", preferences.top, { persist: false });
-  setPanelExpanded("bottom", preferences.bottom, { persist: false });
+  // Na primeira visita as ferramentas aparecem abertas: modo de prática,
+  // entrada, andamento e navegação vivem nesse painel, e com ele recolhido o
+  // aluno não tem como descobrir que existem. Depois vale a escolha dele.
+  const firstVisit = !hasSavedPanelPreferences();
+  setPanelExpanded("top", firstVisit || preferences.top, { persist: false });
+  setPanelExpanded("bottom", !firstVisit && preferences.bottom, { persist: false });
 }
 
 function togglePanel(panel) {
@@ -903,10 +929,23 @@ function setTempoExpanded(expanded) {
   if (expanded) byId("tempoSlider").focus({ preventScroll: true });
 }
 
+const STAT_LABELS = {
+  // O modo professor conta acertos e erros de nota; o modo tempo mede desvio.
+  teacher: { first: "Acertos", second: "Notas", third: "Erros" },
+  tempo: { first: "No tempo", second: "Adiantado", third: "Atrasado" },
+};
+
 function reflectPracticeMode() {
-  byId("teacherModeButton").classList.toggle("active", state.practiceMode === "teacher");
-  byId("tempoModeButton").classList.toggle("active", state.practiceMode === "tempo");
-  byId("startPracticeButton").textContent = state.practiceMode === "teacher" ? "▶ Iniciar" : "▶ Contar";
+  const teacher = state.practiceMode === "teacher";
+  byId("teacherModeButton").classList.toggle("active", teacher);
+  byId("tempoModeButton").classList.toggle("active", !teacher);
+  byId("startPracticeButton").textContent = teacher ? "▶ Iniciar" : "▶ Contar";
+
+  const labels = STAT_LABELS[teacher ? "teacher" : "tempo"];
+  for (const element of document.querySelectorAll("[data-stat-label]")) {
+    element.textContent = labels[element.dataset.statLabel] || element.textContent;
+  }
+  resetPracticeUi();
 }
 
 function selectPracticeMode(mode) {
@@ -966,17 +1005,13 @@ async function startTeacherPractice() {
   state.followStats = { correct: 0, wrong: 0 };
   pianoRecognition.reset();
   resetPracticeUi();
-  byId("startPracticeButton").disabled = true;
-  byId("stopPracticeButton").hidden = false;
-  byId("stopPracticeButton").disabled = false;
+  reflectPracticeRunning(true);
   await wakeLock.setEnabled(true);
 
   try {
     await startInput();
   } catch (error) {
-    byId("startPracticeButton").disabled = false;
-    byId("stopPracticeButton").hidden = true;
-    byId("stopPracticeButton").disabled = true;
+    reflectPracticeRunning(false);
     toast(readableError(error));
     return;
   }
@@ -994,9 +1029,8 @@ async function startTeacherPractice() {
 async function startTempoPractice() {
   const bpm = Number(byId("tempoSlider").value);
   const beatMs = 60_000 / bpm;
-  const countBeats = Math.max(2, Math.round(
-    state.currentItem.beatsPerBar || beatsPerBar(state.currentItem.timeSignature),
-  ));
+  const barBeats = currentBeatsPerBar();
+  const countBeats = Math.max(2, Math.round(barBeats));
 
   state.schedule = [];
   state.attempts = [];
@@ -1004,25 +1038,19 @@ async function startTempoPractice() {
   state.lastMidiAttempt = null;
   state.countInActive = true;
   resetPracticeUi();
-  byId("startPracticeButton").disabled = true;
-  byId("stopPracticeButton").hidden = false;
-  byId("stopPracticeButton").disabled = false;
+  reflectPracticeRunning(true);
   await wakeLock.setEnabled(true);
 
   try {
-    if (state.inputMode === "microphone") await onsetEngine.start();
-    else if (!midiInput.access) await midiInput.connect();
+    await startInput();
   } catch (error) {
     state.countInActive = false;
-    byId("startPracticeButton").disabled = false;
-    byId("stopPracticeButton").hidden = true;
-    byId("stopPracticeButton").disabled = true;
+    reflectPracticeRunning(false);
     toast(readableError(error));
     return;
   }
 
   const startAt = performance.now() + countBeats * beatMs + 120;
-  state.startedAt = startAt;
   if (state.currentEvents?.length) {
     state.schedule = eventsToSchedule(state.currentEvents, bpm, startAt);
   } else {
@@ -1030,7 +1058,7 @@ async function startTempoPractice() {
       bpm,
       startMs: startAt,
       subdivision: Number(byId("subdivisionSelect").value),
-      beatsPerBar: beatsPerBar(state.currentItem.timeSignature),
+      beatsPerBar: barBeats,
       bars: 64,
     });
   }
@@ -1065,7 +1093,7 @@ function handleOnset(timestamp, midi) {
         handleFollowResult(forceFollowAdvance(state.follow));
         return;
       }
-      pianoRecognition.noteAttack(timestamp);
+      pianoRecognition.noteAttack();
       if (!pianoRecognition.isArmedFor(expected)) {
         pianoRecognition.armExpected(expected, timestamp);
       }
@@ -1147,11 +1175,7 @@ function handlePitchSamples(samples, sampleRate, timestamp) {
 
   const analysis = pianoRecognition.process(samples, sampleRate, timestamp);
   if (!analysis) return;
-  if (analysis.outcome === "match") {
-    handleFollowResult(registerFollowChord(state.follow, analysis.detected));
-    return;
-  }
-  if (analysis.outcome === "wrong") {
+  if (analysis.outcome === "match" || analysis.outcome === "wrong") {
     handleFollowResult(registerFollowChord(state.follow, analysis.detected));
     return;
   }
@@ -1284,9 +1308,7 @@ async function stopPractice({ showResult = true } = {}) {
   if (state.animationFrame) cancelAnimationFrame(state.animationFrame);
   state.animationFrame = null;
   byId("countInDisplay")?.classList.remove("visible");
-  byId("startPracticeButton").disabled = false;
-  byId("stopPracticeButton").hidden = true;
-  byId("stopPracticeButton").disabled = true;
+  reflectPracticeRunning(false);
   pianoRecognition.reset();
   await onsetEngine.stop();
 
@@ -1299,7 +1321,14 @@ function resetPracticeUi() {
   byId("lateStat").textContent = "0";
   byId("accuracyStat").textContent = "0%";
   byId("attemptTimeline").replaceChildren();
-  setFeedback("neutral", "PRONTO", "Observe a partitura", "O aplicativo contará um compasso antes de começar.");
+  setFeedback(
+    "neutral",
+    "PRONTO",
+    "Observe a partitura",
+    state.practiceMode === "teacher"
+      ? "Toque a primeira nota quando quiser — o cursor espera por você."
+      : "O aplicativo contará um compasso antes de começar.",
+  );
 }
 
 function updateStats() {

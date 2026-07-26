@@ -8,8 +8,8 @@
   "display": "standalone",
   "display_override": ["fullscreen", "standalone"],
   "orientation": "any",
-  "background_color": "#f6f4ee",
-  "theme_color": "#171b2f",
+  "background_color": "#fffdf8",
+  "theme_color": "#58cc02",
   "categories": ["education", "music"],
   "icons": [
     { "src": "./assets/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },

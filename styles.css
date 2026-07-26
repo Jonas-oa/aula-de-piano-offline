@@ -7,15 +7,19 @@
   --soft: #f2f5f7;
   --line: #dfe5e8;
   --primary: #58cc02;
-  --primary-dark: #46a302;
+  /* Verde de texto e de estados. Escurecido para passar de 3:1 para acima de
+     4,5:1 sobre os fundos claros do app — o tom anterior reprovava no contraste
+     mínimo de texto pequeno, e os rótulos de status são todos pequenos. */
+  --primary-dark: #357a00;
   --primary-shadow: #3b8f00;
   --accent: #ffc800;
   --blue: #1cb0f6;
   --blue-dark: #168ac0;
-  --success: #46a302;
+  --success: #357a00;
   --warning: #cf7b00;
   --danger: #d33131;
   --shadow: 0 9px 0 rgba(39, 61, 80, .07), 0 18px 40px rgba(39, 61, 80, .08);
+  --panel-width: min(290px, 72vw);
 }
 
 * { box-sizing: border-box; }
@@ -385,13 +389,6 @@ main { width: min(1160px, calc(100% - 28px)); margin: 0 auto; padding: 28px 0 48
 .selected-file { display: flex; justify-content: space-between; gap: 10px; padding: 9px 11px; border-radius: 11px; background: var(--soft); font-size: .8rem; }
 .rights-check { display: flex; align-items: start; gap: 10px; margin: 16px 0; color: var(--muted); font-size: .82rem; line-height: 1.4; }
 .rights-check input { width: 20px; height: 20px; margin: 0; flex: 0 0 auto; }
-.omr-panel { margin: 14px 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: rgba(23, 27, 47, .02); }
-.omr-panel summary { cursor: pointer; font-weight: 700; font-size: .9rem; }
-.omr-panel[open] summary { margin-bottom: 10px; }
-.omr-panel label { display: grid; gap: 4px; margin: 8px 0; font-size: .82rem; }
-.omr-panel input { padding: 9px 11px; border: 1px solid var(--line); border-radius: 10px; font: inherit; }
-.omr-note { color: var(--muted); font-size: .8rem; line-height: 1.4; margin: 4px 0 8px; }
-.omr-status { margin-top: 8px; font-size: .82rem; color: var(--muted); min-height: 1em; }
 .format-guide { position: sticky; top: 86px; padding: 23px; }
 .format-guide h2 { margin: 0 0 18px; font-family: Georgia, serif; font-weight: 500; }
 .format-guide article { display: grid; grid-template-columns: 47px 1fr; gap: 12px; padding: 15px 0; border-top: 1px solid var(--line); }
@@ -416,7 +413,7 @@ main { width: min(1160px, calc(100% - 28px)); margin: 0 auto; padding: 28px 0 48
 .practice-topbar {
   position: absolute; top: 3px; bottom: 3px; left: 3px; z-index: 72;
   display: grid; grid-template-columns: auto minmax(0, 1fr); align-content: start; align-items: center; gap: 10px;
-  width: min(290px, 72vw); padding: 12px; overflow-y: auto;
+  width: var(--panel-width); padding: 12px; overflow-y: auto;
   border-radius: 14px; background: var(--ink); color: #f4f1ea;
   box-shadow: var(--shadow); transition: width 170ms ease, padding 170ms ease, background 170ms ease;
 }
@@ -439,8 +436,16 @@ main { width: min(1160px, calc(100% - 28px)); margin: 0 auto; padding: 28px 0 48
   width: 28px; padding: 0; overflow: visible; border-radius: 9px;
   background: rgba(23,43,77,.2); box-shadow: none;
 }
-.practice-topbar.is-collapsed > :not(.panel-toggle) { display: none !important; }
+/* A saída não pode sumir junto com as ferramentas: o estudo roda em tela cheia,
+   sem barra do navegador, e recolher o painel deixava o aluno sem como voltar. */
+.practice-topbar.is-collapsed > :not(.panel-toggle):not(#leavePracticeButton) { display: none !important; }
 .practice-topbar.is-collapsed > .panel-toggle { right: -8px; width: 30px; height: 64px; }
+.practice-topbar.is-collapsed > #leavePracticeButton {
+  position: absolute; top: 0; left: -2px;
+  width: 32px; height: 32px; min-height: 32px; padding: 0;
+  border-color: transparent; border-radius: 10px;
+  background: rgba(23, 27, 47, .82); color: #f4f1ea; font-size: 1rem;
+}
 .practice-topbar .practice-title h1 { max-width: 190px; }
 
 .input-choice { display: inline-flex; padding: 3px; border-radius: 999px; background: var(--soft); gap: 3px; }
@@ -518,6 +523,11 @@ main { width: min(1160px, calc(100% - 28px)); margin: 0 auto; padding: 28px 0 48
   min-width: 92px;
   min-height: 38px;
 }
+/* Com as ferramentas da direita abertas, "Iniciar" e "Tocar" ficavam embaixo do
+   painel e não recebiam o toque. A barra desliza para o lado das ferramentas. */
+#practiceView.right-panel-open .practice-primary-actions {
+  right: calc(var(--panel-width) + max(14px, env(safe-area-inset-right)));
+}
 
 /* Área principal: partitura dominante e piano didático sempre visível */
 .practice-workspace {
@@ -534,7 +544,6 @@ main { width: min(1160px, calc(100% - 28px)); margin: 0 auto; padding: 28px 0 48
 .document-stage { position: absolute; inset: 0; overflow: hidden; display: grid; place-items: center; padding: 3px; background: var(--paper); text-align: center; }
 .document-stage.pdf-stage { overflow: auto; align-content: start; }
 .document-stage canvas { display: block; max-width: 100%; margin: 0 auto; box-shadow: 0 10px 30px rgba(23, 27, 47, .18); }
-.musicxml-stage { text-align: left; }
 .rhythm-stage svg, .document-stage svg[data-score-key] { display: block; width: 100%; height: 100%; max-height: 100%; }
 .document-stage svg[data-score-key] {
   touch-action: none;
@@ -614,7 +623,7 @@ main { width: min(1160px, calc(100% - 28px)); margin: 0 auto; padding: 28px 0 48
 .practice-bottombar {
   position: absolute; top: 3px; right: 3px; bottom: 3px; z-index: 72;
   display: flex; flex-direction: column; align-items: stretch; gap: 12px;
-  width: min(290px, 72vw); padding: 12px; border-radius: 14px;
+  width: var(--panel-width); padding: 12px; border-radius: 14px;
   background: white; box-shadow: var(--shadow); overflow-y: auto; scrollbar-width: none;
   transition: width 170ms ease, padding 170ms ease, background 170ms ease;
 }
@@ -636,18 +645,23 @@ main { width: min(1160px, calc(100% - 28px)); margin: 0 auto; padding: 28px 0 48
 .practice-stats.compact span { display: block; color: var(--muted); font-size: .66rem; }
 .practice-stats.compact strong { display: block; font-size: 1.15rem; }
 .bottombar-end { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.attempt-timeline { display: none; }
+/* Histórico visual dos últimos ataques, do mais antigo ao mais recente. */
+.attempt-timeline {
+  display: flex; flex-wrap: wrap-reverse; align-content: flex-end; gap: 4px;
+  min-height: 10px; max-height: 46px; overflow: hidden;
+}
+.attempt-timeline:empty { display: none; }
+.attempt-dot {
+  width: 9px; height: 9px; border-radius: 999px;
+  background: var(--line); flex: 0 0 auto;
+}
+.attempt-dot.on-time { background: var(--success); }
+.attempt-dot.early, .attempt-dot.late { background: var(--warning); }
+.attempt-dot.missed { background: var(--danger); }
 .limitations { color: var(--muted); font-size: .78rem; }
 .limitations summary { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 999px; background: var(--soft); color: var(--ink); font-weight: 800; cursor: pointer; list-style: none; }
 .limitations[open] { position: relative; }
 .limitations[open] p { width: 100%; margin: 8px 0 0; padding: 12px 14px; border-radius: 12px; background: var(--ink); color: #e7e9f4; line-height: 1.4; box-shadow: var(--shadow); }
-
-.convert-overlay { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 6; width: min(440px, calc(100% - 24px)); }
-.convert-overlay > div { display: grid; gap: 6px; justify-items: center; text-align: center; padding: 14px 16px; border-radius: 15px; background: rgba(23,27,47,.92); color: #eef0f6; box-shadow: var(--shadow); backdrop-filter: blur(3px); }
-.convert-overlay strong { font-size: .95rem; }
-.convert-overlay span { color: #b9c0da; font-size: .78rem; line-height: 1.35; }
-.convert-overlay .primary-button { margin-top: 4px; }
-.convert-overlay small { color: #d7a84b; font-size: .74rem; min-height: 1em; }
 
 /* Aviso de girar (retrato) */
 .rotate-overlay { display: none; }
@@ -662,10 +676,11 @@ main { width: min(1160px, calc(100% - 28px)); margin: 0 auto; padding: 28px 0 48
 }
 
 @media (orientation: landscape) and (max-height: 500px) {
+  :root { --panel-width: min(270px, 72vw); }
   #practiceView.active { padding: 3px; }
   .practice-workspace { grid-template-rows: minmax(0, 1fr) minmax(86px, 22vh); gap: 3px; }
   .practice-topbar:not(.is-collapsed),
-  .practice-bottombar:not(.is-collapsed) { width: min(270px, 72vw); padding: 9px; }
+  .practice-bottombar:not(.is-collapsed) { padding: 9px; }
   .practice-primary-actions { top: 5px; padding: 3px; }
   .practice-primary-actions .practice-start,
   .practice-primary-actions .playback-start {
@@ -677,25 +692,6 @@ main { width: min(1160px, calc(100% - 28px)); margin: 0 auto; padding: 28px 0 48
   .score-gesture-hint { display: none; }
 }
 
-.bottom-nav {
-  position: fixed;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  z-index: 35;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(110px, 170px));
-  justify-content: center;
-  gap: 5px;
-  padding: 7px 10px max(7px, env(safe-area-inset-bottom));
-  border-top: 1px solid var(--line);
-  background: rgba(255,255,255,.96);
-  backdrop-filter: blur(16px);
-}
-.bottom-nav.hidden { display: none; }
-.nav-button { display: grid; justify-items: center; gap: 2px; min-height: 54px; border: 0; border-radius: 12px; background: transparent; color: var(--muted); font-size: .68rem; font-weight: 850; }
-.nav-button span { font-size: 1rem; }
-.nav-button.active { background: #ececf5; color: var(--primary); }
 .toast { position: fixed; right: 15px; bottom: 80px; z-index: 80; max-width: min(390px, calc(100% - 30px)); padding: 12px 15px; border-radius: 12px; background: var(--ink); color: white; box-shadow: var(--shadow); opacity: 0; transform: translateY(8px); pointer-events: none; transition: 170ms ease; }
 .toast.visible { opacity: 1; transform: none; }
 .result-dialog { width: min(440px, calc(100% - 28px)); padding: 25px; border: 0; border-radius: 22px; box-shadow: 0 28px 90px rgba(23,27,47,.35); }
@@ -716,7 +712,6 @@ main { width: min(1160px, calc(100% - 28px)); margin: 0 auto; padding: 28px 0 48
   .import-layout { grid-template-columns: 1fr; }
   .format-guide { position: static; }
   .library-hero { grid-template-columns: 1fr; align-items: start; }
-  .hero-action { width: 100%; }
 }
 
 @media (max-width: 590px) {

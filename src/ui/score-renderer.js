@@ -1,7 +1,6 @@
-import { noteToMidi, midiToPortuguese } from '../core/music.js';
+import { diatonicStep, noteToMidi, parsePitch } from '../core/music.js';
 
 const NS = 'http://www.w3.org/2000/svg';
-const NATURAL_STEP = { C: 0, D: 1, E: 2, F: 3, G: 4, A: 5, B: 6 };
 
 // Geometria das pautas (coordenadas do viewBox)
 const TREBLE_TOP = 80;
@@ -19,29 +18,31 @@ const TRACK_ANIMATIONS = new WeakMap();
 const SCORE_EVENT_GROUPS = new WeakMap();
 const STAFF_LINE_SPACING = 12;
 
-// Metadados corretivos para transcrições que ainda usam o formato legado.
-// Für Elise está em 3/8: como as durações do catálogo usam a semínima como 1,
-// cada compasso equivale a 1,5 unidades.
-const SCORE_METADATA = {
-  'fur-elise': { beatsPerBar: 1.5, timeSignature: '3/8' },
-};
+// A mão vem do <staff> do MusicXML quando existe. O corte pelo dó central é só
+// o palpite de reserva: com ele, uma nota grave da mão direita (ou aguda da
+// esquerda) ia parar na clave errada.
+export function isOnBassStaff(pitch, hasBass) {
+  if (!hasBass) return false;
+  if (Number.isFinite(Number(pitch?.staff)) && Number(pitch.staff) > 0) {
+    return Number(pitch.staff) >= 2;
+  }
+  try {
+    return noteToMidi(pitch?.pitch) < 60;
+  } catch {
+    return false;
+  }
+}
 
 export function effectiveBeatsPerBar(song) {
-  const override = SCORE_METADATA[song?.id]?.beatsPerBar;
-  if (Number.isFinite(override)) return override;
-
   if (song?.beatsPerBar !== undefined && song?.beatsPerBar !== null) {
     const configured = Number(song.beatsPerBar);
     return Number.isFinite(configured) ? configured : 0;
   }
-
   return 4;
 }
 
 export function timeSignatureLabel(song) {
   if (song?.timeSignature) return String(song.timeSignature);
-  const override = SCORE_METADATA[song?.id]?.timeSignature;
-  if (override) return override;
 
   const beatsPerBar = effectiveBeatsPerBar(song);
   if (beatsPerBar === 4) return '4/4';
@@ -70,8 +71,7 @@ export function scoreVerticalBounds(song, currentIndex = 0) {
     (event.pitches || [event]).forEach((pitch) => {
       if (!pitch?.pitch) return;
       try {
-        const onBass = hasBass && noteToMidi(pitch.pitch) < 60;
-        const y = noteY(pitch.pitch, onBass);
+        const y = noteY(pitch.pitch, isOnBassStaff(pitch, hasBass));
         minY = Math.min(minY, y - 28);
         maxY = Math.max(maxY, y + 28);
       } catch {
@@ -96,6 +96,16 @@ export function scoreVerticalBounds(song, currentIndex = 0) {
 export function scoreViewBox(song, currentIndex = 0) {
   const { minY, height } = scoreVerticalBounds(song, currentIndex);
   return `${SCORE_VIEW_X} ${minY} ${SCORE_VIEW_WIDTH} ${height}`;
+}
+
+// Cabeçalho da pauta. Peças sem tonalidade ou sem fórmula de compasso não devem
+// deixar separadores soltos como " · 72 bpm".
+export function scoreHeadline(song) {
+  return [
+    song?.key,
+    Number.isFinite(Number(song?.bpm)) ? `${song.bpm} bpm` : "",
+    timeSignatureLabel(song),
+  ].filter(Boolean).join(' · ');
 }
 
 export function isExplicitMeasureBoundary(notes, index) {
@@ -164,16 +174,15 @@ export function renderScore(
   container,
   song,
   currentIndex = 0,
-  showNames = true,
   loop = null,
   { immediate = false } = {},
 ) {
-  const scoreKey = `${song.id}:${showNames ? 1 : 0}`;
+  const scoreKey = String(song.id);
   let svg = container.querySelector('svg[data-score-key]');
 
   if (!svg || svg.dataset.scoreKey !== scoreKey) {
     container.replaceChildren();
-    svg = buildScore(song, showNames);
+    svg = buildScore(song);
     container.append(svg);
   }
 
@@ -235,19 +244,28 @@ function updateLoopRegion(svg, song, loop) {
   track.prepend(group);
 }
 
-function buildScore(song, showNames) {
+function buildScore(song) {
   const hasBass = song.clef === 'grand';
-  // Sem nomes de nota (modo prática) a pauta fica mais justa na vertical,
-  // ganhando largura útil na tela em paisagem.
-  const compact = !showNames;
-  const height = compact ? (hasBass ? 352 : 250) : (hasBass ? 430 : 310);
+  // A pauta é sempre compacta na vertical: os nomes das notas ficam no teclado
+  // de apoio, o que devolve largura útil para a partitura em paisagem.
+  const height = hasBass ? 352 : 250;
   const svg = create('svg', {
     viewBox: scoreViewBox(song, 0),
     role: 'presentation',
     preserveAspectRatio: 'xMidYMid meet',
-    'data-score-key': `${song.id}:${showNames ? 1 : 0}`,
+    'data-score-key': String(song.id),
   });
-  svg.append(create('rect', { x: 0, y: 0, width: SCORE_WIDTH, height, fill: '#fbfcfd' }));
+  // O fundo é reposicionado em updateScoreState: o enquadramento vertical muda
+  // conforme as notas visíveis, e uma altura fixa deixava faixas transparentes
+  // quando havia linhas suplementares agudas.
+  svg.append(create('rect', {
+    class: 'score-background',
+    x: 0,
+    y: 0,
+    width: SCORE_WIDTH,
+    height,
+    fill: '#fbfcfd',
+  }));
 
   const clipId = `score-window-${safeId(song.id)}`;
   const defs = create('defs');
@@ -283,14 +301,14 @@ function buildScore(song, showNames) {
     }));
   }
 
-  const signature = timeSignatureLabel(song);
   svg.append(create('text', {
+    class: 'score-headline',
     x: 122,
     y: 77,
     'font-size': 15,
     'font-weight': 800,
     fill: '#667085',
-  }, `${song.key} · ${song.bpm} bpm${signature ? ` · ${signature}` : ''}`));
+  }, scoreHeadline(song)));
 
   // A linha fica parada enquanto as notas deslizam por baixo dela.
   svg.append(create('line', {
@@ -317,8 +335,6 @@ function buildScore(song, showNames) {
   viewport.append(track);
   svg.append(viewport);
 
-  const namesY = hasBass ? 320 : 205;
-  const durationY = hasBass ? 348 : 235;
   const barBottom = hasBass ? BASS_TOP + 48 : 128;
   const beatsPerBar = effectiveBeatsPerBar(song);
   const hasMeasureInformation = song.notes.some((event) => Number.isInteger(event.measureIndex));
@@ -354,15 +370,14 @@ function buildScore(song, showNames) {
     }
 
     const pitches = event.pitches || [event];
-    const treble = hasBass ? pitches.filter((pitch) => noteToMidi(pitch.pitch) >= 60) : pitches;
-    const bass = hasBass ? pitches.filter((pitch) => noteToMidi(pitch.pitch) < 60) : [];
+    const bass = pitches.filter((pitch) => isOnBassStaff(pitch, hasBass));
+    const treble = pitches.filter((pitch) => !isOnBassStaff(pitch, hasBass));
 
     const haloGroup = create('g', { class: 'score-current-halo', visibility: 'hidden' });
     pitches.forEach((pitch) => {
-      const onBass = hasBass && noteToMidi(pitch.pitch) < 60;
       haloGroup.append(create('circle', {
         cx: x,
-        cy: noteY(pitch.pitch, onBass),
+        cy: noteY(pitch.pitch, isOnBassStaff(pitch, hasBass)),
         r: 22,
         fill: 'rgba(215,168,75,0.18)',
       }));
@@ -371,28 +386,6 @@ function buildScore(song, showNames) {
 
     drawEventOnStaff(eventGroup, treble, x, false);
     drawEventOnStaff(eventGroup, bass, x, true);
-
-    if (showNames) {
-      const label = pitches.map((pitch) => midiToPortuguese(noteToMidi(pitch.pitch))).join(' + ');
-      eventGroup.append(create('text', {
-        x,
-        y: namesY,
-        'text-anchor': 'middle',
-        'font-size': pitches.length > 1 ? 11 : 14,
-        'font-weight': 750,
-        fill: 'currentColor',
-      }, label));
-    }
-
-    if (!compact) {
-      eventGroup.append(create('text', {
-        x,
-        y: durationY,
-        'text-anchor': 'middle',
-        'font-size': 12,
-        fill: '#8993a2',
-      }, durationSymbol(event.duration)));
-    }
 
     track.append(eventGroup);
     runningBeat += Number(event.duration) || 0;
@@ -411,21 +404,19 @@ function buildScore(song, showNames) {
     }));
   }
 
-  if (!compact) {
-    svg.append(create('text', {
-      x: 55,
-      y: height - 28,
-      'font-size': 13,
-      fill: '#667085',
-    }, 'Dedilhado sugerido junto às notas · leitura simplificada'));
-  }
-
   return svg;
 }
 
 function updateScoreState(svg, song, currentIndex, { immediate = false } = {}) {
   const completedAll = currentIndex >= song.notes.length;
-  svg.setAttribute('viewBox', scoreViewBox(song, currentIndex));
+  const bounds = scoreVerticalBounds(song, currentIndex);
+  svg.setAttribute('viewBox', `${SCORE_VIEW_X} ${bounds.minY} ${SCORE_VIEW_WIDTH} ${bounds.height}`);
+  // O fundo acompanha o enquadramento para não sobrar faixa transparente.
+  const background = svg.querySelector('.score-background');
+  if (background) {
+    background.setAttribute('y', String(bounds.minY));
+    background.setAttribute('height', String(bounds.height));
+  }
   let groups = SCORE_EVENT_GROUPS.get(svg);
   if (!groups) {
     groups = [...svg.querySelectorAll('.score-event')];
@@ -627,9 +618,12 @@ function drawBassClef(svg, x) {
   svg.append(group);
 }
 
+const ACCIDENTAL_SYMBOL = { '#': '♯', b: '♭', '##': '𝄪', x: '𝄪', bb: '𝄫' };
+
 function drawAccidental(parent, pitch, x, y) {
-  if (pitch.includes('#')) parent.append(create('text', { x, y, 'font-size': 22, fill: 'currentColor' }, '♯'));
-  if (pitch.includes('b')) parent.append(create('text', { x, y, 'font-size': 22, fill: 'currentColor' }, '♭'));
+  const symbol = ACCIDENTAL_SYMBOL[parsePitch(pitch)?.accidental];
+  if (!symbol) return;
+  parent.append(create('text', { x, y, 'font-size': 22, fill: 'currentColor' }, symbol));
 }
 
 function drawLedgerLines(parent, x, y, isBass) {
@@ -652,28 +646,14 @@ function drawLedgerLines(parent, x, y, isBass) {
   })));
 }
 
-function diatonicStep(pitch) {
-  const match = /^([A-G])(?:#|b)?(-?\d)$/.exec(pitch);
-  return Number(match[2]) * 7 + NATURAL_STEP[match[1]];
-}
-
-function noteY(pitch, isBass = false) {
+export function noteY(pitch, isBass = false) {
   const step = diatonicStep(pitch);
   if (isBass) {
-    const g2 = 2 * 7 + NATURAL_STEP.G;
+    const g2 = diatonicStep('G2');
     return BASS_TOP + 48 - (step - g2) * STEP;
   }
-  const e4 = 4 * 7 + NATURAL_STEP.E;
+  const e4 = diatonicStep('E4');
   return TREBLE_TOP + 48 - (step - e4) * STEP;
-}
-
-function durationSymbol(duration) {
-  if (duration >= 4) return '4 tempos';
-  if (duration >= 2) return '2 tempos';
-  if (duration >= 1) return '1 tempo';
-  if (duration >= 0.5) return '½ tempo';
-  if (duration >= 0.25) return '¼ de tempo';
-  return 'subdivisão';
 }
 
 function safeId(value) {

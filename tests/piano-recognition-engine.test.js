@@ -134,3 +134,41 @@ test("nota repetida exige soltura ou um novo ataque antes de avançar outra vez"
   engine.process(new Float32Array(SAMPLE_COUNT), SAMPLE_RATE, 40);
   assert.equal(engine.process(signal, SAMPLE_RATE, 50).outcome, "match");
 });
+
+test("erro de semitom é apontado em vez de virar vazamento", () => {
+  // O engano mais comum do aluno: tocar a tecla vizinha da nota escrita.
+  const wrongNeighbour = analyzeExpectedChord(
+    pianoSignal([60, 64, 66]),
+    SAMPLE_RATE,
+    [60, 64, 67],
+  );
+  assert.deepEqual(wrongNeighbour.missing, [67]);
+  assert.ok(wrongNeighbour.extra.includes(66), "o Fá♯ tocado precisa ser relatado");
+
+  // Com a nota certa e a vizinha soando juntas, só a intrusa é extra.
+  const both = analyzeExpectedChord(pianoSignal([60, 61]), SAMPLE_RATE, [60]);
+  assert.equal(both.status, "extra");
+  assert.deepEqual(both.extra, [61]);
+});
+
+test("acorde correto não gera nota extra por vazamento espectral", () => {
+  for (const chord of [[60, 64, 67], [48, 60, 64, 67], [36, 43, 52, 60, 64, 67, 72, 79]]) {
+    const analysis = analyzeExpectedChord(pianoSignal(chord), SAMPLE_RATE, chord);
+    assert.equal(analysis.status, "match", `acorde ${chord.join("+")} deveria bater`);
+    assert.deepEqual(analysis.extra, [], `acorde ${chord.join("+")} não pode ter extras`);
+  }
+});
+
+test("no grave o motor se cala em vez de inventar nota extra", () => {
+  // A 65 Hz, dois semitons distam menos que a resolução do quadro: apontar a
+  // vizinha ali seria ruído, não informação.
+  const low = analyzeExpectedChord(pianoSignal([36]), SAMPLE_RATE, [36]);
+  assert.equal(low.status, "match");
+  assert.deepEqual(low.extra, []);
+});
+
+test("uma oitava acima não é confundida com a nota escrita", () => {
+  const analysis = analyzeExpectedChord(pianoSignal([72]), SAMPLE_RATE, [60]);
+  assert.deepEqual(analysis.missing, [60]);
+  assert.ok(analysis.extra.includes(72));
+});
