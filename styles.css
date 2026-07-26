@@ -262,19 +262,7 @@ main { width: min(1160px, calc(100% - 28px)); margin: 0 auto; padding: 28px 0 48
 .card-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 14px 0; }
 .tag { padding: 5px 8px; border-radius: 999px; background: var(--soft); color: #424960; font-size: .7rem; font-weight: 800; }
 .piece-card .card-actions { display: grid; gap: 7px; margin-top: auto; }
-.piece-card .card-actions.with-listen { grid-template-columns: minmax(0, 1fr) minmax(104px, .62fr); }
 .piece-card .card-actions button { width: 100%; }
-.listen-piece-button {
-  min-height: 44px;
-  border: 2px solid #d5a700;
-  border-radius: 15px;
-  background: var(--accent);
-  color: #3d3100;
-  font-weight: 900;
-  box-shadow: 0 4px 0 #b98f00;
-}
-.listen-piece-button:hover { background: #ffd635; transform: translateY(-1px); }
-.listen-piece-button:active { transform: translateY(2px); box-shadow: none; }
 .empty-library {
   grid-column: 1 / -1;
   display: grid;
@@ -461,7 +449,8 @@ main { width: min(1160px, calc(100% - 28px)); margin: 0 auto; padding: 28px 0 48
 .practice-topbar.is-collapsed .status-pill {
   min-height: 26px; padding: 3px 8px; font-size: .68rem;
 }
-.practice-topbar.is-collapsed .practice-start {
+.practice-topbar.is-collapsed .practice-start,
+.practice-topbar.is-collapsed .playback-start {
   min-height: 32px; padding: 5px 10px; border-radius: 9px; font-size: .74rem;
 }
 
@@ -514,11 +503,6 @@ main { width: min(1160px, calc(100% - 28px)); margin: 0 auto; padding: 28px 0 48
 .document-stage canvas { display: block; max-width: 100%; margin: 0 auto; box-shadow: 0 10px 30px rgba(23, 27, 47, .18); }
 .musicxml-stage { text-align: left; }
 .rhythm-stage svg, .document-stage svg[data-score-key] { display: block; width: 100%; height: 100%; max-height: 100%; }
-.document-stage svg[data-score-key] {
-  transform: scale(1.68);
-  transform-origin: center;
-  will-change: transform;
-}
 .loading-state { display: grid; place-items: center; color: var(--muted); }
 
 .timing-feedback.floating { position: absolute; top: 12px; right: 12px; max-width: 320px; padding: 12px 15px; border: 1px solid var(--line); border-radius: 15px; background: var(--soft); backdrop-filter: blur(2px); }
@@ -628,7 +612,6 @@ main { width: min(1160px, calc(100% - 28px)); margin: 0 auto; padding: 28px 0 48
   .piano-keyboard { top: 24px; }
   .practice-bottombar { padding-block: 2px; }
   .timing-feedback.floating small { display: none; }
-  .document-stage svg[data-score-key] { transform: scale(1.52); }
 }
 
 .bottom-nav {
@@ -686,7 +669,6 @@ main { width: min(1160px, calc(100% - 28px)); margin: 0 auto; padding: 28px 0 48
   .piece-grid, .rhythm-grid, .form-grid { grid-template-columns: 1fr; }
   .rhythm-section select { width: 100%; margin-top: 12px; }
   .import-card { border-radius: 19px; }
-  .piece-card .card-actions.with-listen { grid-template-columns: 1fr; }
 }
 
 @media (prefers-reduced-motion: reduce) {
