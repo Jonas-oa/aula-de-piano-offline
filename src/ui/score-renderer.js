@@ -5,12 +5,15 @@ const NATURAL_STEP = { C: 0, D: 1, E: 2, F: 3, G: 4, A: 5, B: 6 };
 
 // Geometria das pautas (coordenadas do viewBox)
 const TREBLE_TOP = 80;
-const BASS_TOP = 210;
+const BASS_TOP = 180;
 const STEP = 6;
 const SCORE_WIDTH = 920;
+const SCORE_VIEW_X = 35;
+const SCORE_VIEW_WIDTH = 850;
 const NOTE_START_X = 180;
 const NOTE_SPACING = 88;
 const PLAYHEAD_X = 310;
+const VISIBLE_NOTE_COUNT = 10;
 const SCROLL_DURATION_MS = 280;
 const TRACK_ANIMATIONS = new WeakMap();
 
@@ -51,6 +54,52 @@ export function scoreTranslateXForIndex(song, currentIndex = 0) {
   const visualIndex = Math.min(Math.max(Number(currentIndex) || 0, 0), noteCount - 1);
   const currentX = NOTE_START_X + visualIndex * NOTE_SPACING;
   return Math.min(0, PLAYHEAD_X - currentX);
+}
+
+export function scoreVerticalBounds(song, currentIndex = 0) {
+  const hasBass = song?.clef === 'grand';
+  let minY = 32;
+  let maxY = hasBass ? BASS_TOP + 68 : TREBLE_TOP + 78;
+  const notes = song?.notes || [];
+  const start = Math.max(0, Math.min(Number(currentIndex) || 0, Math.max(0, notes.length - 1)) - 1);
+  const visible = notes.slice(start, start + VISIBLE_NOTE_COUNT);
+
+  visible.forEach((event) => {
+    (event.pitches || [event]).forEach((pitch) => {
+      if (!pitch?.pitch) return;
+      try {
+        const onBass = hasBass && noteToMidi(pitch.pitch) < 60;
+        const y = noteY(pitch.pitch, onBass);
+        minY = Math.min(minY, y - 28);
+        maxY = Math.max(maxY, y + 28);
+      } catch {
+        // Uma altura inválida não deve comprometer o restante da pauta.
+      }
+    });
+  });
+
+  const minimumHeight = hasBass ? 216 : 176;
+  if (maxY - minY < minimumHeight) {
+    const padding = (minimumHeight - (maxY - minY)) / 2;
+    minY -= padding;
+    maxY += padding;
+  }
+  return {
+    minY: Math.floor(minY),
+    maxY: Math.ceil(maxY),
+    height: Math.ceil(maxY) - Math.floor(minY),
+  };
+}
+
+export function scoreViewBox(song, currentIndex = 0) {
+  const { minY, height } = scoreVerticalBounds(song, currentIndex);
+  return `${SCORE_VIEW_X} ${minY} ${SCORE_VIEW_WIDTH} ${height}`;
+}
+
+export function isExplicitMeasureBoundary(notes, index) {
+  const event = notes?.[index];
+  if (!Number.isInteger(event?.measureIndex)) return false;
+  return index === 0 || event.measureIndex !== notes[index - 1]?.measureIndex;
 }
 
 export function renderScore(container, song, currentIndex = 0, showNames = true, loop = null) {
@@ -112,12 +161,11 @@ function buildScore(song, showNames) {
   const compact = !showNames;
   const height = compact ? (hasBass ? 352 : 250) : (hasBass ? 430 : 310);
   const svg = create('svg', {
-    viewBox: `0 0 ${SCORE_WIDTH} ${height}`,
+    viewBox: scoreViewBox(song, 0),
     role: 'presentation',
     preserveAspectRatio: 'xMidYMid meet',
     'data-score-key': `${song.id}:${showNames ? 1 : 0}`,
   });
-  svg.dataset.focusViewBox = hasBass ? '35 20 850 375' : '35 20 850 245';
   svg.append(create('rect', { x: 0, y: 0, width: SCORE_WIDTH, height, fill: '#fbfcfd' }));
 
   const clipId = `score-window-${safeId(song.id)}`;
@@ -125,9 +173,9 @@ function buildScore(song, showNames) {
   const clipPath = create('clipPath', { id: clipId, clipPathUnits: 'userSpaceOnUse' });
   clipPath.append(create('rect', {
     x: 145,
-    y: 42,
+    y: -400,
     width: 735,
-    height: compact ? (hasBass ? 300 : 196) : (hasBass ? 330 : 220),
+    height: 1000,
   }));
   defs.append(clipPath);
   svg.append(defs);
@@ -198,6 +246,7 @@ function buildScore(song, showNames) {
   const durationY = hasBass ? 348 : 235;
   const barBottom = hasBass ? BASS_TOP + 48 : 128;
   const beatsPerBar = effectiveBeatsPerBar(song);
+  const hasMeasureInformation = song.notes.some((event) => Number.isInteger(event.measureIndex));
   const pickupOffset = song.pickupBeats && beatsPerBar > 0
     ? beatsPerBar - Number(song.pickupBeats)
     : 0;
@@ -210,18 +259,22 @@ function buildScore(song, showNames) {
       'data-index': index,
     });
 
-    const crossesBar = beatsPerBar > 0
+    const measureBoundary = isExplicitMeasureBoundary(song.notes, index);
+    const inferredBoundary = beatsPerBar > 0
       && ((index === 0 && !song.pickupBeats)
         || Math.floor(runningBeat / beatsPerBar)
           !== Math.floor((runningBeat - 0.001) / beatsPerBar));
+    const crossesBar = hasMeasureInformation ? measureBoundary : inferredBoundary;
     if (crossesBar) {
       track.append(create('line', {
+        class: 'score-barline',
+        'data-measure': event.measureNumber || event.measureIndex + 1,
         x1: x - 34,
-        y1: 80,
+        y1: TREBLE_TOP,
         x2: x - 34,
         y2: barBottom,
-        stroke: '#aeb8c4',
-        'stroke-width': 1.5,
+        stroke: '#667085',
+        'stroke-width': 2,
       }));
     }
 
@@ -270,6 +323,19 @@ function buildScore(song, showNames) {
     runningBeat += Number(event.duration) || 0;
   });
 
+  if (song.notes.length) {
+    const finalX = NOTE_START_X + (song.notes.length - 1) * NOTE_SPACING + 34;
+    track.append(create('line', {
+      class: 'score-barline score-final-barline',
+      x1: finalX,
+      y1: TREBLE_TOP,
+      x2: finalX,
+      y2: barBottom,
+      stroke: '#172033',
+      'stroke-width': 3,
+    }));
+  }
+
   if (!compact) {
     svg.append(create('text', {
       x: 55,
@@ -284,6 +350,7 @@ function buildScore(song, showNames) {
 
 function updateScoreState(svg, song, currentIndex) {
   const completedAll = currentIndex >= song.notes.length;
+  svg.setAttribute('viewBox', scoreViewBox(song, currentIndex));
 
   svg.querySelectorAll('.score-event').forEach((group) => {
     const index = Number(group.dataset.index);

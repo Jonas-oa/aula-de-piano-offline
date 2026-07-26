@@ -39,8 +39,8 @@ const state = {
   currentItem: null,
   currentEvents: null,
   currentMusicXml: "",
+  currentMusicMetadata: null,
   currentView: "libraryView",
-  sessionMode: "study",
   inputMode: "microphone",
   practiceMode: "teacher",
   practiceActive: false,
@@ -78,7 +78,7 @@ const pianoKeyboard = new PianoKeyboard(byId("pianoKeyboard"), byId("pianoHint")
 
 const playbackEngine = new PianoPlaybackEngine({
   onCursor(index) {
-    if (state.sessionMode === "listen" && state.currentScore) renderStructured(index);
+    if (state.currentScore) renderStructured(index);
   },
   onStateChange(status) {
     reflectPlaybackState(status);
@@ -201,14 +201,11 @@ function renderLibrary() {
         <span class="tag">${piece.bpm} bpm</span>
         <span class="tag">${escapeHtml(piece.timeSignature)}</span>
       </div>
-      <div class="card-actions ${piece.musicXmlAsset ? "with-listen" : ""}">
+      <div class="card-actions">
         <button class="primary-button open-piece-button">Continuar estudo</button>
-        ${piece.musicXmlAsset ? '<button class="listen-piece-button" type="button">▶ TOCAR</button>' : ""}
       </div>
     `;
     card.querySelector(".open-piece-button").addEventListener("click", () => openPractice(piece));
-    card.querySelector(".listen-piece-button")?.addEventListener("click", () =>
-      openPractice(piece, { sessionMode: "listen" }));
     card.querySelector(".download-musicxml-button")?.addEventListener("click", () => {
       downloadPieceMusicXml(piece);
       card.querySelector(".card-menu").open = false;
@@ -348,20 +345,26 @@ function xmlTextFromAsset(asset) {
 
 // Converte uma peça estruturada (exercício ou MusicXML) no formato do
 // renderizador SVG próprio — a mesma pauta interativa para tudo.
-function structuredScore(item, events) {
+function structuredScore(item, events, metadata = null) {
+  const timeSignature = metadata?.timeSignature || item.timeSignature;
   return {
     id: item.id,
     title: item.title,
     key: item.key || "",
     bpm: item.bpm,
-    timeSignature: item.timeSignature,
-    beatsPerBar: item.beatsPerBar || beatsPerBar(item.timeSignature),
+    timeSignature,
+    beatsPerBar: metadata?.beatsPerBar || item.beatsPerBar || beatsPerBar(timeSignature),
+    pickupBeats: metadata?.pickupBeats || 0,
     clef: "grand",
     notes: (events || []).map((event) => {
       const pitches = (event.pitches || []).filter(Boolean);
       return {
         pitch: pitches.at(-1),
+        beat: event.beat,
         duration: event.duration,
+        measureIndex: event.measureIndex,
+        measureNumber: event.measureNumber,
+        measureStart: event.measureStart,
         pitches: pitches.map((pitch) => ({ pitch, duration: event.duration, finger: null })),
       };
     }),
@@ -413,7 +416,7 @@ function setStructuredPageLabel() {
 
 function stepStructured(delta) {
   if (!state.currentScore || state.practiceActive || state.countInActive || playbackEngine.isPlaying) return;
-  if (state.sessionMode === "listen" && playbackEngine.isActive) {
+  if (playbackEngine.isActive) {
     playbackEngine.stop({ preserveCursor: true });
   }
   const total = state.currentScore.notes.length;
@@ -447,7 +450,7 @@ function markLoop(point) {
   state.loop[point] = state.viewIndex;
   state.loop.count = 0;
   normalizeLoop();
-  if (state.sessionMode === "listen" && playbackEngine.isActive) {
+  if (playbackEngine.isActive) {
     playbackEngine.stop({ preserveCursor: true });
   }
   refreshLoop();
@@ -455,7 +458,7 @@ function markLoop(point) {
 }
 
 function clearLoop() {
-  if (state.sessionMode === "listen" && playbackEngine.isActive) {
+  if (playbackEngine.isActive) {
     playbackEngine.stop({ preserveCursor: true });
   }
   state.loop = { a: null, b: null, active: false, count: 0 };
@@ -468,7 +471,7 @@ function toggleLoop() {
     return;
   }
   state.loop.active = !state.loop.active;
-  if (state.sessionMode === "listen" && playbackEngine.isActive) {
+  if (playbackEngine.isActive) {
     playbackEngine.stop({ preserveCursor: true });
     setFeedback("neutral", "REPETIÇÃO ALTERADA", state.loop.active ? "A–B será repetido" : "A–B tocará uma vez", "Toque para iniciar com a nova configuração.");
   }
@@ -476,13 +479,13 @@ function toggleLoop() {
   toast(state.loop.active ? "Repetição A–B ligada." : "Repetição A–B desligada.");
 }
 
-async function openPractice(item, { sessionMode = "study" } = {}) {
+async function openPractice(item) {
   await stopPractice({ showResult: false });
   playbackEngine.stop({ preserveCursor: true });
   state.currentItem = item;
-  state.sessionMode = sessionMode;
   state.currentEvents = null;
   state.currentMusicXml = "";
+  state.currentMusicMetadata = null;
   state.currentScore = null;
   state.viewIndex = 0;
   state.loop = { a: null, b: null, active: false, count: 0 };
@@ -503,13 +506,14 @@ async function openPractice(item, { sessionMode = "study" } = {}) {
       state.currentEvents = item.events;
     } else if (item.musicXmlAsset) {
       state.currentMusicXml = xmlTextFromAsset(item.musicXmlAsset);
-      state.currentEvents = parseMusicXml(state.currentMusicXml).events;
+      state.currentMusicMetadata = parseMusicXml(state.currentMusicXml);
+      state.currentEvents = state.currentMusicMetadata.events;
     }
 
     if (state.currentEvents?.length) {
       // Partitura interativa unificada (SVG próprio): mesma pauta para
       // exercícios e MusicXML, com destaque, rolagem fina e laço A–B.
-      state.currentScore = structuredScore(item, state.currentEvents);
+      state.currentScore = structuredScore(item, state.currentEvents, state.currentMusicMetadata);
       renderStructured(0, { fresh: true });
       setStructuredPageLabel();
       setAnalysisMode(
@@ -525,7 +529,6 @@ async function openPractice(item, { sessionMode = "study" } = {}) {
     }
     applyPracticeModeAvailability();
     applyPieceControls();
-    configureSessionMode();
   } catch (error) {
     byId("documentStage").innerHTML = `<div class="loading-state">${escapeHtml(readableError(error))}</div>`;
     toast(readableError(error));
@@ -556,41 +559,16 @@ function applyPracticeModeAvailability() {
 function applyPieceControls() {
   const structured = Boolean(state.currentScore);
   byId("loopControls").hidden = !structured;   // laço A–B só na partitura estruturada
-  byId("modeToggle").hidden = !structured || state.sessionMode === "listen";
+  byId("modeToggle").hidden = !structured;
+  byId("playbackControls").hidden = !structured || !state.currentItem?.musicXmlAsset;
+  byId("inputToggle").hidden = false;
+  byId("startPracticeButton").hidden = false;
+  byId("stopPracticeButton").hidden = false;
+  byId("practiceStats").hidden = false;
+  byId("levelMeter").hidden = false;
   byId("zoomOutButton").hidden = structured;    // zoom só no PDF
   byId("zoomInButton").hidden = structured;
-}
-
-function configureSessionMode() {
-  let listening = state.sessionMode === "listen" && Boolean(state.currentScore);
-  if (state.sessionMode === "listen" && !state.currentScore) {
-    state.sessionMode = "study";
-    listening = false;
-    toast("A opção TOCAR está disponível apenas para partituras MusicXML.");
-  }
-
-  byId("inputToggle").hidden = listening;
-  byId("startPracticeButton").hidden = listening;
-  byId("stopPracticeButton").hidden = listening;
-  byId("playbackControls").hidden = !listening;
-  byId("practiceStats").hidden = listening;
-  byId("levelMeter").hidden = listening;
-
-  if (listening) {
-    byId("modeToggle").hidden = true;
-    byId("pdfOnlyOptions").hidden = true;
-    setAnalysisMode(
-      "Audição",
-      "O piano reproduz as notas do MusicXML. Marque A e B para ouvir somente um trecho e ative a repetição se desejar.",
-    );
-    setFeedback(
-      "neutral",
-      "PRONTO PARA OUVIR",
-      "Piano acústico",
-      "Use A–B para escolher um trecho ou toque a peça inteira.",
-    );
-    reflectPlaybackState("stopped");
-  }
+  reflectPlaybackState("stopped");
 }
 
 function selectedPlaybackBounds() {
@@ -602,7 +580,7 @@ function selectedPlaybackBounds() {
 }
 
 async function togglePlayback() {
-  if (!state.currentEvents?.length || state.sessionMode !== "listen") return;
+  if (!state.currentEvents?.length || !state.currentItem?.musicXmlAsset) return;
   if (playbackEngine.isPlaying) {
     playbackEngine.pause();
     return;
@@ -612,6 +590,7 @@ async function togglePlayback() {
       await playbackEngine.resume();
       return;
     }
+    await stopPractice({ showResult: false });
     await playbackEngine.play(state.currentEvents, {
       bpm: Number(byId("tempoSlider").value),
       ...selectedPlaybackBounds(),
@@ -637,11 +616,13 @@ function reflectPlaybackState(status) {
     loading: "Carregando…",
     playing: "❚❚ Pausar",
     paused: "▶ Continuar",
-    stopped: "▶ Tocar",
+    stopped: "♫ Tocar",
   };
   button.textContent = labels[status] || labels.stopped;
   button.disabled = status === "loading";
-  stop.disabled = status === "stopped";
+  stop.hidden = status === "stopped";
+  stop.disabled = status === "loading";
+  byId("startPracticeButton").disabled = status !== "stopped";
 }
 
 const PANEL_PREFS_KEY = "partitura-viva-study-panels";
@@ -736,6 +717,7 @@ async function selectInputMode(mode) {
 
 async function startPractice() {
   if (!state.currentItem || state.practiceActive || state.countInActive) return;
+  if (playbackEngine.isActive) playbackEngine.stop({ preserveCursor: true });
   if (state.practiceMode === "teacher" && state.currentEvents?.length) {
     await startTeacherPractice();
   } else {
@@ -1233,7 +1215,7 @@ byId("playbackToggleButton").addEventListener("click", togglePlayback);
 byId("playbackStopButton").addEventListener("click", stopPlayback);
 byId("tempoSlider").addEventListener("input", (event) => {
   byId("tempoOutput").value = event.target.value;
-  if (state.sessionMode === "listen" && playbackEngine.isActive) {
+  if (playbackEngine.isActive) {
     playbackEngine.stop({ preserveCursor: true });
     setFeedback("neutral", "ANDAMENTO ALTERADO", `${event.target.value} bpm`, "Toque para continuar no novo andamento.");
   }

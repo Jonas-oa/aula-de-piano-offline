@@ -28,11 +28,21 @@ export function parseMusicXml(xmlText) {
 
   let divisions = 1;
   let measureStart = 0;
+  let timeSignature = "";
+  let beatsPerBar = 0;
+  let pickupBeats = 0;
   const attacks = [];
+  const measures = [...firstPart.querySelectorAll(":scope > measure")];
 
-  for (const measure of firstPart.querySelectorAll(":scope > measure")) {
+  for (const [measureIndex, measure] of measures.entries()) {
     const configuredDivisions = Number(directText(measure, "attributes > divisions", String(divisions)));
     if (configuredDivisions > 0) divisions = configuredDivisions;
+    const numerator = Number(directText(measure, "attributes > time > beats"));
+    const denominator = Number(directText(measure, "attributes > time > beat-type"));
+    if (numerator > 0 && denominator > 0) {
+      timeSignature ||= `${numerator}/${denominator}`;
+      beatsPerBar ||= numerator * (4 / denominator);
+    }
     let cursor = 0;
     let furthest = 0;
     let previousAttack = 0;
@@ -56,9 +66,19 @@ export function parseMusicXml(xmlText) {
 
       if (pitch && !child.querySelector(":scope > grace")) {
         const absoluteBeat = measureStart + attackBeat;
-        let attack = attacks.find((candidate) => Math.abs(candidate.beat - absoluteBeat) < 0.0001);
+        let attack = attacks.find((candidate) =>
+          candidate.measureIndex === measureIndex
+          && Math.abs(candidate.beat - absoluteBeat) < 0.0001);
         if (!attack) {
-          attack = { beat: absoluteBeat, duration, pitches: [], midis: [] };
+          attack = {
+            beat: absoluteBeat,
+            duration,
+            measureIndex,
+            measureNumber: measure.getAttribute("number") || String(measureIndex + 1),
+            measureStart,
+            pitches: [],
+            midis: [],
+          };
           attacks.push(attack);
         }
         attack.pitches.push(pitch);
@@ -72,9 +92,21 @@ export function parseMusicXml(xmlText) {
         furthest = Math.max(furthest, cursor);
       }
     }
+    if (measureIndex === 0 && beatsPerBar > 0 && furthest > 0 && furthest < beatsPerBar) {
+      pickupBeats = furthest;
+    }
     measureStart += furthest;
   }
 
   attacks.sort((a, b) => a.beat - b.beat);
-  return { title, composer, events: attacks, totalBeats: measureStart };
+  return {
+    title,
+    composer,
+    events: attacks,
+    totalBeats: measureStart,
+    timeSignature,
+    beatsPerBar,
+    pickupBeats,
+    measureCount: measures.length,
+  };
 }
