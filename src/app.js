@@ -5,7 +5,7 @@ import {
   listPieces,
   savePiece,
 } from "./core/library-store.js";
-import { midiToPortuguese } from "./core/music.js";
+import { midiToPortuguese, noteToMidi } from "./core/music.js";
 import { parseMusicXml } from "./core/musicxml.js";
 import { musicXmlBlob, musicXmlFilename } from "./core/musicxml-export.js";
 import { renderPdfToImages, transcribeMusicXml } from "./core/omr-vision.js";
@@ -30,6 +30,7 @@ import {
   summarizeAttempts,
 } from "./core/timing-evaluator.js";
 import { DocumentViewer } from "./ui/document-viewer.js";
+import { PianoKeyboard } from "./ui/piano-keyboard.js";
 import { renderScore } from "./ui/score-renderer.js";
 
 const byId = (id) => document.getElementById(id);
@@ -73,6 +74,8 @@ const viewer = new DocumentViewer(byId("documentStage"), {
     }
   },
 });
+
+const pianoKeyboard = new PianoKeyboard(byId("pianoKeyboard"), byId("pianoHint"));
 
 const wakeLock = new ScreenWakeLockManager({
   onStatus(status) {
@@ -497,7 +500,30 @@ function renderStructured(index, { fresh = false } = {}) {
   } else {
     renderScore(byId("documentStage"), state.currentScore, index, false, activeLoop());
   }
+  syncPianoKeyboard();
   if (!state.practiceActive && !state.countInActive) setStructuredPageLabel();
+}
+
+function pianoGroupsFromScore(index = state.viewIndex, count = 4) {
+  if (!state.currentScore?.notes?.length) return [];
+  return state.currentScore.notes.slice(index, index + count).map((event) =>
+    (event.pitches || [])
+      .map(({ pitch }) => {
+        try {
+          return noteToMidi(pitch);
+        } catch {
+          return null;
+        }
+      })
+      .filter(Number.isFinite));
+}
+
+function syncPianoKeyboard() {
+  if (!state.currentScore) {
+    pianoKeyboard.setUnavailable("MusicXML necessário para indicar as notas");
+    return;
+  }
+  pianoKeyboard.showNoteGroups(pianoGroupsFromScore());
 }
 
 function setStructuredPageLabel() {
@@ -598,6 +624,7 @@ async function openPractice(item) {
       byId("pdfOnlyOptions").hidden = true;
     } else if (item.pdfAsset) {
       await viewer.showPdf(item.pdfAsset);
+      pianoKeyboard.setUnavailable("Converta o PDF em MusicXML para indicar as notas");
       setAnalysisMode("Tempo pelo PDF", "O PDF é visual: o microfone mede o ritmo. Converta o PDF em notas na importação para liberar o modo professor.");
       byId("pdfOnlyOptions").hidden = false;
     }
@@ -645,6 +672,58 @@ function applyPieceControls() {
 function setConvertStatus(message) {
   const element = byId("convertStatus");
   if (element) element.textContent = message || "";
+}
+
+const PANEL_PREFS_KEY = "partitura-viva-study-panels";
+
+function loadPanelPreferences() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(PANEL_PREFS_KEY) || "{}");
+    return {
+      top: saved.top === true,
+      bottom: saved.bottom === true,
+    };
+  } catch {
+    return { top: false, bottom: false };
+  }
+}
+
+function setPanelExpanded(panel, expanded, { persist = true } = {}) {
+  const top = panel === "top";
+  const bar = byId(top ? "practiceTopbar" : "practiceBottombar");
+  const button = byId(top ? "topbarToggleButton" : "bottombarToggleButton");
+  const label = expanded
+    ? `Ocultar opções ${top ? "superiores" : "inferiores"}`
+    : `Mostrar opções ${top ? "superiores" : "inferiores"}`;
+
+  bar.classList.toggle("is-collapsed", !expanded);
+  button.setAttribute("aria-expanded", String(expanded));
+  button.setAttribute("aria-label", label);
+  button.title = label;
+  button.textContent = top
+    ? (expanded ? "⌃" : "⌄")
+    : (expanded ? "⌄" : "⌃");
+
+  if (persist) {
+    const preferences = loadPanelPreferences();
+    preferences[panel] = expanded;
+    try {
+      localStorage.setItem(PANEL_PREFS_KEY, JSON.stringify(preferences));
+    } catch {
+      // A interface continua funcionando mesmo quando o armazenamento é bloqueado.
+    }
+  }
+}
+
+function restorePanelPreferences() {
+  const preferences = loadPanelPreferences();
+  setPanelExpanded("top", preferences.top, { persist: false });
+  setPanelExpanded("bottom", preferences.bottom, { persist: false });
+}
+
+function togglePanel(panel) {
+  const button = byId(panel === "top" ? "topbarToggleButton" : "bottombarToggleButton");
+  setPanelExpanded(panel, button.getAttribute("aria-expanded") !== "true");
 }
 
 // Converte um PDF já salvo em MusicXML (OMR) e reabre a peça no modo professor.
@@ -1208,6 +1287,8 @@ byId("dropZone").addEventListener("drop", (event) => {
   acceptFiles(event.dataTransfer.files);
 });
 byId("leavePracticeButton").addEventListener("click", leavePractice);
+byId("topbarToggleButton").addEventListener("click", () => togglePanel("top"));
+byId("bottombarToggleButton").addEventListener("click", () => togglePanel("bottom"));
 byId("microphoneModeButton").addEventListener("click", () => selectInputMode("microphone"));
 byId("midiModeButton").addEventListener("click", () => selectInputMode("midi"));
 byId("teacherModeButton").addEventListener("click", () => selectPracticeMode("teacher"));
@@ -1228,6 +1309,7 @@ byId("markBButton").addEventListener("click", () => markLoop("b"));
 byId("clearLoopButton").addEventListener("click", clearLoop);
 byId("loopToggleButton").addEventListener("click", toggleLoop);
 reflectLoopButtons();
+restorePanelPreferences();
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && state.currentView === "practiceView") {
     wakeLock.setEnabled(true);

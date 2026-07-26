@@ -170,25 +170,34 @@
       </section>
 
       <section id="practiceView" class="view practice-view" aria-labelledby="practiceTitle">
-        <div class="practice-topbar">
+        <div id="practiceTopbar" class="practice-topbar is-collapsed">
           <button id="leavePracticeButton" class="icon-button" aria-label="Voltar ao repertório">←</button>
           <div class="practice-title">
             <p id="practiceComposer" class="eyebrow">COMPOSITOR</p>
             <h1 id="practiceTitle">Peça</h1>
           </div>
+          <button
+            id="topbarToggleButton"
+            class="panel-toggle topbar-toggle"
+            type="button"
+            aria-expanded="false"
+            aria-controls="practiceTopbarControls"
+            aria-label="Mostrar opções superiores"
+            title="Mostrar opções superiores"
+          >⌄</button>
 
-          <div class="toolbar-controls">
-            <div id="modeToggle" class="input-choice small" role="group" aria-label="Modo de prática">
+          <div id="practiceTopbarControls" class="toolbar-controls">
+            <div id="modeToggle" class="input-choice small collapsible-control" role="group" aria-label="Modo de prática">
               <button id="teacherModeButton" class="choice-button active">Professor</button>
               <button id="tempoModeButton" class="choice-button">Tempo</button>
             </div>
-            <div class="input-choice small" role="group" aria-label="Entrada do instrumento">
+            <div class="input-choice small collapsible-control" role="group" aria-label="Entrada do instrumento">
               <button id="microphoneModeButton" class="choice-button active" aria-label="Microfone">🎤</button>
               <button id="midiModeButton" class="choice-button">🎹</button>
             </div>
             <label class="tempo-chip"><span aria-hidden="true">♩</span><output id="tempoOutput">72</output>
-              <input id="tempoSlider" type="range" min="30" max="180" value="72" aria-label="Andamento" /></label>
-            <div id="pdfOnlyOptions" class="pdf-options">
+              <input id="tempoSlider" class="collapsible-control" type="range" min="30" max="180" value="72" aria-label="Andamento" /></label>
+            <div id="pdfOnlyOptions" class="pdf-options collapsible-control">
               <select id="subdivisionSelect" aria-label="Subdivisão da grade">
                 <option value="1">Semínimas</option>
                 <option value="2">Colcheias</option>
@@ -196,41 +205,60 @@
               </select>
             </div>
             <div class="document-controls">
-              <button id="previousPageButton" class="ghost-button small" aria-label="Anterior">‹</button>
+              <button id="previousPageButton" class="ghost-button small collapsible-control" aria-label="Anterior">‹</button>
               <span id="pageLabel" class="status-pill">Partitura</span>
-              <button id="nextPageButton" class="ghost-button small" aria-label="Próxima">›</button>
-              <button id="zoomOutButton" class="ghost-button small" aria-label="Diminuir">−</button>
-              <button id="zoomInButton" class="ghost-button small" aria-label="Aumentar">+</button>
+              <button id="nextPageButton" class="ghost-button small collapsible-control" aria-label="Próxima">›</button>
+              <button id="zoomOutButton" class="ghost-button small collapsible-control" aria-label="Diminuir">−</button>
+              <button id="zoomInButton" class="ghost-button small collapsible-control" aria-label="Aumentar">+</button>
             </div>
             <button id="startPracticeButton" class="primary-button small practice-start">▶ Começar</button>
             <button id="stopPracticeButton" class="icon-button stop" aria-label="Encerrar prática" disabled>■</button>
           </div>
         </div>
 
-        <div class="practice-stage">
-          <div id="documentStage" class="document-stage">
-            <div class="loading-state">Carregando partitura…</div>
-          </div>
-          <div id="countInDisplay" class="count-in" aria-live="assertive"></div>
-          <div id="timingFeedback" class="timing-feedback neutral floating" aria-live="polite">
-            <span>PRONTO</span>
-            <strong>Observe a partitura</strong>
-            <small>O aplicativo contará um compasso antes de começar.</small>
-          </div>
-          <div class="level-meter" aria-label="Nível do microfone"><span id="levelBar"></span></div>
-          <div id="convertOverlay" class="convert-overlay" hidden>
-            <div>
-              <strong>Esta peça é um PDF (imagem)</strong>
-              <span>Converta em notas para liberar o modo professor: só o trecho atual, nota destacada e laço A–B.</span>
-              <button id="convertPieceButton" type="button" class="primary-button small">✨ Converter em notas</button>
-              <small id="convertStatus"></small>
+        <div class="practice-workspace">
+          <div class="practice-stage">
+            <div id="documentStage" class="document-stage">
+              <div class="loading-state">Carregando partitura…</div>
+            </div>
+            <div id="countInDisplay" class="count-in" aria-live="assertive"></div>
+            <div id="timingFeedback" class="timing-feedback neutral floating" aria-live="polite">
+              <span>PRONTO</span>
+              <strong>Observe a partitura</strong>
+              <small>O aplicativo contará um compasso antes de começar.</small>
+            </div>
+            <div class="level-meter" aria-label="Nível do microfone"><span id="levelBar"></span></div>
+            <div id="convertOverlay" class="convert-overlay" hidden>
+              <div>
+                <strong>Esta peça é um PDF (imagem)</strong>
+                <span>Converta em notas para liberar o modo professor: só o trecho atual, nota destacada e laço A–B.</span>
+                <button id="convertPieceButton" type="button" class="primary-button small">✨ Converter em notas</button>
+                <small id="convertStatus"></small>
+              </div>
             </div>
           </div>
+
+          <section class="piano-panel" aria-labelledby="pianoHint">
+            <div class="piano-panel-status">
+              <span>Teclado de apoio</span>
+              <strong id="pianoHint">Aguardando a partitura</strong>
+            </div>
+            <div id="pianoKeyboard" class="piano-keyboard" role="group" aria-label="Piano didático de 49 teclas"></div>
+          </section>
         </div>
 
-        <div class="practice-bottombar">
-          <span id="analysisModeBadge" class="mode-badge">Partitura</span>
-          <div id="loopControls" class="loop-controls">
+        <div id="practiceBottombar" class="practice-bottombar is-collapsed">
+          <button
+            id="bottombarToggleButton"
+            class="panel-toggle bottombar-toggle"
+            type="button"
+            aria-expanded="false"
+            aria-controls="practiceBottomControls"
+            aria-label="Mostrar opções inferiores"
+            title="Mostrar opções inferiores"
+          >⌃</button>
+          <span id="analysisModeBadge" class="mode-badge bottombar-collapsible">Partitura</span>
+          <div id="loopControls" class="loop-controls bottombar-collapsible">
             <button id="markAButton" class="chip-button loop">Marcar A</button>
             <button id="markBButton" class="chip-button loop">Marcar B</button>
             <button id="clearLoopButton" class="chip-button ghost">Limpar</button>
@@ -242,7 +270,7 @@
             <div><span>Atrasado</span><strong id="lateStat">0</strong></div>
             <div><span>Precisão</span><strong id="accuracyStat">0%</strong></div>
           </div>
-          <div class="bottombar-end">
+          <div id="practiceBottomControls" class="bottombar-end bottombar-collapsible">
             <button id="downloadMusicXmlButton" type="button" class="chip-button ghost" hidden>↓ Baixar MusicXML</button>
             <span id="screenStatus" class="screen-status">Tela ativa</span>
             <details class="limitations">
@@ -250,7 +278,7 @@
               <p id="analysisExplanation">Com MusicXML, o microfone confere notas e acordes no modo professor. Com PDF puro, mede a proximidade de cada ataque à grade.</p>
             </details>
           </div>
-          <div id="attemptTimeline" class="attempt-timeline" aria-label="Últimos ataques" hidden></div>
+          <div id="attemptTimeline" class="attempt-timeline bottombar-collapsible" aria-label="Últimos ataques" hidden></div>
         </div>
 
         <div id="rotateOverlay" class="rotate-overlay" hidden>
