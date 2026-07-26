@@ -173,7 +173,7 @@
               <button id="teacherModeButton" class="choice-button active">Professor</button>
               <button id="tempoModeButton" class="choice-button">Tempo</button>
             </div>
-            <div class="input-choice small collapsible-control" role="group" aria-label="Entrada do instrumento">
+            <div id="inputToggle" class="input-choice small collapsible-control" role="group" aria-label="Entrada do instrumento">
               <button id="microphoneModeButton" class="choice-button active" aria-label="Microfone">🎤</button>
               <button id="midiModeButton" class="choice-button">🎹</button>
             </div>
@@ -195,6 +195,10 @@
             </div>
             <button id="startPracticeButton" class="primary-button small practice-start">▶ Começar</button>
             <button id="stopPracticeButton" class="icon-button stop" aria-label="Encerrar prática" disabled>■</button>
+            <div id="playbackControls" class="playback-controls" hidden>
+              <button id="playbackToggleButton" class="primary-button small playback-start" type="button">▶ Tocar</button>
+              <button id="playbackStopButton" class="icon-button stop" type="button" aria-label="Parar reprodução" disabled>■</button>
+            </div>
           </div>
         </div>
 
@@ -209,7 +213,7 @@
               <strong>Observe a partitura</strong>
               <small>O aplicativo contará um compasso antes de começar.</small>
             </div>
-            <div class="level-meter" aria-label="Nível do microfone"><span id="levelBar"></span></div>
+            <div id="levelMeter" class="level-meter" aria-label="Nível do microfone"><span id="levelBar"></span></div>
           </div>
 
           <section class="piano-panel" aria-labelledby="pianoHint">
@@ -238,7 +242,7 @@
             <button id="clearLoopButton" class="chip-button ghost">Limpar</button>
             <button id="loopToggleButton" class="chip-button loop" aria-pressed="false">↻ Repetir A–B</button>
           </div>
-          <div class="practice-stats compact">
+          <div id="practiceStats" class="practice-stats compact">
             <div><span>No tempo</span><strong id="onTimeStat">0</strong></div>
             <div><span>Adiantado</span><strong id="earlyStat">0</strong></div>
             <div><span>Atrasado</span><strong id="lateStat">0</strong></div>
