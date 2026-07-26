@@ -115,6 +115,7 @@ test("escuta contínua responde em um quadro para nota avulsa e não expira no s
     attemptWindowMs: 100,
   });
   engine.armExpected([52], 0);
+  engine.noteAttack();
   assert.equal(engine.process(lowPianoSignal(52), SAMPLE_RATE, 10).outcome, "match");
 
   engine.armExpected([52], 1000);
@@ -127,12 +128,39 @@ test("nota repetida exige soltura ou um novo ataque antes de avançar outra vez"
   const signal = lowPianoSignal(52);
 
   engine.armExpected([52], 0);
+  engine.noteAttack();
   assert.equal(engine.process(signal, SAMPLE_RATE, 10).outcome, "match");
   engine.armExpected([52], 20);
   assert.equal(engine.process(signal, SAMPLE_RATE, 30).outcome, "pending");
 
   engine.process(new Float32Array(SAMPLE_COUNT), SAMPLE_RATE, 40);
+  engine.noteAttack();
   assert.equal(engine.process(signal, SAMPLE_RATE, 50).outcome, "match");
+});
+
+test("escuta contínua exige ataque novo e contabiliza um erro por ataque", () => {
+  const engine = new PianoRecognitionEngine({
+    analysisIntervalMs: 0,
+    stableFrames: 1,
+  });
+  const correct = pianoSignal([60]);
+  const wrong = pianoSignal([62]);
+
+  engine.armExpected([60], 0);
+  assert.equal(
+    engine.process(correct, SAMPLE_RATE, 10).outcome,
+    "pending",
+    "ressonância sem ataque não pode avançar",
+  );
+
+  engine.noteAttack();
+  const firstWrong = engine.process(wrong, SAMPLE_RATE, 20);
+  assert.equal(firstWrong.outcome, "wrong");
+  assert.equal(firstWrong.status, "wrong");
+  assert.equal(engine.process(wrong, SAMPLE_RATE, 30).outcome, "pending");
+
+  engine.noteAttack();
+  assert.equal(engine.process(correct, SAMPLE_RATE, 40).outcome, "match");
 });
 
 test("erro de semitom é apontado em vez de virar vazamento", () => {

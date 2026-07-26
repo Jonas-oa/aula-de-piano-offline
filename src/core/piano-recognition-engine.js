@@ -246,6 +246,9 @@ export class PianoRecognitionEngine {
       deadline: timestamp + this.options.attemptWindowMs,
       lastAnalysisAt: -Infinity,
       stableMatches: 0,
+      stableWrongFrames: 0,
+      hasAttack: !continuous,
+      wrongReported: false,
       best: null,
     } : null;
     return this.attempt;
@@ -266,9 +269,12 @@ export class PianoRecognitionEngine {
   }
 
   noteAttack() {
-    if (!this.attempt?.waitForRelease) return;
+    if (!this.attempt) return;
+    this.attempt.hasAttack = true;
     this.attempt.waitForRelease = false;
     this.attempt.stableMatches = 0;
+    this.attempt.stableWrongFrames = 0;
+    this.attempt.wrongReported = false;
   }
 
   reset() {
@@ -288,6 +294,12 @@ export class PianoRecognitionEngine {
       attempt.expected,
       this.options,
     );
+    // No modo contínuo, cada evento da partitura precisa de um novo ataque.
+    // Isso impede que a ressonância do acorde anterior avance automaticamente
+    // quando a próxima nota também pertence à harmonia que ainda está soando.
+    if (attempt.continuous && !attempt.hasAttack) {
+      return { outcome: "pending", ...analysis };
+    }
     if (attempt.waitForRelease) {
       if (analysis.status !== "match") {
         attempt.waitForRelease = false;
@@ -306,6 +318,11 @@ export class PianoRecognitionEngine {
     attempt.stableMatches = analysis.status === "match"
       ? attempt.stableMatches + 1
       : 0;
+    attempt.stableWrongFrames = (
+      analysis.status === "wrong" || analysis.status === "extra"
+    ) && analysis.detected.length
+      ? attempt.stableWrongFrames + 1
+      : 0;
     const requiredStableFrames = attempt.expected.length === 1
       ? 1
       : this.options.stableFrames;
@@ -313,6 +330,17 @@ export class PianoRecognitionEngine {
       this.attempt = null;
       this.lastMatchedExpected = [...attempt.expected];
       return { outcome: "match", ...analysis };
+    }
+    if (
+      attempt.continuous
+      && !attempt.wrongReported
+      && attempt.stableWrongFrames >= requiredStableFrames
+    ) {
+      // Mantém a tentativa armada para a próxima tecla, mas cada ataque errado
+      // entra uma única vez na estatística.
+      attempt.wrongReported = true;
+      attempt.hasAttack = false;
+      return { outcome: "wrong", ...analysis };
     }
     if (!attempt.continuous && timestamp >= attempt.deadline) {
       const best = attempt.best || analysis;

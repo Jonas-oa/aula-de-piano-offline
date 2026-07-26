@@ -4,7 +4,7 @@ export function musicXmlFilename({ assetName = "", title = "" } = {}) {
   const candidate = String(assetName || title || "partitura")
     .split(/[\\/]/)
     .pop()
-    .replace(/\.(musicxml|xml)$/i, "")
+    .replace(/\.(musicxml|xml|mxl)$/i, "")
     .normalize("NFKC")
     .replace(/[^\p{L}\p{N}._ -]+/gu, "_")
     .replace(/\s+/g, " ")

@@ -11,6 +11,7 @@ test("shell offline inclui leitores, biblioteca e avaliador rítmico", () => {
   for (const asset of [
     "library-store.js",
     "musicxml.js",
+    "musicxml-file.js",
     "musicxml-export.js",
     "onset-engine.js",
     "piano-playback-engine.js",
@@ -24,7 +25,21 @@ test("shell offline inclui leitores, biblioteca e avaliador rítmico", () => {
   ]) {
     assert.match(worker, new RegExp(asset.replaceAll(".", "\\.")));
   }
-  assert.match(worker, /partitura-viva-v1-119/);
+  assert.match(worker, /partitura-viva-v1-120/);
+});
+
+test("todas as amostras do piano ficam disponíveis na primeira instalação offline", () => {
+  const worker = fs.readFileSync(path.join(root, "sw.js"), "utf8");
+  const sampleDirectory = path.join(root, "assets/audio/piano/acoustic-grand");
+  const samples = fs.readdirSync(sampleDirectory)
+    .filter((name) => name.endsWith(".mp3"))
+    .sort();
+
+  assert.equal(samples.length, 30);
+  for (const sample of samples) {
+    // Sustenidos precisam aparecer codificados; "#" cru viraria fragmento da URL.
+    assert.match(worker, new RegExp(sample.replace("#", "%23").replaceAll(".", "\\.")));
+  }
 });
 
 test("o shell não carrega mais o leitor OpenSheetMusicDisplay", () => {
@@ -44,6 +59,7 @@ test("interface é centrada em repertório, MusicXML e partitura", () => {
   assert.match(html, /id="importView"/);
   assert.match(html, /id="practiceView"/);
   assert.match(html, /accept="[^"]*\.musicxml/);
+  assert.match(html, /accept="[^"]*\.mxl/);
   assert.doesNotMatch(html, /accept="[^"]*\.pdf/);
   assert.match(html, /MusicXML/);
   assert.match(html, /id="rhythmPanel"/);

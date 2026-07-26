@@ -7,6 +7,7 @@ import {
 } from "./core/library-store.js";
 import { beatsPerBarFromSignature, midiToPortuguese, noteToMidi } from "./core/music.js";
 import { parseMusicXml } from "./core/musicxml.js";
+import { readMusicXmlFile } from "./core/musicxml-file.js";
 import { musicXmlBlob, musicXmlFilename } from "./core/musicxml-export.js";
 import { MidiInput, OnsetEngine } from "./core/onset-engine.js";
 import { PianoPlaybackEngine } from "./core/piano-playback-engine.js";
@@ -282,7 +283,7 @@ function acceptFiles(files) {
 
 async function importPiece(event) {
   event.preventDefault();
-  const xmlFile = state.selectedFiles.find((file) => /\.(xml|musicxml)$/i.test(file.name));
+  const xmlFile = state.selectedFiles.find((file) => /\.(xml|musicxml|mxl)$/i.test(file.name));
   if (!xmlFile) {
     toast("Escolha um arquivo XML ou MusicXML.");
     return;
@@ -290,7 +291,7 @@ async function importPiece(event) {
 
   let parsed = null;
   try {
-    parsed = parseMusicXml(await xmlFile.text());
+    parsed = parseMusicXml(await readMusicXmlFile(xmlFile));
   } catch (error) {
     toast(readableError(error));
     return;
@@ -325,7 +326,7 @@ async function importPiece(event) {
   }
 }
 
-function downloadPieceMusicXml(piece = state.currentItem) {
+async function downloadPieceMusicXml(piece = state.currentItem) {
   if (!piece?.musicXmlAsset) {
     toast("Esta peça não possui um arquivo MusicXML.");
     return;
@@ -334,7 +335,16 @@ function downloadPieceMusicXml(piece = state.currentItem) {
     assetName: piece.musicXmlAsset.name,
     title: piece.title,
   });
-  const url = URL.createObjectURL(musicXmlBlob(piece.musicXmlAsset));
+  let xmlText;
+  try {
+    xmlText = await readMusicXmlFile(piece.musicXmlAsset);
+  } catch (error) {
+    toast(readableError(error));
+    return;
+  }
+  const url = URL.createObjectURL(musicXmlBlob({
+    bytes: new TextEncoder().encode(xmlText),
+  }));
   const link = document.createElement("a");
   link.href = url;
   link.download = filename;
@@ -343,11 +353,6 @@ function downloadPieceMusicXml(piece = state.currentItem) {
   link.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
   toast(`MusicXML salvo como “${filename}”.`);
-}
-
-function xmlTextFromAsset(asset) {
-  if (!asset) return "";
-  return new TextDecoder().decode(asset.bytes);
 }
 
 // Converte uma peça estruturada (exercício ou MusicXML) no formato do
@@ -362,7 +367,11 @@ function structuredScore(item, events, metadata = null) {
     timeSignature,
     beatsPerBar: currentBeatsPerBar(item, metadata),
     pickupBeats: metadata?.pickupBeats || 0,
+    keyFifths: metadata?.keyFifths ?? 0,
+    keyMode: metadata?.keyMode || "",
     clef: "grand",
+    rests: metadata?.rests || [],
+    measures: metadata?.measures || [],
     notes: (events || []).map((event) => ({
       beat: event.beat,
       duration: event.duration,
@@ -373,7 +382,10 @@ function structuredScore(item, events, metadata = null) {
         pitch: note.pitch,
         duration: note.duration ?? event.duration,
         staff: note.staff,
+        clef: note.clef,
+        partIndex: note.partIndex,
         finger: note.finger ?? null,
+        tieStart: Boolean(note.tieStart),
       })),
     })),
   };
@@ -549,6 +561,7 @@ function moveScoreGesture(event) {
       deltaX,
       gesture.svgWidth,
       state.currentScore.notes.length,
+      state.currentScore,
     );
     if (index !== gesture.lastIndex) {
       gesture.lastIndex = index;
@@ -707,7 +720,7 @@ async function openPractice(item) {
     if (item.type === "rhythm") {
       state.currentEvents = item.events;
     } else if (item.musicXmlAsset) {
-      state.currentMusicMetadata = parseMusicXml(xmlTextFromAsset(item.musicXmlAsset));
+      state.currentMusicMetadata = parseMusicXml(await readMusicXmlFile(item.musicXmlAsset));
       state.currentEvents = state.currentMusicMetadata.events;
     }
 

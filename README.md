@@ -5,10 +5,12 @@ Aplicativo web offline para estudar peças completas com a partitura aberta e re
 ## O novo foco
 
 - repertório formado por arquivos importados pelo próprio aluno;
-- importação de MusicXML para fornecer ataques, pausas e alturas estruturadas;
+- importação de MusicXML aberto ou compactado (`.xml`, `.musicxml` e `.mxl`)
+  para fornecer ataques, pausas e alturas estruturadas;
 - compatibilidade de leitura com PDFs salvos em versões anteriores;
 - leitura de partituras de piano com as duas mãos, seja em uma parte com dois
-  staves, seja em duas partes separadas, com ligaduras de valor e dedilhado;
+  staves, seja em duas partes separadas, respeitando claves, armadura,
+  compassos, pausas, ligaduras de valor, durações pontuadas e dedilhado;
 - reconhecimento de notas e acordes pelo microfone no modo professor com MusicXML;
 - audição de partituras MusicXML com piano acústico, cursor sincronizado, andamento
   ajustável e seleção de trecho A–B com repetição opcional, diretamente dentro
@@ -43,10 +45,11 @@ uma escolha do aplicativo:
   a falta do agudo não é detectável. Nesses trechos, o MIDI dá a resposta certa.
 
 Na opção **TOCAR**, o app sintetiza a execução com 30 amostras reais do
-Salamander Grand Piano e transpõe apenas as notas intermediárias. As amostras
-necessárias são carregadas sob demanda e ficam no cache para as próximas
-reproduções offline. O banco completo ocupa cerca de 5,5 MB. Esta primeira
-versão usa uma camada de intensidade, adequada para estudo; dinâmica e
+Salamander Grand Piano e transpõe apenas as notas intermediárias. As 30
+amostras são armazenadas junto com o aplicativo na primeira instalação,
+para que qualquer partitura possa ser ouvida sem conexão. O banco completo
+ocupa cerca de 5,5 MB. Esta primeira versão usa uma camada de intensidade,
+adequada para estudo; dinâmica e
 articulação mais detalhadas poderão ser adicionadas em um motor posterior.
 
 O projeto não distribui partituras protegidas. O usuário deve importar arquivos que adquiriu legalmente ou que estejam em domínio público.
@@ -67,7 +70,8 @@ npm test
 
 ## Formatos
 
-- `.xml` / `.musicxml`: formato aceito na importação, com partitura estruturada e eventos exatos;
+- `.xml` / `.musicxml`: MusicXML aberto, com partitura estruturada e eventos exatos;
+- `.mxl`: MusicXML compactado; o arquivo interno é localizado e descompactado no aparelho;
 - `.pdf`: somente compatibilidade com peças já armazenadas por versões anteriores;
 - Web MIDI: entrada do instrumento, sem necessidade de importar um arquivo MIDI.
 

@@ -3,9 +3,12 @@ import assert from "node:assert/strict";
 
 import {
   bassClefGeometry,
+  durationNotation,
   isExplicitMeasureBoundary,
   isOnBassStaff,
+  keySignaturePitches,
   noteY,
+  scoreEventX,
   scoreHeadline,
   scoreIndexForDrag,
   scoreIndexesToRefresh,
@@ -81,6 +84,9 @@ test("clave de Fá referencia a quarta linha da pauta, entre os dois pontos", ()
 });
 
 test("a clave segue o staff do MusicXML, não o corte pelo dó central", () => {
+  // Em partes separadas, cada parte pode usar staff 1; a clave explícita vence.
+  assert.equal(isOnBassStaff({ pitch: "C3", staff: 1, clef: "bass" }, true), true);
+  assert.equal(isOnBassStaff({ pitch: "C3", staff: 2, clef: "treble" }, true), false);
   // Mão esquerda escrita acima do dó central: pertence à clave de fá.
   assert.equal(isOnBassStaff({ pitch: "E4", staff: 2 }, true), true);
   // Mão direita cruzando para o grave: continua na clave de sol.
@@ -107,6 +113,32 @@ test("arrastar a pauta converte o deslocamento em avanço e retorno de notas", (
   assert.equal(scoreIndexForDrag(10, 88, 850, 660), 9);
   assert.equal(scoreIndexForDrag(0, 880, 850, 660), 0);
   assert.equal(scoreIndexForDrag(659, -880, 850, 660), 659);
+});
+
+test("espaçamento horizontal acompanha o tempo musical", () => {
+  const song = {
+    notes: [
+      { beat: 0 },
+      { beat: 0.5 },
+      { beat: 2 },
+    ],
+  };
+  assert.equal(scoreEventX(song, 1) - scoreEventX(song, 0), 44);
+  assert.equal(scoreEventX(song, 2) - scoreEventX(song, 1), 132);
+  assert.equal(scoreIndexForDrag(1, -132, 850, 3, song), 2);
+});
+
+test("durações pontuadas e bandeirolas são classificadas corretamente", () => {
+  assert.deepEqual(durationNotation(3), { base: 2, dots: 1, flags: 0 });
+  assert.deepEqual(durationNotation(1.5), { base: 1, dots: 1, flags: 0 });
+  assert.deepEqual(durationNotation(0.75), { base: 0.5, dots: 1, flags: 1 });
+  assert.deepEqual(durationNotation(0.25), { base: 0.25, dots: 0, flags: 2 });
+});
+
+test("armadura usa a ordem musical correta nas duas claves", () => {
+  assert.deepEqual(keySignaturePitches(3), ["F5", "C5", "G5"]);
+  assert.deepEqual(keySignaturePitches(-2), ["B4", "E5"]);
+  assert.deepEqual(keySignaturePitches(2, true), ["F3", "C3"]);
 });
 
 test("cada nota cai na linha ou espaço certo das duas claves", () => {
