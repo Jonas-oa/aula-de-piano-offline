@@ -291,14 +291,25 @@ main { width: min(1380px, calc(100% - 28px)); margin: 0 auto; padding: 26px 0 46
 .practice-title .eyebrow { white-space: nowrap; }
 
 .practice-topbar {
-  flex: 0 0 auto; display: flex; align-items: center; gap: 10px;
+  position: relative; flex: 0 0 auto; display: flex; align-items: center; gap: 10px;
   padding: 6px 10px; border-radius: 14px; background: var(--ink); color: #f4f1ea;
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow); transition: padding 170ms ease;
 }
 .practice-topbar .practice-title .eyebrow { color: #8b93b5; margin: 0 0 1px; font-size: .58rem; }
 .practice-topbar .practice-title h1 { color: #f4f1ea; }
 .toolbar-controls { margin-left: auto; display: flex; align-items: center; gap: 7px; flex-wrap: nowrap; justify-content: flex-end; overflow-x: auto; scrollbar-width: none; }
 .toolbar-controls::-webkit-scrollbar { display: none; }
+.panel-toggle {
+  z-index: 3; display: grid; flex: 0 0 auto; width: 30px; height: 30px; padding: 0;
+  place-items: center; border: 1px solid rgba(255,255,255,.14); border-radius: 999px;
+  background: #242a44; color: #dfe3f3; font-size: 1rem; font-weight: 900; cursor: pointer;
+}
+.practice-topbar.is-collapsed { padding-block: 4px; }
+.practice-topbar.is-collapsed .collapsible-control { display: none !important; }
+.practice-topbar.is-collapsed .toolbar-controls { overflow: visible; }
+.practice-topbar.is-collapsed .tempo-chip { padding-inline: 10px; }
+.practice-topbar.is-collapsed .document-controls { gap: 0; }
+.practice-topbar.is-collapsed .status-pill { white-space: nowrap; }
 
 .input-choice { display: inline-flex; padding: 3px; border-radius: 999px; background: var(--soft); gap: 3px; }
 .choice-button { min-height: 34px; padding: 0 12px; border: 0; border-radius: 999px; background: transparent; color: var(--muted); font-size: .78rem; font-weight: 850; cursor: pointer; }
@@ -324,9 +335,15 @@ main { width: min(1380px, calc(100% - 28px)); margin: 0 auto; padding: 26px 0 46
 .practice-start { background: var(--primary); color: #1a1400; }
 .icon-button.stop { width: 38px; height: 38px; border-radius: 999px; background: #2a3050; color: #c7cde6; }
 
+/* Área principal: partitura dominante e piano didático sempre visível */
+.practice-workspace {
+  flex: 1 1 auto; min-height: 0; display: grid;
+  grid-template-rows: minmax(0, 1fr) clamp(112px, 27vh, 220px); gap: 6px;
+}
+
 /* Palco: só o trecho atual, escala para caber sem rolar */
 .practice-stage {
-  flex: 1 1 auto; position: relative; min-height: 0;
+  position: relative; min-height: 0;
   border-radius: 18px; overflow: hidden; background: var(--paper);
   box-shadow: var(--shadow);
 }
@@ -349,9 +366,57 @@ main { width: min(1380px, calc(100% - 28px)); margin: 0 auto; padding: 26px 0 46
 .level-meter { position: absolute; left: 12px; bottom: 12px; width: 160px; height: 6px; overflow: hidden; border-radius: 999px; background: #e5e6ea; }
 .level-meter span { display: block; width: 0; height: 100%; border-radius: inherit; background: var(--success); transition: width 70ms linear; }
 
+/* Piano de apoio — 49 teclas, com nota atual e próximas notas */
+.piano-panel {
+  position: relative; min-height: 0; overflow: hidden; border-radius: 16px;
+  border: 1px solid #222a44; background: #10162a; box-shadow: var(--shadow);
+}
+.piano-panel-status {
+  position: absolute; top: 5px; left: 10px; z-index: 8; display: flex; align-items: baseline; gap: 8px;
+  max-width: calc(100% - 20px); color: #f5f1e8; pointer-events: none;
+}
+.piano-panel-status span { color: #aeb6d6; font-size: .58rem; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
+.piano-panel-status strong { overflow: hidden; font-size: .72rem; text-overflow: ellipsis; white-space: nowrap; }
+.piano-keyboard { position: absolute; inset: 28px 7px 7px; overflow: visible; border-radius: 8px; background: #0b1020; }
+.piano-key {
+  position: absolute; top: 0; bottom: 0; display: block; border: 1px solid #9da3af;
+  transition: background 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+}
+.piano-key.white { z-index: 1; border-radius: 0 0 5px 5px; background: linear-gradient(90deg, #f7f7f3, #fff 55%, #e9e9e4); }
+.piano-key.black {
+  z-index: 3; bottom: 42%; border-color: #060912; border-radius: 0 0 4px 4px;
+  background: linear-gradient(90deg, #080b13, #2b303c 60%, #05070c);
+  box-shadow: 0 4px 5px rgba(0,0,0,.45);
+}
+.piano-key.current {
+  background: linear-gradient(#f6dda2, #d7a84b); box-shadow: inset 0 0 0 2px #fff2c9, 0 0 14px rgba(215,168,75,.7);
+}
+.piano-key.black.current { background: linear-gradient(#f1cf7f, #9d7419); }
+.piano-key.upcoming-1 { background: linear-gradient(#9a8ce9, #5542b8); box-shadow: inset 0 0 0 1px #c9c0ff; }
+.piano-key.upcoming-2 { box-shadow: inset 0 -10px 0 rgba(215,168,75,.5); }
+.piano-key.upcoming-3 { box-shadow: inset 0 -7px 0 rgba(85,66,184,.36); }
+.piano-key.current::before, .piano-key.upcoming-1::before, .piano-key.upcoming-2::before, .piano-key.upcoming-3::before {
+  content: ""; position: absolute; left: 18%; right: 18%; bottom: 100%; height: 24px; border-radius: 6px 6px 0 0;
+  background: rgba(215,168,75,.48); box-shadow: 0 0 10px rgba(215,168,75,.3);
+}
+.piano-key.upcoming-1::before { background: rgba(105,87,205,.55); box-shadow: 0 0 10px rgba(105,87,205,.32); }
+.piano-key.upcoming-2::before { height: 17px; opacity: .55; }
+.piano-key.upcoming-3::before { height: 12px; background: rgba(105,87,205,.35); opacity: .5; }
+.piano-key-label {
+  position: absolute; right: 1px; bottom: 4px; left: 1px; overflow: hidden;
+  color: #231a06; font-size: clamp(.48rem, 1.1vw, .72rem); font-weight: 900; text-align: center; white-space: nowrap;
+}
+.piano-key.black .piano-key-label { bottom: 3px; color: white; font-size: clamp(.42rem, .85vw, .62rem); }
+
 /* Barra inferior */
-.practice-bottombar { flex: 0 0 auto; display: flex; align-items: center; gap: 12px; padding: 6px 12px; border-radius: 14px; background: white; box-shadow: var(--shadow); overflow-x: auto; scrollbar-width: none; }
+.practice-bottombar { position: relative; flex: 0 0 auto; display: flex; align-items: center; gap: 12px; padding: 6px 12px; border-radius: 14px; background: white; box-shadow: var(--shadow); overflow-x: auto; scrollbar-width: none; }
 .practice-bottombar::-webkit-scrollbar { display: none; }
+.practice-bottombar .panel-toggle { border-color: #d8dbe5; background: #ececf5; color: var(--ink); }
+.practice-bottombar.is-collapsed { min-height: 38px; padding-block: 3px; }
+.practice-bottombar.is-collapsed .bottombar-collapsible { display: none !important; }
+.practice-bottombar.is-collapsed .practice-stats.compact { margin: 0 auto; }
+.practice-bottombar.is-collapsed .practice-stats.compact strong { display: inline; margin-left: 3px; font-size: .82rem; }
+.practice-bottombar.is-collapsed .practice-stats.compact span { display: inline; }
 .loop-controls { display: flex; align-items: center; gap: 8px; }
 .screen-status { color: var(--success); font-size: .72rem; font-weight: 800; }
 .practice-stats.compact { margin-left: auto; display: flex; align-items: center; gap: 20px; }
@@ -376,12 +441,22 @@ main { width: min(1380px, calc(100% - 28px)); margin: 0 auto; padding: 26px 0 46
 .rotate-overlay { display: none; }
 @media (orientation: portrait) {
   #practiceView.active > .practice-topbar,
-  #practiceView.active > .practice-stage,
+  #practiceView.active > .practice-workspace,
   #practiceView.active > .practice-bottombar { filter: blur(3px); opacity: .5; }
   #practiceView.active > #rotateOverlay { display: grid; position: absolute; inset: 0; z-index: 80; place-items: center; text-align: center; color: var(--ink); }
   #rotateOverlay .rotate-mark { display: block; font-size: 3rem; }
   #rotateOverlay strong { display: block; margin: 8px 0 4px; font-size: 1.3rem; }
   #rotateOverlay span { color: var(--muted); }
+}
+
+@media (orientation: landscape) and (max-height: 500px) {
+  #practiceView.active { gap: 4px; padding: 5px; }
+  .practice-workspace { grid-template-rows: minmax(0, 1fr) minmax(92px, 25vh); gap: 4px; }
+  .practice-topbar { padding-block: 3px; }
+  .practice-title .eyebrow { display: none; }
+  .piano-keyboard { top: 24px; }
+  .practice-bottombar { padding-block: 2px; }
+  .timing-feedback.floating small { display: none; }
 }
 
 .bottom-nav {

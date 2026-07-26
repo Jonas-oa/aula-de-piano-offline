@@ -1,4 +1,4 @@
-const CACHE_NAME = "partitura-viva-v1-111";
+const CACHE_NAME = "partitura-viva-v1-112";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -18,6 +18,7 @@ const APP_SHELL = [
   "./src/core/omr-service.js",
   "./src/data/rhythm-exercises.js",
   "./src/ui/document-viewer.js",
+  "./src/ui/piano-keyboard.js",
   "./src/ui/score-renderer.js",
   "./vendor/osmd/opensheetmusicdisplay.min.js",
   "./vendor/pdfjs/pdf.min.mjs",
