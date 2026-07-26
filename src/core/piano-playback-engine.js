@@ -1,14 +1,10 @@
+import { midiToNote } from "./music.js";
+
 const SAMPLE_MIDIS = [
   21, 24, 27, 30, 33, 36, 39, 42, 45, 48,
   51, 54, 57, 60, 63, 66, 69, 72, 75, 78,
   81, 84, 87, 90, 93, 96, 99, 102, 105, 108,
 ];
-
-const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-
-function midiName(midi) {
-  return `${NOTE_NAMES[midi % 12]}${Math.floor(midi / 12) - 1}`;
-}
 
 export function sampleForMidi(midi) {
   const numericMidi = Number(midi);
@@ -16,7 +12,7 @@ export function sampleForMidi(midi) {
   const sampleMidi = SAMPLE_MIDIS.reduce((nearest, candidate) =>
     Math.abs(candidate - target) < Math.abs(nearest - target) ? candidate : nearest,
   );
-  const filename = `${midiName(sampleMidi)}v10.mp3`;
+  const filename = `${midiToNote(sampleMidi)}v10.mp3`;
   return {
     midi: sampleMidi,
     filename,

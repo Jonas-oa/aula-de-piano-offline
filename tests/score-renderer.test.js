@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   bassClefGeometry,
   isExplicitMeasureBoundary,
+  scoreHeadline,
   scoreIndexForDrag,
   scoreIndexesToRefresh,
   scoreVerticalBounds,
@@ -75,6 +76,15 @@ test("clave de Fá referencia a quarta linha da pauta, entre os dois pontos", ()
   );
   assert.ok(geometry.dotYs[0] < geometry.fLineY);
   assert.ok(geometry.dotYs[1] > geometry.fLineY);
+});
+
+test("cabeçalho não exibe separador solto quando falta a tonalidade", () => {
+  const base = { id: "x", bpm: 72, timeSignature: "3/4", notes: [] };
+
+  assert.equal(scoreHeadline(base), "72 bpm · 3/4");
+  assert.equal(scoreHeadline({ ...base, key: "Dó maior" }), "Dó maior · 72 bpm · 3/4");
+  assert.equal(scoreHeadline({ ...base, key: "", timeSignature: "", beatsPerBar: 0 }), "72 bpm");
+  assert.doesNotMatch(scoreHeadline(base), /^\s*·/);
 });
 
 test("arrastar a pauta converte o deslocamento em avanço e retorno de notas", () => {

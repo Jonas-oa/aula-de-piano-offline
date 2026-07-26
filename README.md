@@ -58,7 +58,7 @@ npm test
 - `.pdf`: somente compatibilidade com peças já armazenadas por versões anteriores;
 - Web MIDI: entrada do instrumento, sem necessidade de importar um arquivo MIDI.
 
-PDF.js, OpenSheetMusicDisplay e seus componentes são mantidos no próprio projeto para que a leitura continue disponível offline.
+PDF.js e seus componentes são mantidos no próprio projeto para que a leitura continue disponível offline.
 
 As amostras de piano são derivadas do Salamander Grand Piano V3, de Alexander
 Holm, sob licença CC BY 3.0. A atribuição completa está em

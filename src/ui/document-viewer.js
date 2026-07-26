@@ -1,50 +1,19 @@
-import { storedAssetToBlob } from "../core/library-store.js";
-
+// Palco do documento. Cuida de dois modos:
+//  - PDF: compatibilidade com peças salvas por versões anteriores (PDF.js);
+//  - pauta estruturada: delega o desenho ao renderizador SVG próprio.
 export class DocumentViewer {
   constructor(container, { onPageChange } = {}) {
     this.container = container;
     this.onPageChange = onPageChange || (() => {});
-    this.pdf = null;
     this.pdfDocument = null;
     this.page = 1;
     this.scale = 1.25;
-    this.osmd = null;
     this.renderToken = 0;
-    this.cursorIndex = 0;
-  }
-
-  // Posiciona o cursor do OSMD no evento `index` (contado a partir do início)
-  // e rola a partitura para mantê-lo visível — a base do modo professor.
-  moveCursorTo(index, { reset = false } = {}) {
-    const cursor = this.osmd?.cursor;
-    if (!cursor) return;
-    try {
-      if (reset || index < this.cursorIndex) {
-        cursor.reset();
-        this.cursorIndex = 0;
-      }
-      cursor.show();
-      let guard = 0;
-      while (this.cursorIndex < index && !cursor.iterator?.EndReached && guard < 4096) {
-        cursor.next();
-        this.cursorIndex += 1;
-        guard += 1;
-      }
-      this.scrollCursorIntoView();
-    } catch {
-      // O cursor é um auxílio visual; a avaliação continua sem ele.
-    }
-  }
-
-  scrollCursorIntoView() {
-    const element = this.osmd?.cursor?.cursorElement;
-    element?.scrollIntoView?.({ behavior: "smooth", block: "center", inline: "nearest" });
   }
 
   async showPdf(asset) {
     this.clear();
     this.container.className = "document-stage pdf-stage";
-    this.pdf = asset;
     const pdfjs = await import("../../vendor/pdfjs/pdf.min.mjs");
     pdfjs.GlobalWorkerOptions.workerSrc = new URL(
       "../../vendor/pdfjs/pdf.worker.min.mjs",
@@ -54,27 +23,6 @@ export class DocumentViewer {
     this.pdfDocument = await pdfjs.getDocument({ data: bytes }).promise;
     this.page = 1;
     await this.renderPdfPage();
-  }
-
-  async showMusicXml(xmlText) {
-    this.clear();
-    this.container.className = "document-stage musicxml-stage";
-    const namespace = window.opensheetmusicdisplay;
-    if (!namespace?.OpenSheetMusicDisplay) {
-      throw new Error("O leitor de MusicXML não foi carregado.");
-    }
-    this.osmd = new namespace.OpenSheetMusicDisplay(this.container, {
-      autoResize: true,
-      backend: "svg",
-      drawTitle: true,
-      followCursor: true,
-      drawingParameters: "compacttight",
-    });
-    await this.osmd.load(xmlText);
-    this.osmd.Zoom = 0.82;
-    this.osmd.render();
-    this.cursorIndex = 0;
-    this.onPageChange({ page: 1, pages: 1, type: "musicxml" });
   }
 
   showRhythm(render) {
@@ -97,15 +45,9 @@ export class DocumentViewer {
   }
 
   async zoomBy(delta) {
-    if (this.pdfDocument) {
-      this.scale = Math.max(0.7, Math.min(2.5, this.scale + delta));
-      await this.renderPdfPage();
-      return;
-    }
-    if (this.osmd) {
-      this.osmd.Zoom = Math.max(0.4, Math.min(1.8, this.osmd.Zoom + delta));
-      this.osmd.render();
-    }
+    if (!this.pdfDocument) return;
+    this.scale = Math.max(0.7, Math.min(2.5, this.scale + delta));
+    await this.renderPdfPage();
   }
 
   async renderPdfPage() {
@@ -134,12 +76,6 @@ export class DocumentViewer {
     this.renderToken += 1;
     this.pdfDocument?.destroy?.();
     this.pdfDocument = null;
-    this.pdf = null;
-    this.osmd = null;
     this.container.replaceChildren();
   }
-}
-
-export function assetUrl(asset) {
-  return URL.createObjectURL(storedAssetToBlob(asset));
 }

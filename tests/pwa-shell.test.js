@@ -21,11 +21,21 @@ test("shell offline inclui leitores, biblioteca e avaliador rítmico", () => {
     "piano-keyboard.js",
     "pdf.min.mjs",
     "pdf.worker.min.mjs",
-    "opensheetmusicdisplay.min.js",
   ]) {
     assert.match(worker, new RegExp(asset.replaceAll(".", "\\.")));
   }
-  assert.match(worker, /partitura-viva-v1-118/);
+  assert.match(worker, /partitura-viva-v1-119/);
+});
+
+test("o shell não carrega mais o leitor OpenSheetMusicDisplay", () => {
+  // A pauta é desenhada pelo renderizador SVG próprio; o OSMD saiu do projeto.
+  for (const file of ["sw.js", "index.html"]) {
+    assert.doesNotMatch(
+      fs.readFileSync(path.join(root, file), "utf8"),
+      /opensheetmusicdisplay/i,
+    );
+  }
+  assert.equal(fs.existsSync(path.join(root, "vendor/osmd")), false);
 });
 
 test("interface é centrada em repertório, MusicXML e partitura", () => {

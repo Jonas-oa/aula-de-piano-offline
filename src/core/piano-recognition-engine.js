@@ -1,4 +1,4 @@
-import { midiToFrequency } from "./music.js";
+import { midiToFrequency, sameMidis, uniqueMidis } from "./music.js";
 
 const DEFAULTS = {
   minRms: 0.004,
@@ -10,18 +10,6 @@ const DEFAULTS = {
   analysisIntervalMs: 36,
   attemptWindowMs: 460,
 };
-
-function uniqueMidis(midis) {
-  return [...new Set((midis || [])
-    .filter((midi) => Number.isFinite(midi))
-    .map((midi) => Math.round(midi)))]
-    .sort((a, b) => a - b);
-}
-
-function sameMidis(left, right) {
-  return left.length === right.length
-    && left.every((midi, index) => midi === right[index]);
-}
 
 function rmsOf(samples) {
   if (!samples?.length) return 0;

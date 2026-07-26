@@ -1,4 +1,4 @@
-import { isBlackKey, midiToPortuguese } from "../core/music.js";
+import { isBlackKey, midiToPortuguese, uniqueMidis } from "../core/music.js";
 
 export const PIANO_KEY_COUNT = 49;
 export const DEFAULT_PIANO_START = 36; // Dó 2 até Dó 6
@@ -39,10 +39,6 @@ export function pianoKeyLayout(startMidi = DEFAULT_PIANO_START) {
     if (!black) whitesSeen += 1;
     return key;
   });
-}
-
-function uniqueMidis(midis = []) {
-  return [...new Set(midis.filter(Number.isFinite).map((midi) => Math.round(midi)))];
 }
 
 export class PianoKeyboard {

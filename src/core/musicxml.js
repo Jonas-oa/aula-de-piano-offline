@@ -1,4 +1,4 @@
-import { pitchToMidi } from "../data/rhythm-exercises.js";
+import { noteToMidi } from "./music.js";
 
 function directText(element, selector, fallback = "") {
   return element.querySelector(selector)?.textContent?.trim() || fallback;
@@ -82,7 +82,7 @@ export function parseMusicXml(xmlText) {
           attacks.push(attack);
         }
         attack.pitches.push(pitch);
-        attack.midis.push(pitchToMidi(pitch));
+        attack.midis.push(noteToMidi(pitch));
         attack.duration = Math.max(attack.duration, duration);
       }
 

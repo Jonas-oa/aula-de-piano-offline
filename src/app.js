@@ -384,13 +384,12 @@ function renderStructured(index, { fresh = false, immediate = false } = {}) {
   state.viewIndex = index;
   if (fresh) {
     viewer.showRhythm((container) =>
-      renderScore(container, state.currentScore, index, false, activeLoop(), { immediate }));
+      renderScore(container, state.currentScore, index, activeLoop(), { immediate }));
   } else {
     renderScore(
       byId("documentStage"),
       state.currentScore,
       index,
-      false,
       activeLoop(),
       { immediate },
     );

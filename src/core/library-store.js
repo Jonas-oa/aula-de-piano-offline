@@ -62,8 +62,3 @@ export async function fileToStoredAsset(file) {
     bytes: await file.arrayBuffer(),
   };
 }
-
-export function storedAssetToBlob(asset) {
-  if (!asset) return null;
-  return new Blob([asset.bytes], { type: asset.type });
-}
