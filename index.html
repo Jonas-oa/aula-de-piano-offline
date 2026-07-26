@@ -164,9 +164,9 @@
             type="button"
             aria-expanded="false"
             aria-controls="practiceTopbarControls"
-            aria-label="Mostrar opções superiores"
-            title="Mostrar opções superiores"
-          >⌄</button>
+            aria-label="Mostrar ferramentas à esquerda"
+            title="Mostrar ferramentas à esquerda"
+          >›</button>
 
           <div id="practiceTopbarControls" class="toolbar-controls">
             <div id="modeToggle" class="input-choice small collapsible-control" role="group" aria-label="Modo de prática">
@@ -177,7 +177,13 @@
               <button id="microphoneModeButton" class="choice-button active" aria-label="Microfone">🎤</button>
               <button id="midiModeButton" class="choice-button">🎹</button>
             </div>
-            <label class="tempo-chip"><span aria-hidden="true">♩</span><output id="tempoOutput">72</output>
+            <label
+              id="tempoChip"
+              class="tempo-chip"
+              tabindex="0"
+              aria-expanded="false"
+              aria-label="Ajustar andamento"
+            ><span class="tempo-chip-label">Andamento</span><span aria-hidden="true">♩</span><output id="tempoOutput">72</output>
               <input id="tempoSlider" class="collapsible-control" type="range" min="30" max="180" value="72" aria-label="Andamento" /></label>
             <div id="pdfOnlyOptions" class="pdf-options collapsible-control">
               <select id="subdivisionSelect" aria-label="Subdivisão da grade">
@@ -232,9 +238,9 @@
             type="button"
             aria-expanded="false"
             aria-controls="practiceBottomControls"
-            aria-label="Mostrar opções inferiores"
-            title="Mostrar opções inferiores"
-          >⌃</button>
+            aria-label="Mostrar ferramentas à direita"
+            title="Mostrar ferramentas à direita"
+          >‹</button>
           <span id="analysisModeBadge" class="mode-badge bottombar-collapsible">Partitura</span>
           <div id="loopControls" class="loop-controls bottombar-collapsible">
             <button id="markAButton" class="chip-button loop">Marcar A</button>

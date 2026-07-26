@@ -405,8 +405,8 @@ main { width: min(1160px, calc(100% - 28px)); margin: 0 auto; padding: 28px 0 48
 /* ===== Prática — layout paisagem fixo, sem rolagem ===== */
 #practiceView.active {
   position: fixed; inset: 0; z-index: 60;
-  display: flex; flex-direction: column; gap: 4px;
-  padding: 4px 5px; background: #e9ebf1; overflow: hidden;
+  display: block;
+  padding: 3px; background: #e9ebf1; overflow: hidden;
 }
 [hidden] { display: none !important; }
 .practice-title { min-width: 0; }
@@ -414,56 +414,68 @@ main { width: min(1160px, calc(100% - 28px)); margin: 0 auto; padding: 28px 0 48
 .practice-title .eyebrow { white-space: nowrap; }
 
 .practice-topbar {
-  position: relative; flex: 0 0 auto; display: flex; align-items: center; gap: 10px;
-  padding: 6px 10px; border-radius: 14px; background: var(--ink); color: #f4f1ea;
-  box-shadow: var(--shadow); transition: padding 170ms ease;
+  position: absolute; top: 3px; bottom: 3px; left: 3px; z-index: 72;
+  display: grid; grid-template-columns: auto minmax(0, 1fr); align-content: start; align-items: center; gap: 10px;
+  width: min(290px, 72vw); padding: 12px; overflow-y: auto;
+  border-radius: 14px; background: var(--ink); color: #f4f1ea;
+  box-shadow: var(--shadow); transition: width 170ms ease, padding 170ms ease, background 170ms ease;
 }
 .practice-topbar .practice-title .eyebrow { color: #8b93b5; margin: 0 0 1px; font-size: .58rem; }
 .practice-topbar .practice-title h1 { color: #f4f1ea; }
-.toolbar-controls { margin-left: auto; display: flex; align-items: center; gap: 7px; flex-wrap: nowrap; justify-content: flex-end; overflow-x: auto; scrollbar-width: none; }
+.toolbar-controls {
+  grid-column: 1 / -1; display: flex; flex-direction: column; align-items: stretch; gap: 9px;
+  width: 100%; margin: 3px 0 0; overflow: visible; scrollbar-width: none;
+}
 .toolbar-controls::-webkit-scrollbar { display: none; }
 .panel-toggle {
-  z-index: 3; display: grid; flex: 0 0 auto; width: 30px; height: 30px; padding: 0;
+  z-index: 3; display: grid; flex: 0 0 auto; width: 30px; height: 54px; padding: 0;
   place-items: center; border: 1px solid rgba(255,255,255,.14); border-radius: 999px;
   background: #242a44; color: #dfe3f3; font-size: 1rem; font-weight: 900; cursor: pointer;
 }
-.practice-topbar.is-collapsed .collapsible-control { display: none !important; }
-.practice-topbar.is-collapsed .toolbar-controls { overflow: visible; }
-.practice-topbar.is-collapsed .tempo-chip { padding-inline: 10px; }
-.practice-topbar.is-collapsed .document-controls { gap: 0; }
-.practice-topbar.is-collapsed .status-pill { white-space: nowrap; }
+.practice-topbar > .panel-toggle {
+  position: absolute; top: 50%; right: -14px; transform: translateY(-50%);
+}
 .practice-topbar.is-collapsed {
-  gap: 6px; min-height: 36px; padding: 1px 5px; border-radius: 10px;
+  width: 28px; padding: 0; overflow: visible; border-radius: 9px;
+  background: rgba(23,43,77,.2); box-shadow: none;
 }
-.practice-topbar.is-collapsed .practice-title .eyebrow { display: none; }
-.practice-topbar.is-collapsed .practice-title h1 { font-size: clamp(.9rem, 1.7vw, 1.15rem); }
-.practice-topbar.is-collapsed #leavePracticeButton,
-.practice-topbar.is-collapsed .icon-button.stop {
-  width: 32px; height: 32px; min-height: 32px; border-radius: 9px;
-}
-.practice-topbar.is-collapsed .panel-toggle { width: 24px; height: 24px; font-size: .82rem; }
-.practice-topbar.is-collapsed .toolbar-controls { gap: 5px; }
-.practice-topbar.is-collapsed .tempo-chip {
-  min-height: 26px; gap: 5px; padding: 2px 8px; font-size: .74rem;
-}
-.practice-topbar.is-collapsed .status-pill {
-  min-height: 26px; padding: 3px 8px; font-size: .68rem;
-}
-.practice-topbar.is-collapsed .practice-start,
-.practice-topbar.is-collapsed .playback-start {
-  min-height: 32px; padding: 5px 10px; border-radius: 9px; font-size: .74rem;
-}
+.practice-topbar.is-collapsed > :not(.panel-toggle) { display: none !important; }
+.practice-topbar.is-collapsed > .panel-toggle { right: -8px; width: 30px; height: 64px; }
+.practice-topbar .practice-title h1 { max-width: 190px; }
 
 .input-choice { display: inline-flex; padding: 3px; border-radius: 999px; background: var(--soft); gap: 3px; }
 .choice-button { min-height: 34px; padding: 0 12px; border: 0; border-radius: 999px; background: transparent; color: var(--muted); font-size: .78rem; font-weight: 850; cursor: pointer; }
 .choice-button.active { background: white; color: var(--primary); box-shadow: 0 3px 10px rgba(23,27,47,.08); }
 .practice-topbar .input-choice { background: #242a44; }
+.practice-topbar .input-choice,
+.practice-topbar .document-controls,
+.practice-topbar .playback-controls { justify-content: center; width: 100%; }
 .practice-topbar .input-choice.small .choice-button { min-height: 30px; padding: 0 11px; font-size: .74rem; color: #aeb6d6; }
 .practice-topbar .input-choice.small .choice-button.active { background: var(--primary); color: #1a1400; box-shadow: none; }
 
-.tempo-chip { display: inline-flex; align-items: center; gap: 7px; padding: 4px 12px; border-radius: 999px; background: #242a44; color: #f4f1ea; font-size: .82rem; }
+.tempo-chip {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 7px;
+  min-height: 40px; padding: 4px 12px; border-radius: 14px; background: #242a44;
+  color: #f4f1ea; font-size: .82rem; cursor: pointer;
+}
+.tempo-chip-label { color: #aeb6d6; font-size: .7rem; font-weight: 800; }
 .tempo-chip output { font-weight: 800; min-width: 22px; text-align: right; }
-.tempo-chip input[type=range] { width: 72px; accent-color: var(--primary); }
+.tempo-chip input[type=range] { grid-column: 1 / -1; width: 100%; accent-color: var(--primary); }
+.tempo-chip.is-expanded {
+  position: fixed; top: 50%; left: 50%; z-index: 96;
+  width: min(460px, calc(100vw - 64px)); min-height: 128px; padding: 20px 22px;
+  border: 2px solid rgba(255,255,255,.16); border-radius: 22px;
+  box-shadow: 0 28px 80px rgba(10,18,34,.42);
+  transform: translate(-50%, -50%);
+}
+.tempo-chip.is-expanded .tempo-chip-label { font-size: .9rem; }
+.tempo-chip.is-expanded output { min-width: 54px; font-size: 1.65rem; }
+.tempo-chip.is-expanded input[type=range] { height: 42px; }
+#practiceView.tempo-open::after {
+  content: ""; position: fixed; inset: 0; z-index: 90;
+  background: rgba(16,22,42,.44); backdrop-filter: blur(2px);
+}
+#practiceView.tempo-open .practice-topbar { z-index: 95; }
 
 .chip-button { min-height: 34px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line); background: white; color: var(--ink); font-size: .78rem; font-weight: 700; cursor: pointer; }
 .chip-button.loop { background: #f6efe0; border-color: var(--primary); color: #8b650f; }
@@ -488,7 +500,7 @@ main { width: min(1160px, calc(100% - 28px)); margin: 0 auto; padding: 28px 0 48
 
 /* Área principal: partitura dominante e piano didático sempre visível */
 .practice-workspace {
-  flex: 1 1 auto; min-height: 0; display: grid;
+  position: absolute; inset: 3px 34px; min-height: 0; display: grid;
   grid-template-rows: minmax(0, 1fr) clamp(102px, 23vh, 190px); gap: 4px;
 }
 
@@ -560,30 +572,36 @@ main { width: min(1160px, calc(100% - 28px)); margin: 0 auto; padding: 28px 0 48
 .piano-key.black .piano-key-label { bottom: 3px; color: white; font-size: clamp(.42rem, .85vw, .62rem); }
 
 /* Barra inferior */
-.practice-bottombar { position: relative; flex: 0 0 auto; display: flex; align-items: center; gap: 12px; padding: 6px 12px; border-radius: 14px; background: white; box-shadow: var(--shadow); overflow-x: auto; scrollbar-width: none; }
+.practice-bottombar {
+  position: absolute; top: 3px; right: 3px; bottom: 3px; z-index: 72;
+  display: flex; flex-direction: column; align-items: stretch; gap: 12px;
+  width: min(290px, 72vw); padding: 12px; border-radius: 14px;
+  background: white; box-shadow: var(--shadow); overflow-y: auto; scrollbar-width: none;
+  transition: width 170ms ease, padding 170ms ease, background 170ms ease;
+}
 .practice-bottombar::-webkit-scrollbar { display: none; }
 .practice-bottombar .panel-toggle { border-color: #d8dbe5; background: #ececf5; color: var(--ink); }
-.practice-bottombar.is-collapsed {
-  min-height: 30px; gap: 8px; padding: 1px 6px; border-radius: 10px;
+.practice-bottombar > .panel-toggle {
+  position: absolute; top: 50%; left: -14px; transform: translateY(-50%);
 }
-.practice-bottombar.is-collapsed .bottombar-collapsible { display: none !important; }
-.practice-bottombar.is-collapsed .practice-stats.compact { margin: 0 auto; }
-.practice-bottombar.is-collapsed .panel-toggle { width: 24px; height: 24px; font-size: .82rem; }
-.practice-bottombar.is-collapsed .practice-stats.compact { gap: 14px; }
-.practice-bottombar.is-collapsed .practice-stats.compact strong { display: inline; margin-left: 2px; font-size: .75rem; }
-.practice-bottombar.is-collapsed .practice-stats.compact span { display: inline; font-size: .6rem; }
-.loop-controls { display: flex; align-items: center; gap: 8px; }
+.practice-bottombar.is-collapsed {
+  width: 28px; padding: 0; overflow: visible; border-radius: 9px;
+  background: rgba(255,255,255,.22); box-shadow: none;
+}
+.practice-bottombar.is-collapsed > :not(.panel-toggle) { display: none !important; }
+.practice-bottombar.is-collapsed > .panel-toggle { left: -8px; width: 30px; height: 64px; }
+.loop-controls { display: grid; grid-template-columns: 1fr 1fr; align-items: center; gap: 8px; }
 .screen-status { color: var(--success); font-size: .72rem; font-weight: 800; }
-.practice-stats.compact { margin-left: auto; display: flex; align-items: center; gap: 20px; }
+.practice-stats.compact { display: grid; grid-template-columns: 1fr 1fr; align-items: center; gap: 12px; }
 .practice-stats.compact div { text-align: center; }
 .practice-stats.compact span { display: block; color: var(--muted); font-size: .66rem; }
 .practice-stats.compact strong { display: block; font-size: 1.15rem; }
-.bottombar-end { display: flex; align-items: center; gap: 10px; }
+.bottombar-end { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .attempt-timeline { display: none; }
 .limitations { color: var(--muted); font-size: .78rem; }
 .limitations summary { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 999px; background: var(--soft); color: var(--ink); font-weight: 800; cursor: pointer; list-style: none; }
 .limitations[open] { position: relative; }
-.limitations[open] p { position: absolute; right: 14px; bottom: 60px; z-index: 5; width: 300px; margin: 0; padding: 12px 14px; border-radius: 12px; background: var(--ink); color: #e7e9f4; line-height: 1.4; box-shadow: var(--shadow); }
+.limitations[open] p { width: 100%; margin: 8px 0 0; padding: 12px 14px; border-radius: 12px; background: var(--ink); color: #e7e9f4; line-height: 1.4; box-shadow: var(--shadow); }
 
 .convert-overlay { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 6; width: min(440px, calc(100% - 24px)); }
 .convert-overlay > div { display: grid; gap: 6px; justify-items: center; text-align: center; padding: 14px 16px; border-radius: 15px; background: rgba(23,27,47,.92); color: #eef0f6; box-shadow: var(--shadow); backdrop-filter: blur(3px); }
@@ -605,12 +623,11 @@ main { width: min(1160px, calc(100% - 28px)); margin: 0 auto; padding: 28px 0 48
 }
 
 @media (orientation: landscape) and (max-height: 500px) {
-  #practiceView.active { gap: 3px; padding: 3px 4px; }
+  #practiceView.active { padding: 3px; }
   .practice-workspace { grid-template-rows: minmax(0, 1fr) minmax(86px, 22vh); gap: 3px; }
-  .practice-topbar { padding-block: 2px; }
-  .practice-title .eyebrow { display: none; }
+  .practice-topbar:not(.is-collapsed),
+  .practice-bottombar:not(.is-collapsed) { width: min(270px, 72vw); padding: 9px; }
   .piano-keyboard { top: 24px; }
-  .practice-bottombar { padding-block: 2px; }
   .timing-feedback.floating small { display: none; }
 }
 

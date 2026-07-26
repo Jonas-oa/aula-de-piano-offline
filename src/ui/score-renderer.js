@@ -16,6 +16,7 @@ const PLAYHEAD_X = 310;
 const VISIBLE_NOTE_COUNT = 10;
 const SCROLL_DURATION_MS = 280;
 const TRACK_ANIMATIONS = new WeakMap();
+const SCORE_EVENT_GROUPS = new WeakMap();
 
 // Metadados corretivos para transcrições que ainda usam o formato legado.
 // Für Elise está em 3/8: como as durações do catálogo usam a semínima como 1,
@@ -102,6 +103,19 @@ export function isExplicitMeasureBoundary(notes, index) {
   return index === 0 || event.measureIndex !== notes[index - 1]?.measureIndex;
 }
 
+export function scoreIndexesToRefresh(noteCount, previousIndex, currentIndex) {
+  const total = Math.max(0, Number(noteCount) || 0);
+  if (!total) return [];
+  const current = Math.max(0, Math.min(Number(currentIndex) || 0, total));
+  if (!Number.isInteger(previousIndex)) {
+    return Array.from({ length: total }, (_, index) => index);
+  }
+  const previous = Math.max(0, Math.min(previousIndex, total));
+  const first = Math.max(0, Math.min(previous, current) - 1);
+  const last = Math.min(total - 1, Math.max(previous, current));
+  return Array.from({ length: last - first + 1 }, (_, offset) => first + offset);
+}
+
 export function renderScore(container, song, currentIndex = 0, showNames = true, loop = null) {
   const scoreKey = `${song.id}:${showNames ? 1 : 0}`;
   let svg = container.querySelector('svg[data-score-key]');
@@ -120,6 +134,11 @@ export function renderScore(container, song, currentIndex = 0, showNames = true,
 function updateLoopRegion(svg, song, loop) {
   const track = svg.querySelector('.score-track');
   if (!track) return;
+  const loopKey = loop && loop.a != null && loop.b != null
+    ? `${loop.a}:${loop.b}:${loop.count || 0}`
+    : '';
+  if (svg.dataset.loopKey === loopKey) return;
+  svg.dataset.loopKey = loopKey;
   track.querySelector('.score-loop')?.remove();
 
   const noteCount = song.notes?.length || 0;
@@ -351,11 +370,21 @@ function buildScore(song, showNames) {
 function updateScoreState(svg, song, currentIndex) {
   const completedAll = currentIndex >= song.notes.length;
   svg.setAttribute('viewBox', scoreViewBox(song, currentIndex));
-
-  svg.querySelectorAll('.score-event').forEach((group) => {
-    const index = Number(group.dataset.index);
-    const isCurrent = !completedAll && index === currentIndex;
-    const isCompleted = completedAll || index < currentIndex;
+  let groups = SCORE_EVENT_GROUPS.get(svg);
+  if (!groups) {
+    groups = [...svg.querySelectorAll('.score-event')];
+    SCORE_EVENT_GROUPS.set(svg, groups);
+  }
+  const previousIndex = Number.isInteger(Number(svg.dataset.currentIndex))
+    ? Number(svg.dataset.currentIndex)
+    : null;
+  svg.dataset.currentIndex = String(currentIndex);
+  scoreIndexesToRefresh(groups.length, previousIndex, currentIndex).forEach((groupIndex) => {
+    const group = groups[groupIndex];
+    if (!group) return;
+    const eventIndex = Number(group.dataset.index);
+    const isCurrent = !completedAll && eventIndex === currentIndex;
+    const isCompleted = completedAll || eventIndex < currentIndex;
     const color = isCurrent ? '#d7a84b' : isCompleted ? '#177a4b' : '#172033';
     group.style.color = color;
     group.querySelector('.score-current-halo')?.setAttribute('visibility', isCurrent ? 'visible' : 'hidden');

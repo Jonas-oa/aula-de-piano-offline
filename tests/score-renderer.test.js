@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   isExplicitMeasureBoundary,
+  scoreIndexesToRefresh,
   scoreVerticalBounds,
   scoreViewBox,
 } from "../src/ui/score-renderer.js";
@@ -53,4 +54,10 @@ test("linhas de compasso seguem a medida explícita do MusicXML", () => {
   assert.equal(isExplicitMeasureBoundary(notes, 2), true);
   assert.equal(isExplicitMeasureBoundary(notes, 3), false);
   assert.equal(isExplicitMeasureBoundary(notes, 4), true);
+});
+
+test("avanço da pauta atualiza apenas as notas vizinhas em peças longas", () => {
+  assert.deepEqual(scoreIndexesToRefresh(660, null, 0).length, 660);
+  assert.deepEqual(scoreIndexesToRefresh(660, 9, 10), [8, 9, 10]);
+  assert.deepEqual(scoreIndexesToRefresh(660, 10, 11), [9, 10, 11]);
 });

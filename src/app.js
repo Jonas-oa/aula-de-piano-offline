@@ -625,7 +625,7 @@ function reflectPlaybackState(status) {
   byId("startPracticeButton").disabled = status !== "stopped";
 }
 
-const PANEL_PREFS_KEY = "partitura-viva-study-panels";
+const PANEL_PREFS_KEY = "partitura-viva-study-side-panels";
 
 function loadPanelPreferences() {
   try {
@@ -641,19 +641,30 @@ function loadPanelPreferences() {
 
 function setPanelExpanded(panel, expanded, { persist = true } = {}) {
   const top = panel === "top";
+  if (top && !expanded && byId("tempoChip")?.classList.contains("is-expanded")) {
+    setTempoExpanded(false);
+  }
   const bar = byId(top ? "practiceTopbar" : "practiceBottombar");
   const button = byId(top ? "topbarToggleButton" : "bottombarToggleButton");
   const label = expanded
-    ? `Ocultar opções ${top ? "superiores" : "inferiores"}`
-    : `Mostrar opções ${top ? "superiores" : "inferiores"}`;
+    ? `Ocultar ferramentas à ${top ? "esquerda" : "direita"}`
+    : `Mostrar ferramentas à ${top ? "esquerda" : "direita"}`;
 
   bar.classList.toggle("is-collapsed", !expanded);
   button.setAttribute("aria-expanded", String(expanded));
   button.setAttribute("aria-label", label);
   button.title = label;
   button.textContent = top
-    ? (expanded ? "⌃" : "⌄")
-    : (expanded ? "⌄" : "⌃");
+    ? (expanded ? "‹" : "›")
+    : (expanded ? "›" : "‹");
+
+  if (expanded) {
+    const otherPanel = top ? "bottom" : "top";
+    const otherButton = byId(top ? "bottombarToggleButton" : "topbarToggleButton");
+    if (otherButton.getAttribute("aria-expanded") === "true") {
+      setPanelExpanded(otherPanel, false, { persist });
+    }
+  }
 
   if (persist) {
     const preferences = loadPanelPreferences();
@@ -675,6 +686,14 @@ function restorePanelPreferences() {
 function togglePanel(panel) {
   const button = byId(panel === "top" ? "topbarToggleButton" : "bottombarToggleButton");
   setPanelExpanded(panel, button.getAttribute("aria-expanded") !== "true");
+}
+
+function setTempoExpanded(expanded) {
+  const chip = byId("tempoChip");
+  chip.classList.toggle("is-expanded", expanded);
+  chip.setAttribute("aria-expanded", String(expanded));
+  byId("practiceView").classList.toggle("tempo-open", expanded);
+  if (expanded) byId("tempoSlider").focus({ preventScroll: true });
 }
 
 function reflectPracticeMode() {
@@ -754,8 +773,9 @@ async function startTeacherPractice() {
 
   state.practiceActive = true;
   showFollowCursor();
+  armCurrentMicrophoneEvent();
   const micHint = state.inputMode === "microphone"
-    ? "O microfone confere a nota ou o acorde escrito antes de avançar."
+    ? "O microfone já está ouvindo a nota ou o acorde escrito."
     : "Toque a nota certa para avançar. Se errar, o cursor espera.";
   setFeedback("neutral", "SIGA A PARTITURA", "Toque a primeira nota", micHint);
   updateFollowStats();
@@ -833,13 +853,10 @@ function handleOnset(timestamp, midi) {
         handleFollowResult(forceFollowAdvance(state.follow));
         return;
       }
-      pianoRecognition.startAttempt(expected, timestamp);
-      setFeedback(
-        "neutral",
-        "OUVINDO",
-        expected.length > 1 ? "Reconhecendo o acorde" : "Reconhecendo a nota",
-        `Esperado: ${expectedNoteLabel(expected)}`,
-      );
+      pianoRecognition.noteAttack(timestamp);
+      if (!pianoRecognition.isArmedFor(expected)) {
+        pianoRecognition.armExpected(expected, timestamp);
+      }
       return;
     }
     handleFollowOnset(midi);
@@ -894,6 +911,18 @@ function expectedNoteLabel(midis = []) {
 
 function handleFollowOnset(midi) {
   handleFollowResult(registerFollowNote(state.follow, midi));
+}
+
+function armCurrentMicrophoneEvent(timestamp = performance.now()) {
+  if (
+    !state.practiceActive
+    || state.practiceMode !== "teacher"
+    || state.inputMode !== "microphone"
+    || !state.follow
+  ) return;
+  const expected = currentFollowEvent(state.follow)?.midis || [];
+  if (!expected.length) return;
+  pianoRecognition.armExpected(expected, timestamp);
 }
 
 function handlePitchSamples(samples, sampleRate, timestamp) {
@@ -955,6 +984,7 @@ function handleFollowResult(result) {
     state.loop.count += 1;
     seekFollow(state.follow, state.loop.a);
     renderStructured(state.loop.a);
+    armCurrentMicrophoneEvent();
     const target = expectedNoteLabel(currentFollowEvent(state.follow)?.midis);
     setFeedback("on-time", `↻ REPETINDO ${state.loop.count}×`, "Voltando ao A", `Toque: ${target}`);
     updateFollowStats();
@@ -962,6 +992,7 @@ function handleFollowResult(result) {
   }
 
   moveFollowCursorTo(result.index);
+  armCurrentMicrophoneEvent();
   if (result.type === "complete") {
     setFeedback("on-time", "FIM", "Peça concluída", "Muito bem — você seguiu até o fim.");
     updateFollowStats();
@@ -1080,6 +1111,9 @@ function appendAttemptDot(grade) {
 
 function setFeedback(grade, kicker, title, detail) {
   const panel = byId("timingFeedback");
+  const messageKey = `${grade}\u0000${kicker}\u0000${title}\u0000${detail}`;
+  if (panel.dataset.messageKey === messageKey) return;
+  panel.dataset.messageKey = messageKey;
   panel.className = `timing-feedback ${grade}`;
   panel.innerHTML = `<span>${escapeHtml(kicker)}</span><strong>${escapeHtml(title)}</strong><small>${escapeHtml(detail)}</small>`;
 }
@@ -1124,6 +1158,7 @@ function showPracticeResult() {
 }
 
 async function leavePractice() {
+  setTempoExpanded(false);
   playbackEngine.stop({ preserveCursor: true });
   await stopPractice({ showResult: false });
   await wakeLock.setEnabled(false);
@@ -1213,6 +1248,13 @@ byId("startPracticeButton").addEventListener("click", startPractice);
 byId("stopPracticeButton").addEventListener("click", () => stopPractice({ showResult: true }));
 byId("playbackToggleButton").addEventListener("click", togglePlayback);
 byId("playbackStopButton").addEventListener("click", stopPlayback);
+byId("tempoChip").addEventListener("pointerdown", () => setTempoExpanded(true));
+byId("tempoChip").addEventListener("keydown", (event) => {
+  if (event.key === "Enter" || event.key === " ") {
+    event.preventDefault();
+    setTempoExpanded(true);
+  }
+});
 byId("tempoSlider").addEventListener("input", (event) => {
   byId("tempoOutput").value = event.target.value;
   if (playbackEngine.isActive) {
@@ -1228,6 +1270,15 @@ byId("markAButton").addEventListener("click", () => markLoop("a"));
 byId("markBButton").addEventListener("click", () => markLoop("b"));
 byId("clearLoopButton").addEventListener("click", clearLoop);
 byId("loopToggleButton").addEventListener("click", toggleLoop);
+document.addEventListener("pointerdown", (event) => {
+  if (
+    byId("tempoChip").classList.contains("is-expanded")
+    && !byId("tempoChip").contains(event.target)
+  ) setTempoExpanded(false);
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") setTempoExpanded(false);
+});
 reflectLoopButtons();
 restorePanelPreferences();
 document.addEventListener("visibilitychange", () => {
