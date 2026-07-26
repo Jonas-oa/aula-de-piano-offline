@@ -223,7 +223,37 @@ function walkPart(part, partIndex, partCount) {
     };
   }
 
+  inferPickupFromClosingBar(measures);
   return measures;
+}
+
+// Nem todo exportador marca a anacruse com `implicit="yes"` ou com o compasso
+// numerado como 0. Sem marcação, porém, um primeiro compasso curto é ambíguo no
+// arquivo: pode ser anacruse ou um compasso completo cuja pausa final não foi
+// escrita — os dois casos produzem exatamente os mesmos elementos.
+//
+// O desempate vem da gravação musical: quando a peça abre em anacruse, o último
+// compasso é encurtado no mesmo tanto, de modo que os dois juntos fecham uma
+// barra inteira. É um sinal não-local e de alta precisão. Quando ele não
+// aparece, o compasso é deixado inteiro — errar para o lado de não encurtar
+// mantém intacta uma peça bem escrita, enquanto o contrário a desalinharia.
+function inferPickupFromClosingBar(measures) {
+  const first = measures[0];
+  const last = measures.at(-1);
+  if (!first || !last || first === last) return;
+  if (first.implicit || !(first.beatsPerBar > 0)) return;
+  if (first.beatsPerBar !== last.beatsPerBar) return;
+  if (!(first.contentLength > 0) || !(last.contentLength > 0)) return;
+  if (first.contentLength >= first.beatsPerBar - BEAT_EPSILON) return;
+  if (last.contentLength >= last.beatsPerBar - BEAT_EPSILON) return;
+
+  const closes = Math.abs(
+    first.contentLength + last.contentLength - first.beatsPerBar,
+  ) <= BEAT_EPSILON;
+  if (!closes) return;
+
+  first.implicit = true;
+  first.length = first.contentLength;
 }
 
 function readTimeSignature(parts) {

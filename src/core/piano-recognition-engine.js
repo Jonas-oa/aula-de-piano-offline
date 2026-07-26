@@ -268,6 +268,17 @@ export class PianoRecognitionEngine {
     return sameMidis(expected, active);
   }
 
+  // Arma o evento e registra o ataque na ordem correta. `startAttempt` zera
+  // `hasAttack`, então um ataque marcado antes de armar seria descartado pela
+  // tentativa nova e o motor esperaria a batida seguinte para reconhecer a nota
+  // que o aluno acabou de tocar. Manter as duas etapas juntas aqui evita que
+  // cada chamador precise lembrar da ordem.
+  armForAttack(expectedMidis, timestamp = performance.now()) {
+    if (!this.isArmedFor(expectedMidis)) this.armExpected(expectedMidis, timestamp);
+    this.noteAttack();
+    return this.attempt;
+  }
+
   noteAttack() {
     if (!this.attempt) return;
     this.attempt.hasAttack = true;

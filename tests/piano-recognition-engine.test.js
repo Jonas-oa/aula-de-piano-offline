@@ -163,6 +163,35 @@ test("escuta contínua exige ataque novo e contabiliza um erro por ataque", () =
   assert.equal(engine.process(correct, SAMPLE_RATE, 40).outcome, "match");
 });
 
+test("o primeiro ataque depois de armar já vale, sem esperar a batida seguinte", () => {
+  // Caminho real do modo professor quando o cursor foi movido sem rearmar (por
+  // exemplo, arrastando a pauta): o ataque chega junto com o evento esperado.
+  // Se o ataque for registrado antes de armar, `startAttempt` o descarta e o
+  // aluno precisa tocar a nota duas vezes para o cursor andar.
+  const engine = new PianoRecognitionEngine();
+  const correct = pianoSignal([64]);
+
+  engine.armForAttack([64], 0);
+  assert.equal(
+    engine.process(correct, SAMPLE_RATE, 10).outcome,
+    "match",
+    "a nota tocada no mesmo instante do armar precisa ser reconhecida",
+  );
+});
+
+test("armForAttack não descarta o progresso de um evento já armado", () => {
+  // Rearmar o mesmo evento a cada quadro zeraria os quadros estáveis e um
+  // acorde nunca fecharia.
+  const engine = new PianoRecognitionEngine();
+  const chord = [60, 64, 67];
+  const signal = pianoSignal(chord);
+
+  engine.armForAttack(chord, 0);
+  const first = engine.attempt;
+  engine.armForAttack(chord, 5);
+  assert.equal(engine.attempt, first, "o mesmo evento não pode virar tentativa nova");
+});
+
 test("erro de semitom é apontado em vez de virar vazamento", () => {
   // O engano mais comum do aluno: tocar a tecla vizinha da nota escrita.
   const wrongNeighbour = analyzeExpectedChord(

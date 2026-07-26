@@ -142,6 +142,50 @@ test("compassos ficam alinhados quando uma parte é mais curta", () => {
   assert.equal(score.totalBeats, 8);
 });
 
+test("anacruse sem marcação é reconhecida quando o último compasso a complementa", () => {
+  // Exportador que não escreve `implicit="yes"` nem numera o compasso como 0.
+  // A anacruse de 1 tempo e o último compasso de 3 fecham uma barra de 4 — é
+  // esse par que distingue anacruse de compasso com pausa final não escrita.
+  const score = buildScoreEvents({
+    parts: [part([
+      measure([note("G4", 1)], { divisions: 1, beats: 4, beatType: 4 }),
+      measure([note("C5", 4)]),
+      measure([note("D5", 3)]),
+    ])],
+  });
+
+  assert.equal(score.pickupBeats, 1);
+  assert.deepEqual(score.measures.map((item) => item.beat), [0, 1, 5]);
+  assert.deepEqual(score.events.map((event) => event.beat), [0, 1, 5]);
+});
+
+test("primeiro compasso curto sem complemento permanece inteiro", () => {
+  // Sem o fecho no último compasso a leitura é ambígua, e encurtar por engano
+  // desalinharia a peça toda. Na dúvida, o compasso fica como está.
+  const score = buildScoreEvents({
+    parts: [part([
+      measure([note("G4", 1)], { divisions: 1, beats: 4, beatType: 4 }),
+      measure([note("C5", 4)]),
+      measure([note("D5", 4)]),
+    ])],
+  });
+
+  assert.equal(score.pickupBeats, 0);
+  assert.deepEqual(score.measures.map((item) => item.beat), [0, 4, 8]);
+});
+
+test("anacruse marcada com implicit continua valendo sozinha", () => {
+  const score = buildScoreEvents({
+    parts: [part([
+      measure([note("G4", 1)], { divisions: 1, beats: 4, beatType: 4, implicit: true }),
+      measure([note("C5", 4)]),
+    ])],
+  });
+
+  assert.equal(score.pickupBeats, 1);
+  assert.deepEqual(score.measures.map((item) => item.beat), [0, 1]);
+});
+
 test("silêncio final implícito não encurta um compasso completo", () => {
   const score = buildScoreEvents({
     parts: [part([

@@ -1,8 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { deflateRawSync } from "node:zlib";
 
-import { readMusicXmlFile } from "../src/core/musicxml-file.js";
+import { isMusicXmlFilename, readMusicXmlFile } from "../src/core/musicxml-file.js";
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 const SCORE = '<?xml version="1.0"?><score-partwise version="4.0"><part-list/></score-partwise>';
 const CONTAINER = '<?xml version="1.0"?><container><rootfiles><rootfile full-path="scores/main.musicxml"/></rootfiles></container>';
@@ -83,4 +88,46 @@ test("recusa um ZIP que não contém MusicXML", async () => {
     readMusicXmlFile({ name: "invalido.mxl", bytes }),
     /não contém uma partitura/,
   );
+});
+
+test("todo formato que o leitor abre também passa na seleção de arquivos", async () => {
+  // O `.mxl` já era descompactado pelo leitor, mas a tela de importação tinha a
+  // própria expressão regular e o recusava antes de chegar aqui: o suporte
+  // existia e era inalcançável. Amarrar as duas pontas na mesma função impede
+  // que elas voltem a divergir.
+  for (const name of ["peca.musicxml", "peca.MusicXML", "peca.xml", "peca.mxl", "peca.MXL"]) {
+    assert.equal(isMusicXmlFilename(name), true, `${name} deveria ser aceito`);
+  }
+  for (const name of ["peca.pdf", "peca.mid", "peca", "peca.xml.txt", "", null]) {
+    assert.equal(isMusicXmlFilename(name), false, `${name} não deveria ser aceito`);
+  }
+
+  // E o formato aceito na seleção é de fato abrível pelo leitor.
+  const bytes = zip([["partitura.musicxml", SCORE]]);
+  assert.equal(isMusicXmlFilename("peca.mxl"), true);
+  assert.equal(await readMusicXmlFile({ name: "peca.mxl", bytes }), SCORE);
+});
+
+test("a importação não mantém a própria lista de extensões", () => {
+  // Guarda contra a reincidência: qualquer regex de extensão solta em app.js
+  // é uma segunda fonte de verdade esperando para sair de sincronia com o
+  // leitor e com o `accept` do formulário.
+  const app = fs.readFileSync(path.join(root, "src/app.js"), "utf8");
+  assert.doesNotMatch(
+    app,
+    /\/\\\.\([^)]*(?:xml|mxl|pdf)[^)]*\)\$?\/[a-z]*/i,
+    "use isMusicXmlFilename em vez de uma expressão regular local",
+  );
+  assert.match(app, /isMusicXmlFilename/);
+
+  // O `accept` do formulário precisa cobrir os mesmos formatos.
+  const html = fs.readFileSync(path.join(root, "index.html"), "utf8");
+  const accept = html.match(/accept="([^"]*)"/)?.[1] || "";
+  for (const extension of [".xml", ".musicxml", ".mxl"]) {
+    assert.ok(
+      accept.split(",").includes(extension),
+      `o formulário precisa oferecer ${extension}`,
+    );
+    assert.equal(isMusicXmlFilename(`peca${extension}`), true);
+  }
 });

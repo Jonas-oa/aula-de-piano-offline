@@ -2,6 +2,17 @@ const MXL_TYPE = "application/vnd.recordare.musicxml";
 const MAX_MUSICXML_BYTES = 20 * 1024 * 1024;
 const UTF8 = new TextDecoder("utf-8");
 
+// Extensões aceitas na importação. Fica ao lado do leitor de propósito: este é
+// o módulo que sabe abrir cada formato, então quem decide o que entra é ele.
+// A tela de importação e o formulário compartilham esta função — quando as duas
+// mantinham a própria expressão regular, o `.mxl` passou a ser aceito em uma e
+// recusado na outra.
+const MUSICXML_EXTENSIONS = /\.(xml|musicxml|mxl)$/i;
+
+export function isMusicXmlFilename(name) {
+  return MUSICXML_EXTENSIONS.test(String(name || ""));
+}
+
 function asBytes(source) {
   if (source instanceof Uint8Array) return Promise.resolve(source);
   if (source instanceof ArrayBuffer) return Promise.resolve(new Uint8Array(source));

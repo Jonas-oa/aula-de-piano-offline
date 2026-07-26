@@ -7,7 +7,7 @@ import {
 } from "./core/library-store.js";
 import { beatsPerBarFromSignature, midiToPortuguese, noteToMidi } from "./core/music.js";
 import { parseMusicXml } from "./core/musicxml.js";
-import { readMusicXmlFile } from "./core/musicxml-file.js";
+import { isMusicXmlFilename, readMusicXmlFile } from "./core/musicxml-file.js";
 import { musicXmlBlob, musicXmlFilename } from "./core/musicxml-export.js";
 import { MidiInput, OnsetEngine } from "./core/onset-engine.js";
 import { PianoPlaybackEngine } from "./core/piano-playback-engine.js";
@@ -269,13 +269,11 @@ function renderSelectedFiles() {
 }
 
 function acceptFiles(files) {
-  const accepted = [...files].filter((file) =>
-    /\.(xml|musicxml)$/i.test(file.name),
-  );
+  const accepted = [...files].filter((file) => isMusicXmlFilename(file.name));
   state.selectedFiles = accepted.slice(0, 1);
   renderSelectedFiles();
   if (!accepted.length && files.length) {
-    toast("Nesta versão, selecione um arquivo XML ou MusicXML.");
+    toast("Nesta versão, selecione um arquivo MusicXML (.musicxml, .mxl ou .xml).");
   } else if (accepted.length > 1) {
     toast("Selecione uma partitura por vez.");
   }
@@ -283,9 +281,9 @@ function acceptFiles(files) {
 
 async function importPiece(event) {
   event.preventDefault();
-  const xmlFile = state.selectedFiles.find((file) => /\.(xml|musicxml|mxl)$/i.test(file.name));
+  const xmlFile = state.selectedFiles.find((file) => isMusicXmlFilename(file.name));
   if (!xmlFile) {
-    toast("Escolha um arquivo XML ou MusicXML.");
+    toast("Escolha um arquivo MusicXML (.musicxml, .mxl ou .xml).");
     return;
   }
 
@@ -1106,10 +1104,7 @@ function handleOnset(timestamp, midi) {
         handleFollowResult(forceFollowAdvance(state.follow));
         return;
       }
-      pianoRecognition.noteAttack();
-      if (!pianoRecognition.isArmedFor(expected)) {
-        pianoRecognition.armExpected(expected, timestamp);
-      }
+      pianoRecognition.armForAttack(expected, timestamp);
       return;
     }
     handleFollowOnset(midi);
