@@ -24,20 +24,24 @@ test("shell offline inclui leitores, biblioteca e avaliador rítmico", () => {
   ]) {
     assert.match(worker, new RegExp(asset.replaceAll(".", "\\.")));
   }
-  assert.match(worker, /partitura-viva-v1-113/);
+  assert.match(worker, /partitura-viva-v1-114/);
 });
 
-test("interface é centrada em repertório, importação e partitura", () => {
+test("interface é centrada em repertório, MusicXML e partitura", () => {
   const html = fs.readFileSync(path.join(root, "index.html"), "utf8");
   assert.match(html, /id="libraryView"/);
   assert.match(html, /id="importView"/);
   assert.match(html, /id="practiceView"/);
-  assert.match(html, /accept="[^"]*\.pdf/);
+  assert.match(html, /accept="[^"]*\.musicxml/);
+  assert.doesNotMatch(html, /accept="[^"]*\.pdf/);
   assert.match(html, /MusicXML/);
-  assert.match(html, /id="downloadMusicXmlButton"/);
+  assert.match(html, /id="rhythmPanel"/);
+  assert.doesNotMatch(html, /<details id="rhythmPanel"[^>]*\sopen(?:\s|>)/);
   assert.match(html, /id="topbarToggleButton"/);
   assert.match(html, /id="bottombarToggleButton"/);
   assert.match(html, /id="pianoKeyboard"/);
+  assert.equal((html.match(/data-view-target="importView"/g) || []).length, 1);
+  assert.equal((html.match(/Adicionar partitura/g) || []).length, 1);
   assert.doesNotMatch(html, /Catálogo/);
 });
 
