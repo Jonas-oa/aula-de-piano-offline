@@ -7,6 +7,8 @@ Aplicativo web offline para estudar peças completas com a partitura aberta e re
 - repertório formado por arquivos importados pelo próprio aluno;
 - importação de MusicXML para fornecer ataques, pausas e alturas estruturadas;
 - compatibilidade de leitura com PDFs salvos em versões anteriores;
+- leitura de partituras de piano com as duas mãos, seja em uma parte com dois
+  staves, seja em duas partes separadas, com ligaduras de valor e dedilhado;
 - reconhecimento de notas e acordes pelo microfone no modo professor com MusicXML;
 - audição de partituras MusicXML com piano acústico, cursor sincronizado, andamento
   ajustável e seleção de trecho A–B com repetição opcional, diretamente dentro
@@ -28,6 +30,17 @@ Com MusicXML, o motor acústico usa o evento esperado para reconhecer notas
 avulsas e acordes, incluindo notas ausentes e extras. Em PDF puro, onde as
 alturas não são conhecidas, o microfone continua avaliando somente os ataques
 rítmicos. MIDI permanece a opção de maior precisão em ambientes ruidosos.
+
+Dois limites do microfone valem ser conhecidos, porque vêm da física e não de
+uma escolha do aplicativo:
+
+- **no grave, notas vizinhas não se separam.** Em torno de Dó2 dois semitons
+  distam menos que a resolução do quadro de análise, então o motor confere se a
+  nota esperada está presente, mas não acusa nota extra abaixo de mais ou menos
+  Ré3 — acusar ali seria inventar erro;
+- **uma nota dobrada na oitava pode passar despercebida.** Se a partitura pede
+  Sol4 e Sol5 juntos, o harmônico natural do Sol4 já ocupa a região do Sol5, e
+  a falta do agudo não é detectável. Nesses trechos, o MIDI dá a resposta certa.
 
 Na opção **TOCAR**, o app sintetiza a execução com 30 amostras reais do
 Salamander Grand Piano e transpõe apenas as notas intermediárias. As amostras

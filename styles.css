@@ -7,12 +7,15 @@
   --soft: #f2f5f7;
   --line: #dfe5e8;
   --primary: #58cc02;
-  --primary-dark: #46a302;
+  /* Verde de texto e de estados. Escurecido para passar de 3:1 para acima de
+     4,5:1 sobre os fundos claros do app — o tom anterior reprovava no contraste
+     mínimo de texto pequeno, e os rótulos de status são todos pequenos. */
+  --primary-dark: #357a00;
   --primary-shadow: #3b8f00;
   --accent: #ffc800;
   --blue: #1cb0f6;
   --blue-dark: #168ac0;
-  --success: #46a302;
+  --success: #357a00;
   --warning: #cf7b00;
   --danger: #d33131;
   --shadow: 0 9px 0 rgba(39, 61, 80, .07), 0 18px 40px rgba(39, 61, 80, .08);
