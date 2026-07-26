@@ -24,7 +24,7 @@ test("shell offline inclui leitores, biblioteca e avaliador rítmico", () => {
   ]) {
     assert.match(worker, new RegExp(asset.replaceAll(".", "\\.")));
   }
-  assert.match(worker, /partitura-viva-v1-112/);
+  assert.match(worker, /partitura-viva-v1-113/);
 });
 
 test("interface é centrada em repertório, importação e partitura", () => {
@@ -39,4 +39,11 @@ test("interface é centrada em repertório, importação e partitura", () => {
   assert.match(html, /id="bottombarToggleButton"/);
   assert.match(html, /id="pianoKeyboard"/);
   assert.doesNotMatch(html, /Catálogo/);
+});
+
+test("modo de estudo amplia a pauta e mantém barras recolhidas finas", () => {
+  const css = fs.readFileSync(path.join(root, "styles.css"), "utf8");
+  assert.match(css, /\.document-stage svg\[data-score-key\]\s*\{[^}]*scale\(1\.68\)/s);
+  assert.match(css, /\.practice-topbar\.is-collapsed\s*\{[^}]*min-height:\s*36px/s);
+  assert.match(css, /\.practice-bottombar\.is-collapsed\s*\{[^}]*min-height:\s*30px/s);
 });
