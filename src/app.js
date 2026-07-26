@@ -7,6 +7,7 @@ import {
 } from "./core/library-store.js";
 import { midiToPortuguese } from "./core/music.js";
 import { parseMusicXml } from "./core/musicxml.js";
+import { musicXmlBlob, musicXmlFilename } from "./core/musicxml-export.js";
 import { renderPdfToImages, transcribeMusicXml } from "./core/omr-vision.js";
 import { convertViaService } from "./core/omr-service.js";
 import { MidiInput, OnsetEngine } from "./core/onset-engine.js";
@@ -175,9 +176,13 @@ function renderLibrary() {
         <span class="tag">${piece.bpm} bpm</span>
         <span class="tag">${escapeHtml(piece.timeSignature)}</span>
       </div>
-      <button class="primary-button">Abrir partitura</button>
+      <div class="card-actions">
+        <button class="primary-button open-piece-button">Abrir partitura</button>
+        <button class="ghost-button download-musicxml-button" type="button">↓ Baixar MusicXML</button>
+      </div>
     `;
-    card.querySelector(".primary-button").addEventListener("click", () => openPractice(piece));
+    card.querySelector(".open-piece-button").addEventListener("click", () => openPractice(piece));
+    card.querySelector(".download-musicxml-button").addEventListener("click", () => downloadPieceMusicXml(piece));
     card.querySelector(".card-menu").addEventListener("click", async () => {
       if (!window.confirm(`Excluir “${piece.title}” deste aparelho?`)) return;
       await deletePiece(piece.id);
@@ -304,6 +309,26 @@ function xmlStringToAsset(name, xml) {
   };
 }
 
+function downloadPieceMusicXml(piece = state.currentItem) {
+  if (!piece?.musicXmlAsset) {
+    toast("Esta peça ainda não tem MusicXML. Converta o PDF em notas primeiro.");
+    return;
+  }
+  const filename = musicXmlFilename({
+    assetName: piece.musicXmlAsset.name,
+    title: piece.title,
+  });
+  const url = URL.createObjectURL(musicXmlBlob(piece.musicXmlAsset));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  toast(`MusicXML salvo como “${filename}”.`);
+}
+
 function setOmrStatus(message) {
   const element = byId("omrStatus");
   if (element) element.textContent = message || "";
@@ -343,13 +368,36 @@ function saveOmrService(value) {
   }
 }
 
+function loadOmrServiceKey() {
+  try {
+    return localStorage.getItem("partitura-viva-omr-service-key") || "";
+  } catch {
+    return "";
+  }
+}
+
+function saveOmrServiceKey(value) {
+  try {
+    if (value) localStorage.setItem("partitura-viva-omr-service-key", value);
+    else localStorage.removeItem("partitura-viva-omr-service-key");
+  } catch {
+    // A chave fica somente na sessão quando o armazenamento está indisponível.
+  }
+}
+
 // Escolhe o motor de conversão: serviço Audiveris (preferido, se configurado)
 // ou o modelo de visão (traga sua chave). Devolve { xml, warnings }.
 async function runOmr({ pdfAsset, title = "", composer = "", onProgress = () => {} }) {
   const serviceUrl = loadOmrService();
   if (serviceUrl) {
     const bytes = pdfAsset.bytes instanceof ArrayBuffer ? pdfAsset.bytes : pdfAsset.bytes?.buffer || pdfAsset.bytes;
-    return convertViaService({ baseUrl: serviceUrl, pdfBytes: bytes, filename: pdfAsset.name || `${title || "partitura"}.pdf`, onProgress });
+    return convertViaService({
+      baseUrl: serviceUrl,
+      accessKey: loadOmrServiceKey(),
+      pdfBytes: bytes,
+      filename: pdfAsset.name || `${title || "partitura"}.pdf`,
+      onProgress,
+    });
   }
   let apiKey = loadOmrApiKey();
   if (!apiKey) {
@@ -378,6 +426,7 @@ async function convertPdfToMusicXml() {
     return;
   }
   saveOmrService(byId("omrService").value.trim());
+  saveOmrServiceKey(byId("omrServiceKey").value.trim());
   saveOmrApiKey(byId("omrApiKey").value.trim());
   if (!loadOmrService() && !loadOmrApiKey()) {
     toast("Informe a URL do serviço Audiveris ou a chave da API.");
@@ -589,6 +638,7 @@ function applyPieceControls() {
   byId("zoomOutButton").hidden = structured;    // zoom só no PDF
   byId("zoomInButton").hidden = structured;
   byId("convertOverlay").hidden = !canConvert;  // converter em notas só em PDF sem MusicXML
+  byId("downloadMusicXmlButton").hidden = !state.currentItem?.musicXmlAsset;
   setConvertStatus("");
 }
 
@@ -1144,6 +1194,8 @@ byId("omrApiKey").value = loadOmrApiKey();
 byId("omrApiKey").addEventListener("change", (event) => saveOmrApiKey(event.target.value.trim()));
 byId("omrService").value = loadOmrService();
 byId("omrService").addEventListener("change", (event) => saveOmrService(event.target.value.trim()));
+byId("omrServiceKey").value = loadOmrServiceKey();
+byId("omrServiceKey").addEventListener("change", (event) => saveOmrServiceKey(event.target.value.trim()));
 byId("omrConvertButton").addEventListener("click", convertPdfToMusicXml);
 byId("dropZone").addEventListener("dragover", (event) => {
   event.preventDefault();
@@ -1170,6 +1222,7 @@ byId("nextPageButton").addEventListener("click", () => (state.currentScore ? ste
 byId("zoomOutButton").addEventListener("click", () => viewer.zoomBy(-0.12));
 byId("zoomInButton").addEventListener("click", () => viewer.zoomBy(0.12));
 byId("convertPieceButton").addEventListener("click", convertCurrentPiece);
+byId("downloadMusicXmlButton").addEventListener("click", () => downloadPieceMusicXml());
 byId("markAButton").addEventListener("click", () => markLoop("a"));
 byId("markBButton").addEventListener("click", () => markLoop("b"));
 byId("clearLoopButton").addEventListener("click", clearLoop);
