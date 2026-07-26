@@ -2,7 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  bassClefGeometry,
   isExplicitMeasureBoundary,
+  scoreIndexForDrag,
   scoreIndexesToRefresh,
   scoreVerticalBounds,
   scoreViewBox,
@@ -60,4 +62,24 @@ test("avanço da pauta atualiza apenas as notas vizinhas em peças longas", () =
   assert.deepEqual(scoreIndexesToRefresh(660, null, 0).length, 660);
   assert.deepEqual(scoreIndexesToRefresh(660, 9, 10), [8, 9, 10]);
   assert.deepEqual(scoreIndexesToRefresh(660, 10, 11), [9, 10, 11]);
+});
+
+test("clave de Fá referencia a quarta linha da pauta, entre os dois pontos", () => {
+  const geometry = bassClefGeometry();
+  const fourthLineFromBottom = geometry.staffLines.at(-4);
+
+  assert.equal(geometry.fLineY, fourthLineFromBottom);
+  assert.equal(
+    (geometry.dotYs[0] + geometry.dotYs[1]) / 2,
+    geometry.fLineY,
+  );
+  assert.ok(geometry.dotYs[0] < geometry.fLineY);
+  assert.ok(geometry.dotYs[1] > geometry.fLineY);
+});
+
+test("arrastar a pauta converte o deslocamento em avanço e retorno de notas", () => {
+  assert.equal(scoreIndexForDrag(10, -88, 850, 660), 11);
+  assert.equal(scoreIndexForDrag(10, 88, 850, 660), 9);
+  assert.equal(scoreIndexForDrag(0, 880, 850, 660), 0);
+  assert.equal(scoreIndexForDrag(659, -880, 850, 660), 659);
 });

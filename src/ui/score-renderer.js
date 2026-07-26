@@ -17,6 +17,7 @@ const VISIBLE_NOTE_COUNT = 10;
 const SCROLL_DURATION_MS = 280;
 const TRACK_ANIMATIONS = new WeakMap();
 const SCORE_EVENT_GROUPS = new WeakMap();
+const STAFF_LINE_SPACING = 12;
 
 // Metadados corretivos para transcrições que ainda usam o formato legado.
 // Für Elise está em 3/8: como as durações do catálogo usam a semínima como 1,
@@ -116,7 +117,57 @@ export function scoreIndexesToRefresh(noteCount, previousIndex, currentIndex) {
   return Array.from({ length: last - first + 1 }, (_, offset) => first + offset);
 }
 
-export function renderScore(container, song, currentIndex = 0, showNames = true, loop = null) {
+export function bassClefGeometry() {
+  const staffLines = Array.from(
+    { length: 5 },
+    (_, index) => BASS_TOP + index * STAFF_LINE_SPACING,
+  );
+  const fLineY = staffLines[1]; // quarta linha contando de baixo para cima
+  return {
+    staffLines,
+    fLineY,
+    dotYs: [fLineY - STAFF_LINE_SPACING / 2, fLineY + STAFF_LINE_SPACING / 2],
+  };
+}
+
+export function scoreIndexForDrag(startIndex, deltaClientX, svgWidth, noteCount) {
+  const total = Math.max(0, Number(noteCount) || 0);
+  if (!total) return 0;
+  const width = Math.max(1, Number(svgWidth) || 1);
+  const scoreUnitsPerPixel = SCORE_VIEW_WIDTH / width;
+  const movedNotes = Math.round(
+    (Number(deltaClientX) || 0) * scoreUnitsPerPixel / NOTE_SPACING,
+  );
+  return Math.max(0, Math.min(total - 1, Number(startIndex) - movedNotes));
+}
+
+export function scoreIndexAtClientX(svg, song, clientX) {
+  const noteCount = song?.notes?.length || 0;
+  if (!svg || !noteCount) return 0;
+  let localX;
+  try {
+    const point = svg.createSVGPoint();
+    point.x = clientX;
+    point.y = 0;
+    localX = point.matrixTransform(svg.getScreenCTM().inverse()).x;
+  } catch {
+    const rect = svg.getBoundingClientRect();
+    localX = SCORE_VIEW_X
+      + ((clientX - rect.left) / Math.max(1, rect.width)) * SCORE_VIEW_WIDTH;
+  }
+  const translateX = Number(svg.querySelector('.score-track')?.dataset.translateX || 0);
+  const index = Math.round((localX - translateX - NOTE_START_X) / NOTE_SPACING);
+  return Math.max(0, Math.min(noteCount - 1, index));
+}
+
+export function renderScore(
+  container,
+  song,
+  currentIndex = 0,
+  showNames = true,
+  loop = null,
+  { immediate = false } = {},
+) {
   const scoreKey = `${song.id}:${showNames ? 1 : 0}`;
   let svg = container.querySelector('svg[data-score-key]');
 
@@ -127,7 +178,7 @@ export function renderScore(container, song, currentIndex = 0, showNames = true,
   }
 
   updateLoopRegion(svg, song, loop);
-  updateScoreState(svg, song, currentIndex);
+  updateScoreState(svg, song, currentIndex, { immediate });
 }
 
 // Faixa de repetição A–B, desenhada dentro do track para rolar junto das notas.
@@ -157,11 +208,22 @@ function updateLoopRegion(svg, song, loop) {
     fill: 'rgba(215,168,75,0.15)',
   }));
   [[xA, 'A'], [xB, 'B']].forEach(([x, label]) => {
-    group.append(create('line', { x1: x, y1: 54, x2: x, y2: bottom, stroke: '#d7a84b', 'stroke-width': 3 }));
-    group.append(create('rect', { x: x - 15, y: 40, width: 30, height: 22, rx: 6, fill: '#d7a84b' }));
-    group.append(create('text', {
+    const handle = create('g', {
+      class: 'score-loop-handle',
+      'data-loop-point': label.toLowerCase(),
+      role: 'button',
+      'aria-label': `Mover ponto ${label}`,
+    });
+    handle.append(create('rect', {
+      x: x - 25, y: 30, width: 50, height: bottom - 24, rx: 12,
+      fill: 'transparent',
+    }));
+    handle.append(create('line', { x1: x, y1: 54, x2: x, y2: bottom, stroke: '#d7a84b', 'stroke-width': 3 }));
+    handle.append(create('rect', { x: x - 15, y: 40, width: 30, height: 22, rx: 6, fill: '#d7a84b' }));
+    handle.append(create('text', {
       x, y: 56, 'text-anchor': 'middle', 'font-size': 14, 'font-weight': 800, fill: '#1a1400',
     }, label));
+    group.append(handle);
   });
   if (loop.count) {
     const mid = (xA + xB) / 2;
@@ -210,13 +272,7 @@ function buildScore(song, showNames) {
 
   if (hasBass) {
     drawStaff(svg, 55, BASS_TOP, 820);
-    svg.append(create('text', {
-      x: 66,
-      y: 238,
-      'font-size': 46,
-      'font-family': 'serif',
-      fill: '#172033',
-    }, '𝄢'));
+    drawBassClef(svg, 68);
     svg.append(create('line', {
       x1: 55,
       y1: TREBLE_TOP,
@@ -367,7 +423,7 @@ function buildScore(song, showNames) {
   return svg;
 }
 
-function updateScoreState(svg, song, currentIndex) {
+function updateScoreState(svg, song, currentIndex, { immediate = false } = {}) {
   const completedAll = currentIndex >= song.notes.length;
   svg.setAttribute('viewBox', scoreViewBox(song, currentIndex));
   let groups = SCORE_EVENT_GROUPS.get(svg);
@@ -395,7 +451,15 @@ function updateScoreState(svg, song, currentIndex) {
 
   const track = svg.querySelector('.score-track');
   if (!track) return;
-  animateTrackTo(track, scoreTranslateXForIndex(song, currentIndex));
+  const targetX = scoreTranslateXForIndex(song, currentIndex);
+  if (immediate) {
+    const activeFrame = TRACK_ANIMATIONS.get(track);
+    if (activeFrame && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(activeFrame);
+    TRACK_ANIMATIONS.delete(track);
+    setTrackTranslate(track, targetX);
+  } else {
+    animateTrackTo(track, targetX);
+  }
 }
 
 function animateTrackTo(track, targetX) {
@@ -523,6 +587,44 @@ function drawStaff(svg, x, y, width) {
   }
   svg.append(create('line', { x1: x, y1: y, x2: x, y2: y + 48, stroke: '#172033', 'stroke-width': 2 }));
   svg.append(create('line', { x1: x + width, y1: y, x2: x + width, y2: y + 48, stroke: '#172033', 'stroke-width': 2 }));
+}
+
+function drawBassClef(svg, x) {
+  const { fLineY, dotYs } = bassClefGeometry();
+  const group = create('g', {
+    class: 'bass-clef',
+    'data-f-line-y': fLineY,
+    fill: 'none',
+    stroke: '#172033',
+    'stroke-linecap': 'round',
+    'stroke-linejoin': 'round',
+  });
+  group.append(create('ellipse', {
+    cx: x + 4,
+    cy: fLineY,
+    rx: 7,
+    ry: 6,
+    fill: '#172033',
+    stroke: 'none',
+  }));
+  group.append(create('path', {
+    d: `M ${x + 5} ${fLineY - 6}
+        C ${x + 28} ${fLineY - 22}, ${x + 42} ${fLineY - 7}, ${x + 34} ${fLineY + 11}
+        C ${x + 29} ${fLineY + 23}, ${x + 18} ${fLineY + 31}, ${x - 2} ${fLineY + 39}
+        C ${x + 13} ${fLineY + 27}, ${x + 23} ${fLineY + 15}, ${x + 25} ${fLineY + 4}
+        C ${x + 27} ${fLineY - 5}, ${x + 18} ${fLineY - 12}, ${x + 5} ${fLineY - 6}`,
+    'stroke-width': 4.8,
+  }));
+  dotYs.forEach((cy) => {
+    group.append(create('circle', {
+      cx: x + 47,
+      cy,
+      r: 3.4,
+      fill: '#172033',
+      stroke: 'none',
+    }));
+  });
+  svg.append(group);
 }
 
 function drawAccidental(parent, pitch, x, y) {

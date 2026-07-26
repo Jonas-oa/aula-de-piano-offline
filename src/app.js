@@ -30,7 +30,11 @@ import {
 } from "./core/timing-evaluator.js";
 import { DocumentViewer } from "./ui/document-viewer.js";
 import { PianoKeyboard } from "./ui/piano-keyboard.js";
-import { renderScore } from "./ui/score-renderer.js";
+import {
+  renderScore,
+  scoreIndexAtClientX,
+  scoreIndexForDrag,
+} from "./ui/score-renderer.js";
 
 const byId = (id) => document.getElementById(id);
 const state = {
@@ -375,13 +379,21 @@ function activeLoop() {
   return { a: state.loop.a, b: state.loop.b, count: state.loop.count };
 }
 
-function renderStructured(index, { fresh = false } = {}) {
+function renderStructured(index, { fresh = false, immediate = false } = {}) {
   if (!state.currentScore) return;
   state.viewIndex = index;
   if (fresh) {
-    viewer.showRhythm((container) => renderScore(container, state.currentScore, index, false, activeLoop()));
+    viewer.showRhythm((container) =>
+      renderScore(container, state.currentScore, index, false, activeLoop(), { immediate }));
   } else {
-    renderScore(byId("documentStage"), state.currentScore, index, false, activeLoop());
+    renderScore(
+      byId("documentStage"),
+      state.currentScore,
+      index,
+      false,
+      activeLoop(),
+      { immediate },
+    );
   }
   syncPianoKeyboard();
   if (!state.practiceActive && !state.countInActive) setStructuredPageLabel();
@@ -442,6 +454,152 @@ function refreshLoop() {
   if (state.currentScore) renderStructured(state.viewIndex);
 }
 
+const SCORE_LONG_PRESS_MS = 430;
+const SCORE_DRAG_THRESHOLD_PX = 10;
+let scoreGesture = null;
+
+function currentScoreSvg() {
+  return byId("documentStage").querySelector("svg[data-score-key]");
+}
+
+function setLoopFromGesture(anchor, focus) {
+  const total = state.currentScore?.notes?.length || 0;
+  if (!total) return;
+  const safeAnchor = Math.max(0, Math.min(total - 1, anchor));
+  const safeFocus = Math.max(0, Math.min(total - 1, focus));
+  state.loop.a = Math.min(safeAnchor, safeFocus);
+  state.loop.b = Math.max(safeAnchor, safeFocus);
+  state.loop.count = 0;
+  refreshLoop();
+}
+
+function updateLoopHandle(point, index) {
+  if (point === "a") {
+    state.loop.a = Math.min(index, state.loop.b ?? index);
+  } else {
+    state.loop.b = Math.max(index, state.loop.a ?? index);
+  }
+  state.loop.count = 0;
+  refreshLoop();
+}
+
+function beginScoreGesture(event) {
+  const svg = event.target.closest?.("svg[data-score-key]");
+  if (!svg || !state.currentScore || event.button !== 0) return;
+
+  if (state.practiceActive || state.countInActive) {
+    void stopPractice({ showResult: false });
+  }
+  if (playbackEngine.isActive) playbackEngine.stop({ preserveCursor: true });
+
+  const stage = byId("documentStage");
+  stage.setPointerCapture?.(event.pointerId);
+  const handle = event.target.closest?.("[data-loop-point]");
+  scoreGesture = {
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startIndex: state.viewIndex,
+    anchorIndex: scoreIndexAtClientX(svg, state.currentScore, event.clientX),
+    svgWidth: svg.getBoundingClientRect().width,
+    mode: handle ? "loop-handle" : "pending",
+    point: handle?.dataset.loopPoint || null,
+    lastIndex: null,
+    timer: null,
+  };
+
+  if (handle) {
+    stage.classList.add("is-selecting-loop");
+    event.preventDefault();
+    return;
+  }
+
+  scoreGesture.timer = window.setTimeout(() => {
+    if (!scoreGesture || scoreGesture.mode !== "pending") return;
+    scoreGesture.mode = "loop-range";
+    stage.classList.add("is-selecting-loop");
+    setLoopFromGesture(scoreGesture.anchorIndex, scoreGesture.anchorIndex);
+    byId("scoreGestureHint").textContent = "Arraste e solte para definir o trecho A–B";
+    navigator.vibrate?.(25);
+  }, SCORE_LONG_PRESS_MS);
+}
+
+function moveScoreGesture(event) {
+  const gesture = scoreGesture;
+  if (!gesture || event.pointerId !== gesture.pointerId) return;
+  const svg = currentScoreSvg();
+  if (!svg) return;
+  const stage = byId("documentStage");
+  const deltaX = event.clientX - gesture.startX;
+
+  if (
+    gesture.mode === "pending"
+    && Math.abs(deltaX) >= SCORE_DRAG_THRESHOLD_PX
+  ) {
+    window.clearTimeout(gesture.timer);
+    gesture.mode = "score-pan";
+    stage.classList.add("is-dragging-score");
+  }
+
+  if (gesture.mode === "score-pan") {
+    const index = scoreIndexForDrag(
+      gesture.startIndex,
+      deltaX,
+      gesture.svgWidth,
+      state.currentScore.notes.length,
+    );
+    if (index !== gesture.lastIndex) {
+      gesture.lastIndex = index;
+      renderStructured(index, { immediate: true });
+    }
+    event.preventDefault();
+    return;
+  }
+
+  if (gesture.mode === "loop-range") {
+    const index = scoreIndexAtClientX(svg, state.currentScore, event.clientX);
+    if (index !== gesture.lastIndex) {
+      gesture.lastIndex = index;
+      setLoopFromGesture(gesture.anchorIndex, index);
+    }
+    event.preventDefault();
+    return;
+  }
+
+  if (gesture.mode === "loop-handle") {
+    const index = scoreIndexAtClientX(svg, state.currentScore, event.clientX);
+    if (index !== gesture.lastIndex) {
+      gesture.lastIndex = index;
+      updateLoopHandle(gesture.point, index);
+    }
+    event.preventDefault();
+  }
+}
+
+function endScoreGesture(event, { cancelled = false } = {}) {
+  const gesture = scoreGesture;
+  if (!gesture || event.pointerId !== gesture.pointerId) return;
+  window.clearTimeout(gesture.timer);
+  const stage = byId("documentStage");
+  stage.classList.remove("is-dragging-score", "is-selecting-loop");
+  stage.releasePointerCapture?.(gesture.pointerId);
+  byId("scoreGestureHint").textContent = "Arraste a pauta · segure para marcar A–B";
+
+  if (!cancelled && gesture.mode === "pending") {
+    const svg = currentScoreSvg();
+    if (svg) {
+      renderStructured(
+        scoreIndexAtClientX(svg, state.currentScore, event.clientX),
+        { immediate: true },
+      );
+    }
+  }
+  if (!cancelled && (gesture.mode === "loop-range" || gesture.mode === "loop-handle")) {
+    reflectLoopButtons();
+    toast(`Trecho A–B: notas ${(state.loop.a ?? 0) + 1} a ${(state.loop.b ?? 0) + 1}.`);
+  }
+  scoreGesture = null;
+}
+
 function markLoop(point) {
   if (!state.currentScore) {
     toast("Disponível na partitura estruturada (MusicXML ou exercício).");
@@ -479,7 +637,49 @@ function toggleLoop() {
   toast(state.loop.active ? "Repetição A–B ligada." : "Repetição A–B desligada.");
 }
 
+function lockPracticeOrientation() {
+  try {
+    const lock = screen.orientation?.lock?.("landscape");
+    lock?.catch?.(() => {});
+  } catch {
+    // O bloqueio de orientação depende do navegador e do modo de instalação.
+  }
+}
+
+function enterPracticeFullscreen() {
+  if (document.fullscreenElement || document.webkitFullscreenElement) {
+    lockPracticeOrientation();
+    return;
+  }
+  const root = document.documentElement;
+  const request = root.requestFullscreen || root.webkitRequestFullscreen;
+  if (!request) return;
+  try {
+    const result = request.call(root, { navigationUI: "hide" });
+    Promise.resolve(result).then(lockPracticeOrientation).catch(() => {});
+  } catch {
+    // A tela continua utilizável quando o navegador não oferece tela cheia.
+  }
+}
+
+async function leavePracticeFullscreen() {
+  try {
+    screen.orientation?.unlock?.();
+  } catch {
+    // Alguns navegadores não expõem o desbloqueio de orientação.
+  }
+  const exit = document.exitFullscreen || document.webkitExitFullscreen;
+  if ((document.fullscreenElement || document.webkitFullscreenElement) && exit) {
+    try {
+      await exit.call(document);
+    } catch {
+      // O sistema também permite sair da tela cheia pelos próprios gestos.
+    }
+  }
+}
+
 async function openPractice(item) {
+  enterPracticeFullscreen();
   await stopPractice({ showResult: false });
   playbackEngine.stop({ preserveCursor: true });
   state.currentItem = item;
@@ -558,12 +758,18 @@ function applyPracticeModeAvailability() {
 // que a barra transborde e polua a tela.
 function applyPieceControls() {
   const structured = Boolean(state.currentScore);
+  const playable = Boolean(state.currentEvents?.length);
   byId("loopControls").hidden = !structured;   // laço A–B só na partitura estruturada
   byId("modeToggle").hidden = !structured;
-  byId("playbackControls").hidden = !structured || !state.currentItem?.musicXmlAsset;
+  byId("scoreGestureHint").hidden = !structured;
+  byId("playbackControls").hidden = false;
+  byId("playbackToggleButton").disabled = !playable;
+  byId("playbackToggleButton").title = playable
+    ? "Ouvir a peça ou o trecho A–B."
+    : "A audição precisa de uma partitura estruturada.";
   byId("inputToggle").hidden = false;
   byId("startPracticeButton").hidden = false;
-  byId("stopPracticeButton").hidden = false;
+  byId("stopPracticeButton").hidden = true;
   byId("practiceStats").hidden = false;
   byId("levelMeter").hidden = false;
   byId("zoomOutButton").hidden = structured;    // zoom só no PDF
@@ -580,7 +786,8 @@ function selectedPlaybackBounds() {
 }
 
 async function togglePlayback() {
-  if (!state.currentEvents?.length || !state.currentItem?.musicXmlAsset) return;
+  enterPracticeFullscreen();
+  if (!state.currentEvents?.length) return;
   if (playbackEngine.isPlaying) {
     playbackEngine.pause();
     return;
@@ -619,7 +826,7 @@ function reflectPlaybackState(status) {
     stopped: "♫ Tocar",
   };
   button.textContent = labels[status] || labels.stopped;
-  button.disabled = status === "loading";
+  button.disabled = status === "loading" || !state.currentEvents?.length;
   stop.hidden = status === "stopped";
   stop.disabled = status === "loading";
   byId("startPracticeButton").disabled = status !== "stopped";
@@ -699,7 +906,7 @@ function setTempoExpanded(expanded) {
 function reflectPracticeMode() {
   byId("teacherModeButton").classList.toggle("active", state.practiceMode === "teacher");
   byId("tempoModeButton").classList.toggle("active", state.practiceMode === "tempo");
-  byId("startPracticeButton").textContent = state.practiceMode === "teacher" ? "▶ Seguir" : "▶ Contar";
+  byId("startPracticeButton").textContent = state.practiceMode === "teacher" ? "▶ Iniciar" : "▶ Contar";
 }
 
 function selectPracticeMode(mode) {
@@ -735,6 +942,7 @@ async function selectInputMode(mode) {
 }
 
 async function startPractice() {
+  enterPracticeFullscreen();
   if (!state.currentItem || state.practiceActive || state.countInActive) return;
   if (playbackEngine.isActive) playbackEngine.stop({ preserveCursor: true });
   if (state.practiceMode === "teacher" && state.currentEvents?.length) {
@@ -759,6 +967,7 @@ async function startTeacherPractice() {
   pianoRecognition.reset();
   resetPracticeUi();
   byId("startPracticeButton").disabled = true;
+  byId("stopPracticeButton").hidden = false;
   byId("stopPracticeButton").disabled = false;
   await wakeLock.setEnabled(true);
 
@@ -766,6 +975,7 @@ async function startTeacherPractice() {
     await startInput();
   } catch (error) {
     byId("startPracticeButton").disabled = false;
+    byId("stopPracticeButton").hidden = true;
     byId("stopPracticeButton").disabled = true;
     toast(readableError(error));
     return;
@@ -795,6 +1005,7 @@ async function startTempoPractice() {
   state.countInActive = true;
   resetPracticeUi();
   byId("startPracticeButton").disabled = true;
+  byId("stopPracticeButton").hidden = false;
   byId("stopPracticeButton").disabled = false;
   await wakeLock.setEnabled(true);
 
@@ -804,6 +1015,7 @@ async function startTempoPractice() {
   } catch (error) {
     state.countInActive = false;
     byId("startPracticeButton").disabled = false;
+    byId("stopPracticeButton").hidden = true;
     byId("stopPracticeButton").disabled = true;
     toast(readableError(error));
     return;
@@ -1073,6 +1285,7 @@ async function stopPractice({ showResult = true } = {}) {
   state.animationFrame = null;
   byId("countInDisplay")?.classList.remove("visible");
   byId("startPracticeButton").disabled = false;
+  byId("stopPracticeButton").hidden = true;
   byId("stopPracticeButton").disabled = true;
   pianoRecognition.reset();
   await onsetEngine.stop();
@@ -1162,6 +1375,7 @@ async function leavePractice() {
   playbackEngine.stop({ preserveCursor: true });
   await stopPractice({ showResult: false });
   await wakeLock.setEnabled(false);
+  await leavePracticeFullscreen();
   midiInput.disconnect();
   viewer.clear();
   showView("libraryView");
@@ -1238,6 +1452,11 @@ byId("dropZone").addEventListener("drop", (event) => {
   acceptFiles(event.dataTransfer.files);
 });
 byId("leavePracticeButton").addEventListener("click", leavePractice);
+byId("documentStage").addEventListener("pointerdown", beginScoreGesture);
+byId("documentStage").addEventListener("pointermove", moveScoreGesture);
+byId("documentStage").addEventListener("pointerup", endScoreGesture);
+byId("documentStage").addEventListener("pointercancel", (event) =>
+  endScoreGesture(event, { cancelled: true }));
 byId("topbarToggleButton").addEventListener("click", () => togglePanel("top"));
 byId("bottombarToggleButton").addEventListener("click", () => togglePanel("bottom"));
 byId("microphoneModeButton").addEventListener("click", () => selectInputMode("microphone"));

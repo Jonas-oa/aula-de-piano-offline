@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#58cc02" />
   <meta name="description" content="Estude peças completas pela partitura, com acompanhamento rítmico pelo microfone ou MIDI." />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="icon" href="./assets/icons/icon-192.png" />
   <link rel="apple-touch-icon" href="./assets/icons/icon-192.png" />
@@ -199,12 +202,15 @@
               <button id="zoomOutButton" class="ghost-button small collapsible-control" aria-label="Diminuir">−</button>
               <button id="zoomInButton" class="ghost-button small collapsible-control" aria-label="Aumentar">+</button>
             </div>
-            <button id="startPracticeButton" class="primary-button small practice-start">▶ Começar</button>
-            <button id="stopPracticeButton" class="icon-button stop" aria-label="Encerrar prática" disabled>■</button>
-            <div id="playbackControls" class="playback-controls" hidden>
-              <button id="playbackToggleButton" class="primary-button small playback-start" type="button">♫ Tocar</button>
-              <button id="playbackStopButton" class="icon-button stop" type="button" aria-label="Parar reprodução" disabled>■</button>
-            </div>
+          </div>
+        </div>
+
+        <div id="practicePrimaryActions" class="practice-primary-actions" aria-label="Ações principais do estudo">
+          <button id="startPracticeButton" class="primary-button small practice-start">▶ Iniciar</button>
+          <button id="stopPracticeButton" class="icon-button stop" aria-label="Encerrar prática" disabled hidden>■</button>
+          <div id="playbackControls" class="playback-controls">
+            <button id="playbackToggleButton" class="primary-button small playback-start" type="button" disabled>♫ Tocar</button>
+            <button id="playbackStopButton" class="icon-button stop" type="button" aria-label="Parar reprodução" disabled hidden>■</button>
           </div>
         </div>
 
@@ -220,6 +226,7 @@
               <small>O aplicativo contará um compasso antes de começar.</small>
             </div>
             <div id="levelMeter" class="level-meter" aria-label="Nível do microfone"><span id="levelBar"></span></div>
+            <div id="scoreGestureHint" class="score-gesture-hint">Arraste a pauta · segure para marcar A–B</div>
           </div>
 
           <section class="piano-panel" aria-labelledby="pianoHint">

@@ -25,7 +25,7 @@ test("shell offline inclui leitores, biblioteca e avaliador rítmico", () => {
   ]) {
     assert.match(worker, new RegExp(asset.replaceAll(".", "\\.")));
   }
-  assert.match(worker, /partitura-viva-v1-117/);
+  assert.match(worker, /partitura-viva-v1-118/);
 });
 
 test("interface é centrada em repertório, MusicXML e partitura", () => {
@@ -43,6 +43,8 @@ test("interface é centrada em repertório, MusicXML e partitura", () => {
   assert.match(html, /id="pianoKeyboard"/);
   assert.match(html, /id="playbackControls"/);
   assert.match(html, /id="playbackToggleButton"/);
+  assert.match(html, /id="practicePrimaryActions"/);
+  assert.match(html, /Arraste a pauta · segure para marcar A–B/);
   assert.equal((html.match(/data-view-target="importView"/g) || []).length, 1);
   assert.equal((html.match(/Adicionar partitura/g) || []).length, 1);
   assert.doesNotMatch(html, /Catálogo/);
@@ -55,11 +57,28 @@ test("modo de estudo amplia a pauta e mantém ferramentas nas laterais", () => {
   assert.match(css, /\.practice-bottombar\s*\{[^}]*right:\s*3px/s);
   assert.match(css, /\.practice-workspace\s*\{[^}]*inset:\s*3px 34px/s);
   assert.match(css, /\.tempo-chip\.is-expanded\s*\{[^}]*width:\s*min\(460px/s);
+  assert.match(css, /\.practice-primary-actions\s*\{[^}]*position:\s*absolute/s);
+  assert.match(css, /\.practice-primary-actions\s*\{[^}]*top:\s*max\(8px/s);
+  assert.match(css, /\.document-stage svg\[data-score-key\]\s*\{[^}]*touch-action:\s*none/s);
 });
 
 test("audição fica integrada à tela de estudo", () => {
   const app = fs.readFileSync(path.join(root, "src/app.js"), "utf8");
   assert.doesNotMatch(app, /listen-piece-button/);
   assert.doesNotMatch(app, /sessionMode/);
-  assert.match(app, /playbackControls"\)\.hidden = !structured/);
+  assert.match(app, /playbackControls"\)\.hidden = false/);
+  assert.match(app, /documentStage"\)\.addEventListener\("pointerdown", beginScoreGesture\)/);
+  assert.match(app, /SCORE_LONG_PRESS_MS = 430/);
+});
+
+test("estudo solicita tela cheia e o PWA prioriza modo imersivo", () => {
+  const app = fs.readFileSync(path.join(root, "src/app.js"), "utf8");
+  const manifest = JSON.parse(
+    fs.readFileSync(path.join(root, "manifest.webmanifest"), "utf8"),
+  );
+
+  assert.match(app, /requestFullscreen/);
+  assert.match(app, /navigationUI: "hide"/);
+  assert.match(app, /screen\.orientation\?\.lock\?\.\("landscape"\)/);
+  assert.deepEqual(manifest.display_override, ["fullscreen", "standalone"]);
 });
