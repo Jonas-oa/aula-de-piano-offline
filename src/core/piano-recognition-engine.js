@@ -7,7 +7,7 @@ const DEFAULTS = {
   extraRelativeThreshold: 0.36,
   scanPaddingSemitones: 12,
   stableFrames: 2,
-  analysisIntervalMs: 48,
+  analysisIntervalMs: 36,
   attemptWindowMs: 460,
 };
 
@@ -16,6 +16,11 @@ function uniqueMidis(midis) {
     .filter((midi) => Number.isFinite(midi))
     .map((midi) => Math.round(midi)))]
     .sort((a, b) => a - b);
+}
+
+function sameMidis(left, right) {
+  return left.length === right.length
+    && left.every((midi, index) => midi === right[index]);
 }
 
 function rmsOf(samples) {
@@ -54,16 +59,27 @@ function goertzelAmplitude(samples, sampleRate, frequency) {
   return (2 * Math.sqrt(Math.max(0, power))) / Math.max(1, windowSum);
 }
 
-function isHarmonicAlias(midi, amplitude, amplitudes, expectedSet) {
+function isHarmonicAlias(midi, amplitude, amplitudes, expectedSet, minAmplitude) {
   if (expectedSet.has(midi)) return false;
   const frequency = midiToFrequency(midi);
   for (const [lowerMidi, lowerAmplitude] of amplitudes) {
-    if (lowerMidi >= midi || lowerAmplitude <= amplitude) continue;
+    if (lowerMidi >= midi) continue;
     const ratio = frequency / midiToFrequency(lowerMidi);
     const harmonic = Math.round(ratio);
     if (harmonic < 2 || harmonic > 5) continue;
     const cents = 1200 * Math.log2(ratio / harmonic);
-    if (Math.abs(cents) <= 28 && amplitude < lowerAmplitude * 0.72) return true;
+    if (Math.abs(cents) > 28) continue;
+
+    // Em notas graves de piano, o segundo harmônico pode superar a
+    // fundamental no microfone do celular. Quando a fundamental esperada está
+    // realmente presente, não trate esse harmônico natural como uma nota extra.
+    if (
+      expectedSet.has(lowerMidi)
+      && lowerAmplitude >= minAmplitude
+      && amplitude <= Math.max(lowerAmplitude * 6, minAmplitude * 16)
+    ) return true;
+
+    if (lowerAmplitude > amplitude && amplitude < lowerAmplitude * 0.72) return true;
   }
   return false;
 }
@@ -102,7 +118,10 @@ export function analyzeExpectedChord(samples, sampleRate, expectedMidis, options
   const expectedStrongest = Math.max(0, ...expected.map((midi) => amplitudes.get(midi) || 0));
   const expectedThreshold = Math.max(
     config.minAmplitude,
-    strongest * config.expectedRelativeThreshold,
+    Math.min(
+      strongest * config.expectedRelativeThreshold,
+      expectedStrongest * 0.55,
+    ),
   );
   const expectedSet = new Set(expected);
   const presentExpected = expected.filter((midi) =>
@@ -116,7 +135,7 @@ export function analyzeExpectedChord(samples, sampleRate, expectedMidis, options
   const extras = [];
   for (const [midi, amplitude] of amplitudes) {
     if (expectedSet.has(midi) || amplitude < extraThreshold) continue;
-    if (isHarmonicAlias(midi, amplitude, amplitudes, expectedSet)) continue;
+    if (isHarmonicAlias(midi, amplitude, amplitudes, expectedSet, config.minAmplitude)) continue;
     extras.push(midi);
   }
 
@@ -170,12 +189,19 @@ export class PianoRecognitionEngine {
   constructor(options = {}) {
     this.options = { ...DEFAULTS, ...options };
     this.attempt = null;
+    this.lastMatchedExpected = [];
   }
 
-  startAttempt(expectedMidis, timestamp = performance.now()) {
+  startAttempt(
+    expectedMidis,
+    timestamp = performance.now(),
+    { continuous = false, waitForRelease = false } = {},
+  ) {
     const expected = uniqueMidis(expectedMidis);
     this.attempt = expected.length ? {
       expected,
+      continuous,
+      waitForRelease,
       startedAt: timestamp,
       deadline: timestamp + this.options.attemptWindowMs,
       lastAnalysisAt: -Infinity,
@@ -185,8 +211,29 @@ export class PianoRecognitionEngine {
     return this.attempt;
   }
 
+  armExpected(expectedMidis, timestamp = performance.now()) {
+    const expected = uniqueMidis(expectedMidis);
+    return this.startAttempt(expected, timestamp, {
+      continuous: true,
+      waitForRelease: sameMidis(expected, this.lastMatchedExpected),
+    });
+  }
+
+  isArmedFor(expectedMidis) {
+    const expected = uniqueMidis(expectedMidis);
+    const active = this.attempt?.expected || [];
+    return sameMidis(expected, active);
+  }
+
+  noteAttack() {
+    if (!this.attempt?.waitForRelease) return;
+    this.attempt.waitForRelease = false;
+    this.attempt.stableMatches = 0;
+  }
+
   reset() {
     this.attempt = null;
+    this.lastMatchedExpected = [];
   }
 
   process(samples, sampleRate, timestamp = performance.now()) {
@@ -201,6 +248,13 @@ export class PianoRecognitionEngine {
       attempt.expected,
       this.options,
     );
+    if (attempt.waitForRelease) {
+      if (analysis.status !== "match") {
+        attempt.waitForRelease = false;
+        attempt.stableMatches = 0;
+      }
+      return { outcome: "pending", ...analysis };
+    }
     const score = analysis.completeness
       + analysis.confidence * 0.25
       - analysis.extra.length * 0.15;
@@ -212,11 +266,15 @@ export class PianoRecognitionEngine {
     attempt.stableMatches = analysis.status === "match"
       ? attempt.stableMatches + 1
       : 0;
-    if (attempt.stableMatches >= this.options.stableFrames) {
+    const requiredStableFrames = attempt.expected.length === 1
+      ? 1
+      : this.options.stableFrames;
+    if (attempt.stableMatches >= requiredStableFrames) {
       this.attempt = null;
+      this.lastMatchedExpected = [...attempt.expected];
       return { outcome: "match", ...analysis };
     }
-    if (timestamp >= attempt.deadline) {
+    if (!attempt.continuous && timestamp >= attempt.deadline) {
       const best = attempt.best || analysis;
       this.attempt = null;
       return { outcome: "wrong", ...best };

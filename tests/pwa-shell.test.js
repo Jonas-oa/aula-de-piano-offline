@@ -25,7 +25,7 @@ test("shell offline inclui leitores, biblioteca e avaliador rítmico", () => {
   ]) {
     assert.match(worker, new RegExp(asset.replaceAll(".", "\\.")));
   }
-  assert.match(worker, /partitura-viva-v1-116/);
+  assert.match(worker, /partitura-viva-v1-117/);
 });
 
 test("interface é centrada em repertório, MusicXML e partitura", () => {
@@ -48,11 +48,13 @@ test("interface é centrada em repertório, MusicXML e partitura", () => {
   assert.doesNotMatch(html, /Catálogo/);
 });
 
-test("modo de estudo amplia a pauta e mantém barras recolhidas finas", () => {
+test("modo de estudo amplia a pauta e mantém ferramentas nas laterais", () => {
   const css = fs.readFileSync(path.join(root, "styles.css"), "utf8");
   assert.doesNotMatch(css, /\.document-stage svg\[data-score-key\]\s*\{[^}]*scale\(/s);
-  assert.match(css, /\.practice-topbar\.is-collapsed\s*\{[^}]*min-height:\s*36px/s);
-  assert.match(css, /\.practice-bottombar\.is-collapsed\s*\{[^}]*min-height:\s*30px/s);
+  assert.match(css, /\.practice-topbar\s*\{[^}]*left:\s*3px/s);
+  assert.match(css, /\.practice-bottombar\s*\{[^}]*right:\s*3px/s);
+  assert.match(css, /\.practice-workspace\s*\{[^}]*inset:\s*3px 34px/s);
+  assert.match(css, /\.tempo-chip\.is-expanded\s*\{[^}]*width:\s*min\(460px/s);
 });
 
 test("audição fica integrada à tela de estudo", () => {
