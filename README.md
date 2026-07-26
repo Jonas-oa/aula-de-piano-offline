@@ -5,8 +5,8 @@ Aplicativo web offline para estudar peças completas com a partitura aberta e re
 ## O novo foco
 
 - repertório formado por arquivos importados pelo próprio aluno;
-- leitura de PDF com troca de página e zoom;
-- MusicXML opcional para fornecer ataques, pausas e alturas estruturadas;
+- importação de MusicXML para fornecer ataques, pausas e alturas estruturadas;
+- compatibilidade de leitura com PDFs salvos em versões anteriores;
 - reconhecimento de notas e acordes pelo microfone no modo professor com MusicXML;
 - avaliação do tempo pelo microfone em partituras PDF, diretamente no navegador;
 - entrada Web MIDI para captar notas e acordes com maior precisão;
@@ -16,7 +16,10 @@ Aplicativo web offline para estudar peças completas com a partitura aberta e re
 
 ## Limites importantes
 
-Um PDF descreve páginas, não eventos musicais. Com apenas o PDF, o aplicativo mostra a partitura e compara os ataques captados com uma grade de tempo configurável. Para verificar exatamente as notas, pausas e durações escritas, importe também o MusicXML correspondente.
+Enquanto o conversor não estiver pronto, a tela de importação aceita somente
+MusicXML. Partituras PDF salvas em versões anteriores continuam disponíveis
+para leitura e avaliação rítmica, mas o aplicativo não oferece novo upload nem
+conversão de PDF.
 
 Com MusicXML, o motor acústico usa o evento esperado para reconhecer notas
 avulsas e acordes, incluindo notas ausentes e extras. Em PDF puro, onde as
@@ -41,8 +44,8 @@ npm test
 
 ## Formatos
 
-- `.pdf`: partitura visual e avaliação pela grade de tempo;
-- `.xml` / `.musicxml`: partitura estruturada e eventos exatos;
+- `.xml` / `.musicxml`: formato aceito na importação, com partitura estruturada e eventos exatos;
+- `.pdf`: somente compatibilidade com peças já armazenadas por versões anteriores;
 - Web MIDI: entrada do instrumento, sem necessidade de importar um arquivo MIDI.
 
 PDF.js, OpenSheetMusicDisplay e seus componentes são mantidos no próprio projeto para que a leitura continue disponível offline.
