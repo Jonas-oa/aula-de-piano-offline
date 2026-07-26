@@ -7,7 +7,7 @@
   "scope": "./",
   "display": "standalone",
   "display_override": ["fullscreen", "standalone"],
-  "orientation": "any",
+  "orientation": "landscape",
   "background_color": "#fffdf8",
   "theme_color": "#58cc02",
   "categories": ["education", "music"],

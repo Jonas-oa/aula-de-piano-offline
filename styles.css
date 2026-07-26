@@ -640,6 +640,10 @@ main { width: min(1160px, calc(100% - 28px)); margin: 0 auto; padding: 28px 0 48
 .practice-bottombar.is-collapsed > .panel-toggle { left: -8px; width: 30px; height: 64px; }
 .loop-controls { display: grid; grid-template-columns: 1fr 1fr; align-items: center; gap: 8px; }
 .screen-status { color: var(--success); font-size: .72rem; font-weight: 800; }
+.input-status { color: #667085; font-size: .72rem; font-weight: 800; }
+.input-status[data-status="requesting"] { color: #8b650f; }
+.input-status[data-status="active"] { color: var(--success); }
+.input-status[data-status="error"] { color: #a63b32; }
 .practice-stats.compact { display: grid; grid-template-columns: 1fr 1fr; align-items: center; gap: 12px; }
 .practice-stats.compact div { text-align: center; }
 .practice-stats.compact span { display: block; color: var(--muted); font-size: .66rem; }

@@ -158,4 +158,15 @@ test("estudo solicita tela cheia e o PWA prioriza modo imersivo", () => {
   assert.match(app, /navigationUI: "hide"/);
   assert.match(app, /screen\.orientation\?\.lock\?\.\("landscape"\)/);
   assert.deepEqual(manifest.display_override, ["fullscreen", "standalone"]);
+  assert.equal(manifest.orientation, "landscape");
+});
+
+test("microfone é preparado ao abrir o estudo e informa seu estado", () => {
+  const app = fs.readFileSync(path.join(root, "src/app.js"), "utf8");
+  const html = fs.readFileSync(path.join(root, "index.html"), "utf8");
+
+  assert.match(app, /showView\("practiceView"\);[\s\S]*?preparePracticeInput\(\)/);
+  assert.match(app, /state\.currentView !== "practiceView"/);
+  assert.match(html, /id="inputStatus"/);
+  assert.match(html, /Microfone em espera/);
 });

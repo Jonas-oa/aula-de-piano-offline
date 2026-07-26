@@ -159,6 +159,29 @@ test("anacruse sem marcação é reconhecida quando o último compasso a complem
   assert.deepEqual(score.events.map((event) => event.beat), [0, 1, 5]);
 });
 
+test("anacruse de uma mão não é esticada por uma parte vazia", () => {
+  const score = buildScoreEvents({
+    parts: [
+      part([
+        measure([note("G4", 1)], { divisions: 1, beats: 4, beatType: 4 }),
+        measure([note("C5", 4)]),
+        measure([note("D5", 3)]),
+      ]),
+      // Alguns exportadores mantêm os compassos da mão silenciosa, mas não
+      // escrevem as pausas. Essa parte não pode transformar a anacruse em 4/4.
+      part([
+        measure([], { divisions: 1, beats: 4, beatType: 4 }),
+        measure([note("C3", 4)]),
+        measure([], { divisions: 1 }),
+      ]),
+    ],
+  });
+
+  assert.equal(score.pickupBeats, 1);
+  assert.deepEqual(score.measures.map((item) => item.beat), [0, 1, 5]);
+  assert.equal(score.events.find((event) => event.pitches.includes("C3")).beat, 1);
+});
+
 test("primeiro compasso curto sem complemento permanece inteiro", () => {
   // Sem o fecho no último compasso a leitura é ambígua, e encurtar por engano
   // desalinharia a peça toda. Na dúvida, o compasso fica como está.

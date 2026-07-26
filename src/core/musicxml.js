@@ -223,7 +223,6 @@ function walkPart(part, partIndex, partCount) {
     };
   }
 
-  inferPickupFromClosingBar(measures);
   return measures;
 }
 
@@ -234,26 +233,44 @@ function walkPart(part, partIndex, partCount) {
 //
 // O desempate vem da gravação musical: quando a peça abre em anacruse, o último
 // compasso é encurtado no mesmo tanto, de modo que os dois juntos fecham uma
-// barra inteira. É um sinal não-local e de alta precisão. Quando ele não
-// aparece, o compasso é deixado inteiro — errar para o lado de não encurtar
-// mantém intacta uma peça bem escrita, enquanto o contrário a desalinharia.
-function inferPickupFromClosingBar(measures) {
-  const first = measures[0];
-  const last = measures.at(-1);
-  if (!first || !last || first === last) return;
-  if (first.implicit || !(first.beatsPerBar > 0)) return;
-  if (first.beatsPerBar !== last.beatsPerBar) return;
-  if (!(first.contentLength > 0) || !(last.contentLength > 0)) return;
-  if (first.contentLength >= first.beatsPerBar - BEAT_EPSILON) return;
-  if (last.contentLength >= last.beatsPerBar - BEAT_EPSILON) return;
+// barra inteira. A decisão é tomada depois de alinhar todas as partes. Assim,
+// uma mão vazia no primeiro compasso não estica a anacruse detectada na outra.
+function inferPickupAcrossParts(walks) {
+  const firstMeasures = walks.map((measures) => measures[0]).filter(Boolean);
+  if (!firstMeasures.length) return;
+  const lastIndex = Math.max(0, ...walks.map((measures) => measures.length - 1));
+  const lastMeasures = walks.map((measures) => measures[lastIndex]).filter(Boolean);
+  if (!lastMeasures.length || lastIndex === 0) return;
 
-  const closes = Math.abs(
-    first.contentLength + last.contentLength - first.beatsPerBar,
-  ) <= BEAT_EPSILON;
-  if (!closes) return;
+  const beatsPerBar = firstMeasures
+    .map((measure) => Number(measure.beatsPerBar))
+    .find((value) => value > 0);
+  if (!(beatsPerBar > 0)) return;
 
-  first.implicit = true;
-  first.length = first.contentLength;
+  const explicit = firstMeasures.filter((measure) => measure.implicit);
+  const firstContent = Math.max(0, ...firstMeasures.map((measure) => measure.contentLength || 0));
+  const explicitLength = Math.max(0, ...explicit.map((measure) => measure.contentLength || 0));
+  let pickupLength = explicit.length ? explicitLength : 0;
+
+  if (!pickupLength) {
+    const lastContent = Math.max(0, ...lastMeasures.map((measure) => measure.contentLength || 0));
+    const sameMeter = lastMeasures.every((measure) =>
+      !(measure.beatsPerBar > 0)
+      || Math.abs(measure.beatsPerBar - beatsPerBar) <= BEAT_EPSILON);
+    const incompleteEnds = firstContent > 0
+      && lastContent > 0
+      && firstContent < beatsPerBar - BEAT_EPSILON
+      && lastContent < beatsPerBar - BEAT_EPSILON;
+    const closes = Math.abs(firstContent + lastContent - beatsPerBar) <= BEAT_EPSILON;
+    if (!sameMeter || !incompleteEnds || !closes) return;
+    pickupLength = firstContent;
+  }
+
+  if (!(pickupLength > 0) || pickupLength >= beatsPerBar - BEAT_EPSILON) return;
+  for (const measure of firstMeasures) {
+    measure.implicit = true;
+    measure.length = pickupLength;
+  }
 }
 
 function readTimeSignature(parts) {
@@ -296,6 +313,7 @@ function readKeySignature(parts) {
 export function buildScoreEvents(score) {
   const parts = score?.parts || [];
   const walks = parts.map((part, index) => walkPart(part, index, parts.length));
+  inferPickupAcrossParts(walks);
   const measureCount = Math.max(0, ...walks.map((measures) => measures.length));
 
   // Um compasso vale o maior conteúdo entre as partes: assim mão direita e mão

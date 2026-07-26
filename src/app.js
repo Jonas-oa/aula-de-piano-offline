@@ -99,6 +99,7 @@ const playbackEngine = new PianoPlaybackEngine({
     const restartIndex = region?.events?.[0]?.originalIndex ?? state.loop.a ?? 0;
     if (state.currentScore) renderStructured(restartIndex);
     setFeedback("on-time", "FIM", "Audição concluída", "Toque novamente ou escolha outro trecho A–B.");
+    void preparePracticeInput();
   },
 });
 
@@ -123,6 +124,7 @@ const onsetEngine = new OnsetEngine({
     byId("levelBar").style.width = `${Math.round(level * 100)}%`;
   },
   onError: (error) => toast(readableError(error)),
+  onStatus: (status) => reflectInputStatus(status),
 });
 
 const pianoRecognition = new PianoRecognitionEngine();
@@ -694,7 +696,7 @@ async function leavePracticeFullscreen() {
 
 async function openPractice(item) {
   enterPracticeFullscreen();
-  await stopPractice({ showResult: false });
+  await stopPractice({ showResult: false, keepInput: false });
   playbackEngine.stop({ preserveCursor: true });
   state.currentItem = item;
   state.currentEvents = null;
@@ -713,6 +715,9 @@ async function openPractice(item) {
   resetPracticeUi();
   showView("practiceView");
   await wakeLock.setEnabled(true);
+  // Prepara a entrada assim que a tela abre. A análise permanece bloqueada por
+  // `practiceActive`, então nenhum ataque entra na estatística antes de Iniciar.
+  void preparePracticeInput();
 
   try {
     if (item.type === "rhythm") {
@@ -818,7 +823,7 @@ async function togglePlayback() {
       await playbackEngine.resume();
       return;
     }
-    await stopPractice({ showResult: false });
+    await stopPractice({ showResult: false, keepInput: false });
     await playbackEngine.play(state.currentEvents, {
       bpm: Number(byId("tempoSlider").value),
       ...selectedPlaybackBounds(),
@@ -826,6 +831,7 @@ async function togglePlayback() {
     });
   } catch (error) {
     toast(readableError(error));
+    void preparePracticeInput();
   }
 }
 
@@ -834,6 +840,7 @@ function stopPlayback() {
   playbackEngine.stop({ preserveCursor: true });
   if (state.currentScore) renderStructured(bounds.startIndex);
   setFeedback("neutral", "PRONTO PARA OUVIR", "Piano acústico", "Toque para começar.");
+  void preparePracticeInput();
 }
 
 function reflectPlaybackState(status) {
@@ -977,6 +984,7 @@ async function selectInputMode(mode) {
   byId("levelBar").style.width = "0";
 
   if (mode === "midi") {
+    await onsetEngine.stop();
     try {
       const count = await midiInput.connect();
       if (!count) toast("Conecte e ligue o piano MIDI, depois tente novamente.");
@@ -985,9 +993,38 @@ async function selectInputMode(mode) {
       byId("microphoneModeButton").classList.add("active");
       byId("midiModeButton").classList.remove("active");
       toast(readableError(error));
+      void preparePracticeInput();
     }
   } else {
     midiInput.disconnect();
+    void preparePracticeInput();
+  }
+}
+
+function reflectInputStatus(status) {
+  const label = byId("inputStatus");
+  if (!label) return;
+  const labels = {
+    requesting: "Ativando microfone…",
+    active: "● Microfone ativo",
+    stopped: state.inputMode === "midi" ? "Entrada MIDI" : "Microfone em espera",
+    error: "Microfone bloqueado",
+  };
+  label.dataset.status = status;
+  label.textContent = labels[status] || labels.stopped;
+}
+
+async function preparePracticeInput() {
+  if (
+    state.currentView !== "practiceView"
+    || state.inputMode !== "microphone"
+    || playbackEngine.isActive
+  ) return;
+  try {
+    await onsetEngine.start();
+  } catch {
+    // O motor já apresenta a causa. Iniciar continua disponível para uma nova
+    // tentativa depois que o usuário liberar a permissão.
   }
 }
 
@@ -1307,7 +1344,7 @@ function advanceScore(index) {
   if (state.currentScore) renderStructured(index);
 }
 
-async function stopPractice({ showResult = true } = {}) {
+async function stopPractice({ showResult = true, keepInput = true } = {}) {
   const hadActivity = state.practiceActive || state.countInActive || state.attempts.length;
   state.practiceActive = false;
   state.countInActive = false;
@@ -1318,7 +1355,8 @@ async function stopPractice({ showResult = true } = {}) {
   byId("countInDisplay")?.classList.remove("visible");
   reflectPracticeRunning(false);
   pianoRecognition.reset();
-  await onsetEngine.stop();
+  if (!keepInput) await onsetEngine.stop();
+  else void preparePracticeInput();
 
   if (showResult && hadActivity) showPracticeResult();
 }
@@ -1410,7 +1448,7 @@ function showPracticeResult() {
 async function leavePractice() {
   setTempoExpanded(false);
   playbackEngine.stop({ preserveCursor: true });
-  await stopPractice({ showResult: false });
+  await stopPractice({ showResult: false, keepInput: false });
   await wakeLock.setEnabled(false);
   await leavePracticeFullscreen();
   midiInput.disconnect();

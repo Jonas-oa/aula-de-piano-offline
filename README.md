@@ -12,6 +12,8 @@ Aplicativo web offline para estudar peças completas com a partitura aberta e re
   staves, seja em duas partes separadas, respeitando claves, armadura,
   compassos, pausas, ligaduras de valor, durações pontuadas e dedilhado;
 - reconhecimento de notas e acordes pelo microfone no modo professor com MusicXML;
+- microfone preparado automaticamente ao abrir o estudo, com indicador visível
+  e análise bloqueada até o aluno pressionar **Iniciar**;
 - audição de partituras MusicXML com piano acústico, cursor sincronizado, andamento
   ajustável e seleção de trecho A–B com repetição opcional, diretamente dentro
   da tela de estudo;
@@ -19,6 +21,8 @@ Aplicativo web offline para estudar peças completas com a partitura aberta e re
 - entrada Web MIDI para captar notas e acordes com maior precisão;
 - 24 exercícios rítmicos originais para duas mãos, sem fases ou bloqueios;
 - armazenamento local com IndexedDB e proteção de tela durante a prática;
+- modo de estudo imersivo e horizontal, com partitura de espaçamento adaptativo
+  para que ataques rápidos não sobreponham cabeças, hastes e acidentes;
 - funcionamento como PWA depois do primeiro carregamento.
 
 ## Limites importantes
@@ -66,7 +70,11 @@ Abra `http://localhost:8080`. Microfone e MIDI exigem contexto seguro; `localhos
 
 ```bash
 npm test
+npm run test:e2e
 ```
+
+O segundo comando usa Playwright para simular a tela de estudo em um celular
+horizontal. No GitHub, os dois conjuntos rodam automaticamente antes da mesclagem.
 
 ## Formatos
 

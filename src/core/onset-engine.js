@@ -17,11 +17,18 @@ function rmsOf(samples) {
 }
 
 export class OnsetEngine {
-  constructor({ onOnset, onLevel, onSamples, onError } = {}) {
+  constructor({
+    onOnset,
+    onLevel,
+    onSamples,
+    onError,
+    onStatus,
+  } = {}) {
     this.onOnset = onOnset || (() => {});
     this.onLevel = onLevel || (() => {});
     this.onSamples = onSamples || (() => {});
     this.onError = onError || (() => {});
+    this.onStatus = onStatus || (() => {});
     this.running = false;
     this.context = null;
     this.stream = null;
@@ -34,16 +41,38 @@ export class OnsetEngine {
     this.previousRms = 0;
     this.lastOnsetAt = -Infinity;
     this.lastLevelAt = -Infinity;
+    this.startPromise = null;
+    this.startGeneration = 0;
   }
 
   async start() {
-    if (this.running) return;
+    if (this.running) {
+      this.onStatus("active");
+      return;
+    }
+    if (this.startPromise) return this.startPromise;
     if (!navigator.mediaDevices?.getUserMedia) {
       throw new Error("Este navegador não permite usar o microfone.");
     }
 
+    const generation = ++this.startGeneration;
+    const pending = this.#open(generation);
+    this.startPromise = pending;
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({
+      return await pending;
+    } finally {
+      if (this.startPromise === pending) this.startPromise = null;
+    }
+  }
+
+  async #open(generation) {
+    let stream = null;
+    let context = null;
+    let source = null;
+    let analyser = null;
+    try {
+      this.onStatus("requesting");
+      stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: false,
           noiseSuppression: false,
@@ -52,26 +81,55 @@ export class OnsetEngine {
         },
         video: false,
       });
-      this.context = new (window.AudioContext || window.webkitAudioContext)({
+      if (generation !== this.startGeneration) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      context = new (window.AudioContext || window.webkitAudioContext)({
         latencyHint: "interactive",
       });
-      await this.context.resume();
-      this.source = this.context.createMediaStreamSource(this.stream);
-      this.analyser = this.context.createAnalyser();
-      this.analyser.fftSize = FRAME_SIZE;
-      this.analyser.smoothingTimeConstant = 0;
-      this.buffer = new Float32Array(this.analyser.fftSize);
+      await context.resume();
+      if (generation !== this.startGeneration) {
+        stream.getTracks().forEach((track) => track.stop());
+        await context.close();
+        return;
+      }
+      source = context.createMediaStreamSource(stream);
+      analyser = context.createAnalyser();
+      analyser.fftSize = FRAME_SIZE;
+      analyser.smoothingTimeConstant = 0;
+      this.stream = stream;
+      this.context = context;
+      this.source = source;
+      this.analyser = analyser;
+      this.buffer = new Float32Array(analyser.fftSize);
       this.onsetTail = this.buffer.subarray(this.buffer.length - ONSET_TAIL);
-      this.source.connect(this.analyser);
+      source.connect(analyser);
       this.running = true;
+      this.onStatus("active");
       this.#tick();
     } catch (error) {
+      stream?.getTracks().forEach((track) => track.stop());
+      source?.disconnect();
+      analyser?.disconnect();
+      if (context && context.state !== "closed") await context.close();
+      if (generation !== this.startGeneration) return;
+      this.running = false;
+      this.stream = null;
+      this.context = null;
+      this.source = null;
+      this.analyser = null;
+      this.buffer = null;
+      this.onsetTail = null;
+      this.onStatus("error");
       this.onError(error);
       throw error;
     }
   }
 
   async stop() {
+    this.startGeneration += 1;
+    this.startPromise = null;
     this.running = false;
     if (this.timerId !== null) clearTimeout(this.timerId);
     this.timerId = null;
@@ -87,6 +145,7 @@ export class OnsetEngine {
     this.onsetTail = null;
     this.previousRms = 0;
     this.lastOnsetAt = -Infinity;
+    this.onStatus("stopped");
   }
 
   // A cadência é própria, e não a da tela. Com requestAnimationFrame a escuta
