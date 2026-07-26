@@ -67,6 +67,15 @@ export function uniqueMidis(midis) {
     .sort((a, b) => a - b);
 }
 
+// Tempos por compasso, sempre medidos em semínimas — a unidade usada pelo
+// parser, pela pauta, pela grade rítmica e pela contagem de entrada.
+// 4/4 → 4, 3/4 → 3, 6/8 → 3, 12/8 → 6, 2/2 → 4.
+export function beatsPerBarFromSignature(timeSignature) {
+  const [numerator, denominator] = String(timeSignature ?? '').split('/').map(Number);
+  if (!(numerator > 0) || !(denominator > 0)) return 4;
+  return numerator * (4 / denominator);
+}
+
 export function sameMidis(left = [], right = []) {
   return left.length === right.length
     && left.every((midi, index) => midi === right[index]);

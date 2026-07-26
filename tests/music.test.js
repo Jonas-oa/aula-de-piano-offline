@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  beatsPerBarFromSignature,
   diatonicStep,
   midiToNote,
   midiToPortuguese,
@@ -49,4 +50,18 @@ test("uniqueMidis ordena, arredonda e descarta inválidos", () => {
   assert.equal(sameMidis([60, 64], [60, 64]), true);
   assert.equal(sameMidis([60, 64], [60, 65]), false);
   assert.equal(sameMidis([60], [60, 64]), false);
+});
+
+test("tempos por compasso são sempre medidos em semínimas", () => {
+  assert.equal(beatsPerBarFromSignature("4/4"), 4);
+  assert.equal(beatsPerBarFromSignature("3/4"), 3);
+  assert.equal(beatsPerBarFromSignature("2/4"), 2);
+  assert.equal(beatsPerBarFromSignature("6/8"), 3);
+  assert.equal(beatsPerBarFromSignature("12/8"), 6);
+  assert.equal(beatsPerBarFromSignature("5/4"), 5);
+  // Compasso binário composto: antes o app dizia 2 e o parser dizia 4.
+  assert.equal(beatsPerBarFromSignature("2/2"), 4);
+  assert.equal(beatsPerBarFromSignature("3/2"), 6);
+  assert.equal(beatsPerBarFromSignature(""), 4);
+  assert.equal(beatsPerBarFromSignature(undefined), 4);
 });

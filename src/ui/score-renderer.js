@@ -18,6 +18,21 @@ const TRACK_ANIMATIONS = new WeakMap();
 const SCORE_EVENT_GROUPS = new WeakMap();
 const STAFF_LINE_SPACING = 12;
 
+// A mão vem do <staff> do MusicXML quando existe. O corte pelo dó central é só
+// o palpite de reserva: com ele, uma nota grave da mão direita (ou aguda da
+// esquerda) ia parar na clave errada.
+export function isOnBassStaff(pitch, hasBass) {
+  if (!hasBass) return false;
+  if (Number.isFinite(Number(pitch?.staff)) && Number(pitch.staff) > 0) {
+    return Number(pitch.staff) >= 2;
+  }
+  try {
+    return noteToMidi(pitch?.pitch) < 60;
+  } catch {
+    return false;
+  }
+}
+
 export function effectiveBeatsPerBar(song) {
   if (song?.beatsPerBar !== undefined && song?.beatsPerBar !== null) {
     const configured = Number(song.beatsPerBar);
@@ -56,8 +71,7 @@ export function scoreVerticalBounds(song, currentIndex = 0) {
     (event.pitches || [event]).forEach((pitch) => {
       if (!pitch?.pitch) return;
       try {
-        const onBass = hasBass && noteToMidi(pitch.pitch) < 60;
-        const y = noteY(pitch.pitch, onBass);
+        const y = noteY(pitch.pitch, isOnBassStaff(pitch, hasBass));
         minY = Math.min(minY, y - 28);
         maxY = Math.max(maxY, y + 28);
       } catch {
@@ -355,15 +369,14 @@ function buildScore(song) {
     }
 
     const pitches = event.pitches || [event];
-    const treble = hasBass ? pitches.filter((pitch) => noteToMidi(pitch.pitch) >= 60) : pitches;
-    const bass = hasBass ? pitches.filter((pitch) => noteToMidi(pitch.pitch) < 60) : [];
+    const bass = pitches.filter((pitch) => isOnBassStaff(pitch, hasBass));
+    const treble = pitches.filter((pitch) => !isOnBassStaff(pitch, hasBass));
 
     const haloGroup = create('g', { class: 'score-current-halo', visibility: 'hidden' });
     pitches.forEach((pitch) => {
-      const onBass = hasBass && noteToMidi(pitch.pitch) < 60;
       haloGroup.append(create('circle', {
         cx: x,
-        cy: noteY(pitch.pitch, onBass),
+        cy: noteY(pitch.pitch, isOnBassStaff(pitch, hasBass)),
         r: 22,
         fill: 'rgba(215,168,75,0.18)',
       }));

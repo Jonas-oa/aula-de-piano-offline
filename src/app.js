@@ -5,7 +5,7 @@ import {
   listPieces,
   savePiece,
 } from "./core/library-store.js";
-import { midiToPortuguese, noteToMidi } from "./core/music.js";
+import { beatsPerBarFromSignature, midiToPortuguese, noteToMidi } from "./core/music.js";
 import { parseMusicXml } from "./core/musicxml.js";
 import { musicXmlBlob, musicXmlFilename } from "./core/musicxml-export.js";
 import { MidiInput, OnsetEngine } from "./core/onset-engine.js";
@@ -157,10 +157,15 @@ function levelLabel(level) {
   return { iniciante: "Iniciante", intermediario: "Intermediário", avancado: "Avançado" }[level] || level;
 }
 
-function beatsPerBar(timeSignature = "4/4") {
-  const [numerator, denominator] = String(timeSignature).split("/").map(Number);
-  if (!numerator || !denominator) return 4;
-  return denominator === 8 ? numerator / 2 : numerator;
+// Uma única fonte para "tempos por compasso" da peça aberta. A fórmula lida no
+// MusicXML vence o valor escolhido no formulário de importação, que costuma
+// ficar no 4/4 padrão mesmo quando a partitura está em outro compasso.
+function currentBeatsPerBar(item = state.currentItem, metadata = state.currentMusicMetadata) {
+  const candidates = [metadata?.beatsPerBar, item?.beatsPerBar];
+  for (const candidate of candidates) {
+    if (Number.isFinite(Number(candidate)) && Number(candidate) > 0) return Number(candidate);
+  }
+  return beatsPerBarFromSignature(item?.timeSignature);
 }
 
 function renderLibrary() {
@@ -357,21 +362,22 @@ function structuredScore(item, events, metadata = null) {
     key: item.key || "",
     bpm: item.bpm,
     timeSignature,
-    beatsPerBar: metadata?.beatsPerBar || item.beatsPerBar || beatsPerBar(timeSignature),
+    beatsPerBar: currentBeatsPerBar(item, metadata),
     pickupBeats: metadata?.pickupBeats || 0,
     clef: "grand",
-    notes: (events || []).map((event) => {
-      const pitches = (event.pitches || []).filter(Boolean);
-      return {
-        pitch: pitches.at(-1),
-        beat: event.beat,
-        duration: event.duration,
-        measureIndex: event.measureIndex,
-        measureNumber: event.measureNumber,
-        measureStart: event.measureStart,
-        pitches: pitches.map((pitch) => ({ pitch, duration: event.duration, finger: null })),
-      };
-    }),
+    notes: (events || []).map((event) => ({
+      beat: event.beat,
+      duration: event.duration,
+      measureIndex: event.measureIndex,
+      measureNumber: event.measureNumber,
+      // `notes` traz altura, mão (staff) e dedilhado vindos do MusicXML.
+      pitches: (event.notes || []).map((note) => ({
+        pitch: note.pitch,
+        duration: note.duration ?? event.duration,
+        staff: note.staff,
+        finger: note.finger ?? null,
+      })),
+    })),
   };
 }
 
@@ -993,9 +999,8 @@ async function startTeacherPractice() {
 async function startTempoPractice() {
   const bpm = Number(byId("tempoSlider").value);
   const beatMs = 60_000 / bpm;
-  const countBeats = Math.max(2, Math.round(
-    state.currentItem.beatsPerBar || beatsPerBar(state.currentItem.timeSignature),
-  ));
+  const barBeats = currentBeatsPerBar();
+  const countBeats = Math.max(2, Math.round(barBeats));
 
   state.schedule = [];
   state.attempts = [];
@@ -1029,7 +1034,7 @@ async function startTempoPractice() {
       bpm,
       startMs: startAt,
       subdivision: Number(byId("subdivisionSelect").value),
-      beatsPerBar: beatsPerBar(state.currentItem.timeSignature),
+      beatsPerBar: barBeats,
       bars: 64,
     });
   }

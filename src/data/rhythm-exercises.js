@@ -14,6 +14,12 @@ export function parseRhythmPattern(pattern, repeats = 1) {
         duration,
         pitches,
         midis: pitches.map(noteToMidi),
+        // Mesmo formato dos eventos vindos do MusicXML: nos exercícios a mão
+        // esquerda é sempre a região grave.
+        notes: pitches.map((pitch) => {
+          const midi = noteToMidi(pitch);
+          return { pitch, midi, staff: midi < 60 ? 2 : 1, finger: null, duration };
+        }),
       });
       beat += duration;
     }

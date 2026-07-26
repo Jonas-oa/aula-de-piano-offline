@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   bassClefGeometry,
   isExplicitMeasureBoundary,
+  isOnBassStaff,
   scoreHeadline,
   scoreIndexForDrag,
   scoreIndexesToRefresh,
@@ -76,6 +77,19 @@ test("clave de Fá referencia a quarta linha da pauta, entre os dois pontos", ()
   );
   assert.ok(geometry.dotYs[0] < geometry.fLineY);
   assert.ok(geometry.dotYs[1] > geometry.fLineY);
+});
+
+test("a clave segue o staff do MusicXML, não o corte pelo dó central", () => {
+  // Mão esquerda escrita acima do dó central: pertence à clave de fá.
+  assert.equal(isOnBassStaff({ pitch: "E4", staff: 2 }, true), true);
+  // Mão direita cruzando para o grave: continua na clave de sol.
+  assert.equal(isOnBassStaff({ pitch: "A2", staff: 1 }, true), false);
+  // Sem staff (exercícios e transcrições antigas), vale o palpite pelo dó central.
+  assert.equal(isOnBassStaff({ pitch: "A2" }, true), true);
+  assert.equal(isOnBassStaff({ pitch: "E4" }, true), false);
+  // Pauta simples nunca manda nada para a clave de fá.
+  assert.equal(isOnBassStaff({ pitch: "A2", staff: 2 }, false), false);
+  assert.equal(isOnBassStaff({ pitch: "inválido" }, true), false);
 });
 
 test("cabeçalho não exibe separador solto quando falta a tonalidade", () => {
