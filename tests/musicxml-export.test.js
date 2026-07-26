@@ -10,6 +10,13 @@ test("gera nome MusicXML seguro a partir do arquivo original", () => {
   assert.equal(musicXmlFilename({ title: "Prelúdio nº 1" }), "Prelúdio no 1.musicxml");
 });
 
+test("arquivo MXL baixado recebe um nome MusicXML descompactado", () => {
+  assert.equal(
+    musicXmlFilename({ assetName: "minha-peca.mxl" }),
+    "minha-peca.musicxml",
+  );
+});
+
 test("gera arquivo MusicXML com o tipo correto", async () => {
   const xml = '<?xml version="1.0"?><score-partwise version="4.0"/>';
   const blob = musicXmlBlob({ bytes: new TextEncoder().encode(xml).buffer });

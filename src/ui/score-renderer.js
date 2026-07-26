@@ -10,7 +10,7 @@ const SCORE_WIDTH = 920;
 const SCORE_VIEW_X = 35;
 const SCORE_VIEW_WIDTH = 850;
 const NOTE_START_X = 180;
-const NOTE_SPACING = 88;
+const BEAT_SPACING = 88;
 const PLAYHEAD_X = 310;
 const VISIBLE_NOTE_COUNT = 10;
 const SCROLL_DURATION_MS = 280;
@@ -23,6 +23,8 @@ const STAFF_LINE_SPACING = 12;
 // esquerda) ia parar na clave errada.
 export function isOnBassStaff(pitch, hasBass) {
   if (!hasBass) return false;
+  if (pitch?.clef === 'bass') return true;
+  if (pitch?.clef === 'treble') return false;
   if (Number.isFinite(Number(pitch?.staff)) && Number(pitch.staff) > 0) {
     return Number(pitch.staff) >= 2;
   }
@@ -55,8 +57,20 @@ export function scoreTranslateXForIndex(song, currentIndex = 0) {
   const noteCount = Math.max(0, song?.notes?.length || 0);
   if (!noteCount) return 0;
   const visualIndex = Math.min(Math.max(Number(currentIndex) || 0, 0), noteCount - 1);
-  const currentX = NOTE_START_X + visualIndex * NOTE_SPACING;
+  const currentX = scoreEventX(song, visualIndex);
   return Math.min(0, PLAYHEAD_X - currentX);
+}
+
+function eventBeat(event, index) {
+  return Number.isFinite(Number(event?.beat)) ? Number(event.beat) : index;
+}
+
+export function scoreXForBeat(beat) {
+  return NOTE_START_X + Math.max(0, Number(beat) || 0) * BEAT_SPACING;
+}
+
+export function scoreEventX(song, index) {
+  return scoreXForBeat(eventBeat(song?.notes?.[index], index));
 }
 
 export function scoreVerticalBounds(song, currentIndex = 0) {
@@ -140,15 +154,39 @@ export function bassClefGeometry() {
   };
 }
 
-export function scoreIndexForDrag(startIndex, deltaClientX, svgWidth, noteCount) {
-  const total = Math.max(0, Number(noteCount) || 0);
+export function scoreIndexForDrag(startIndex, deltaClientX, svgWidth, noteCount, song = null) {
+  const total = Math.max(0, Number(noteCount) || song?.notes?.length || 0);
   if (!total) return 0;
   const width = Math.max(1, Number(svgWidth) || 1);
   const scoreUnitsPerPixel = SCORE_VIEW_WIDTH / width;
+  if (song?.notes?.length) {
+    const start = Math.max(0, Math.min(total - 1, Number(startIndex) || 0));
+    const targetX = scoreEventX(song, start)
+      - (Number(deltaClientX) || 0) * scoreUnitsPerPixel;
+    return nearestScoreIndex(song, targetX);
+  }
   const movedNotes = Math.round(
-    (Number(deltaClientX) || 0) * scoreUnitsPerPixel / NOTE_SPACING,
+    (Number(deltaClientX) || 0) * scoreUnitsPerPixel / BEAT_SPACING,
   );
   return Math.max(0, Math.min(total - 1, Number(startIndex) - movedNotes));
+}
+
+function nearestScoreIndex(song, scoreX) {
+  const notes = song?.notes || [];
+  if (!notes.length) return 0;
+  let low = 0;
+  let high = notes.length - 1;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (scoreEventX(song, middle) < scoreX) low = middle + 1;
+    else high = middle;
+  }
+  if (low > 0) {
+    const before = scoreEventX(song, low - 1);
+    const after = scoreEventX(song, low);
+    if (Math.abs(scoreX - before) <= Math.abs(after - scoreX)) return low - 1;
+  }
+  return low;
 }
 
 export function scoreIndexAtClientX(svg, song, clientX) {
@@ -166,8 +204,7 @@ export function scoreIndexAtClientX(svg, song, clientX) {
       + ((clientX - rect.left) / Math.max(1, rect.width)) * SCORE_VIEW_WIDTH;
   }
   const translateX = Number(svg.querySelector('.score-track')?.dataset.translateX || 0);
-  const index = Math.round((localX - translateX - NOTE_START_X) / NOTE_SPACING);
-  return Math.max(0, Math.min(noteCount - 1, index));
+  return nearestScoreIndex(song, localX - translateX);
 }
 
 export function renderScore(
@@ -209,8 +246,8 @@ function updateLoopRegion(svg, song, loop) {
 
   const hasBass = song.clef === 'grand';
   const bottom = hasBass ? BASS_TOP + 60 : 150;
-  const xA = NOTE_START_X + a * NOTE_SPACING - 34;
-  const xB = NOTE_START_X + b * NOTE_SPACING + 34;
+  const xA = scoreEventX(song, a) - 34;
+  const xB = scoreEventX(song, b) + 34;
   const group = create('g', { class: 'score-loop' });
   group.append(create('rect', {
     x: xA, y: 60, width: Math.max(0, xB - xA), height: bottom - 60, rx: 8,
@@ -301,11 +338,14 @@ function buildScore(song) {
     }));
   }
 
+  drawKeySignature(svg, song, false);
+  if (hasBass) drawKeySignature(svg, song, true);
+
   svg.append(create('text', {
     class: 'score-headline',
-    x: 122,
-    y: 77,
-    'font-size': 15,
+    x: 60,
+    y: 50,
+    'font-size': 14,
     'font-weight': 800,
     fill: '#667085',
   }, scoreHeadline(song)));
@@ -337,14 +377,60 @@ function buildScore(song) {
 
   const barBottom = hasBass ? BASS_TOP + 48 : 128;
   const beatsPerBar = effectiveBeatsPerBar(song);
-  const hasMeasureInformation = song.notes.some((event) => Number.isInteger(event.measureIndex));
+  const hasMeasureTimeline = Boolean(song.measures?.length);
+  const hasMeasureInformation = hasMeasureTimeline
+    || song.notes.some((event) => Number.isInteger(event.measureIndex));
   const pickupOffset = song.pickupBeats && beatsPerBar > 0
     ? beatsPerBar - Number(song.pickupBeats)
     : 0;
   let runningBeat = pickupOffset;
 
+  if (hasMeasureTimeline) {
+    song.measures.forEach((measure, measureIndex) => {
+      const boundaryX = scoreXForBeat(measure.beat) - 34;
+      track.append(create('line', {
+        class: 'score-barline',
+        'data-measure': measure.number || measure.index + 1,
+        x1: boundaryX,
+        y1: TREBLE_TOP,
+        x2: boundaryX,
+        y2: barBottom,
+        stroke: '#667085',
+        'stroke-width': 2,
+      }));
+      const previousSignature = song.measures[measureIndex - 1]?.timeSignature
+        || song.timeSignature;
+      if (
+        measureIndex > 0
+        && measure.timeSignature
+        && measure.timeSignature !== previousSignature
+      ) {
+        for (const isBass of hasBass ? [false, true] : [false]) {
+          track.append(create('text', {
+            class: 'score-time-change',
+            x: boundaryX + 9,
+            y: (isBass ? BASS_TOP : TREBLE_TOP) + 31,
+            'font-size': 18,
+            'font-weight': 800,
+            fill: '#172033',
+          }, measure.timeSignature));
+        }
+      }
+    });
+  }
+
+  for (const rest of song.rests || []) {
+    drawRest(
+      track,
+      rest,
+      scoreXForBeat(rest.beat),
+      isOnBassStaff(rest, hasBass),
+    );
+  }
+
+  const previousClefs = new Map();
   song.notes.forEach((event, index) => {
-    const x = NOTE_START_X + index * NOTE_SPACING;
+    const x = scoreEventX(song, index);
     const eventGroup = create('g', {
       class: 'score-event',
       'data-index': index,
@@ -356,7 +442,7 @@ function buildScore(song) {
         || Math.floor(runningBeat / beatsPerBar)
           !== Math.floor((runningBeat - 0.001) / beatsPerBar));
     const crossesBar = hasMeasureInformation ? measureBoundary : inferredBoundary;
-    if (crossesBar) {
+    if (!hasMeasureTimeline && crossesBar) {
       track.append(create('line', {
         class: 'score-barline',
         'data-measure': event.measureNumber || event.measureIndex + 1,
@@ -370,6 +456,22 @@ function buildScore(song) {
     }
 
     const pitches = event.pitches || [event];
+    for (const pitch of pitches) {
+      if (!pitch.clef) continue;
+      const key = `${pitch.partIndex ?? 0}:${pitch.staff ?? 1}`;
+      const previous = previousClefs.get(key);
+      if (previous && previous !== pitch.clef) {
+        eventGroup.append(create('text', {
+          class: 'score-clef-change',
+          x: x - 29,
+          y: (pitch.clef === 'bass' ? BASS_TOP : TREBLE_TOP) + 39,
+          'font-size': 32,
+          'font-family': 'serif',
+          fill: '#172033',
+        }, pitch.clef === 'bass' ? '𝄢' : '𝄞'));
+      }
+      previousClefs.set(key, pitch.clef);
+    }
     const bass = pitches.filter((pitch) => isOnBassStaff(pitch, hasBass));
     const treble = pitches.filter((pitch) => !isOnBassStaff(pitch, hasBass));
 
@@ -392,7 +494,10 @@ function buildScore(song) {
   });
 
   if (song.notes.length) {
-    const finalX = NOTE_START_X + (song.notes.length - 1) * NOTE_SPACING + 34;
+    const lastMeasure = song.measures?.at(-1);
+    const finalX = lastMeasure
+      ? scoreXForBeat(lastMeasure.beat + lastMeasure.duration) - 34
+      : scoreEventX(song, song.notes.length - 1) + 34;
     track.append(create('line', {
       class: 'score-barline score-final-barline',
       x1: finalX,
@@ -540,7 +645,8 @@ function drawEventOnStaff(parent, pitches, x, isBass) {
   });
 
   const shortest = Math.min(...placed.map((pitch) => pitch.duration));
-  if (shortest < 4) {
+  const notation = durationNotation(shortest);
+  if (notation.base < 4) {
     const anchor = stemUp ? heads[heads.length - 1] : heads[0];
     const tip = stemUp ? heads[0].y - 43 : heads[heads.length - 1].y + 43;
     parent.append(create('line', {
@@ -551,10 +657,11 @@ function drawEventOnStaff(parent, pitches, x, isBass) {
       stroke: 'currentColor',
       'stroke-width': 2.4,
     }));
-    if (shortest < 1) {
+    for (let flag = 0; flag < notation.flags; flag += 1) {
+      const flagY = tip + (stemUp ? flag * 9 : -flag * 9);
       const flagPath = stemUp
-        ? `M ${stemX} ${tip} Q ${stemX + 18} ${tip + 9} ${stemX + 5} ${tip + 23}`
-        : `M ${stemX} ${tip} Q ${stemX - 18} ${tip - 9} ${stemX - 5} ${tip - 23}`;
+        ? `M ${stemX} ${flagY} Q ${stemX + 18} ${flagY + 9} ${stemX + 5} ${flagY + 23}`
+        : `M ${stemX} ${flagY} Q ${stemX - 18} ${flagY - 9} ${stemX - 5} ${flagY - 23}`;
       parent.append(create('path', {
         d: flagPath,
         fill: 'none',
@@ -563,6 +670,107 @@ function drawEventOnStaff(parent, pitches, x, isBass) {
       }));
     }
   }
+
+  for (let dot = 0; dot < notation.dots; dot += 1) {
+    parent.append(create('circle', {
+      cx: x + 15 + dot * 7,
+      cy: meanY - 3,
+      r: 2.2,
+      fill: 'currentColor',
+    }));
+  }
+
+  for (const pitch of placed) {
+    if (!pitch.tieStart) continue;
+    const endX = x + Math.max(28, Number(pitch.duration || 0) * BEAT_SPACING);
+    const y = pitch.y + (stemUp ? 15 : -15);
+    parent.append(create('path', {
+      class: 'score-tie',
+      d: `M ${x + 7} ${y} Q ${(x + endX) / 2} ${y + (stemUp ? 13 : -13)} ${endX - 7} ${y}`,
+      fill: 'none',
+      stroke: 'currentColor',
+      'stroke-width': 1.8,
+    }));
+  }
+}
+
+export function durationNotation(duration) {
+  const value = Math.max(1 / 64, Number(duration) || 1);
+  const bases = [4, 2, 1, 0.5, 0.25, 0.125, 0.0625];
+  let best = { base: 1, dots: 0, difference: Number.POSITIVE_INFINITY };
+  for (const base of bases) {
+    let factor = 1;
+    for (let dots = 0; dots <= 2; dots += 1) {
+      const candidate = base * factor;
+      const difference = Math.abs(value - candidate);
+      if (difference < best.difference) best = { base, dots, difference };
+      factor += 1 / (2 ** (dots + 1));
+    }
+  }
+  return {
+    base: best.base,
+    dots: best.dots,
+    flags: best.base < 1 ? Math.max(1, Math.round(Math.log2(1 / best.base))) : 0,
+  };
+}
+
+function drawRest(parent, rest, x, isBass) {
+  const notation = durationNotation(rest.duration);
+  const symbol = notation.base >= 4 ? '𝄻'
+    : notation.base >= 2 ? '𝄼'
+      : notation.base >= 1 ? '𝄽'
+        : notation.base >= 0.5 ? '𝄾'
+          : notation.base >= 0.25 ? '𝄿'
+            : notation.base >= 0.125 ? '𝅀'
+              : '𝅁';
+  const y = (isBass ? BASS_TOP : TREBLE_TOP) + 30;
+  const group = create('g', {
+    class: 'score-rest',
+    'data-beat': rest.beat,
+  });
+  group.append(create('text', {
+    x,
+    y,
+    'text-anchor': 'middle',
+    'font-size': 28,
+    'font-family': 'serif',
+    fill: '#667085',
+  }, symbol));
+  for (let dot = 0; dot < notation.dots; dot += 1) {
+    group.append(create('circle', {
+      cx: x + 13 + dot * 7,
+      cy: y - 6,
+      r: 2,
+      fill: '#667085',
+    }));
+  }
+  parent.append(group);
+}
+
+export function keySignaturePitches(fifths, isBass = false) {
+  const count = Math.min(7, Math.abs(Number(fifths) || 0));
+  if (!count) return [];
+  const sharps = isBass
+    ? ['F3', 'C3', 'G3', 'D3', 'A2', 'E3', 'B2']
+    : ['F5', 'C5', 'G5', 'D5', 'A4', 'E5', 'B4'];
+  const flats = isBass
+    ? ['B2', 'E3', 'A2', 'D3', 'G2', 'C3', 'F2']
+    : ['B4', 'E5', 'A4', 'D5', 'G4', 'C5', 'F4'];
+  return (Number(fifths) > 0 ? sharps : flats).slice(0, count);
+}
+
+function drawKeySignature(svg, song, isBass) {
+  const fifths = Number(song?.keyFifths) || 0;
+  const symbol = fifths > 0 ? '♯' : '♭';
+  keySignaturePitches(fifths, isBass).forEach((pitch, index) => {
+    svg.append(create('text', {
+      class: 'score-key-signature',
+      x: 108 + index * 10,
+      y: noteY(pitch, isBass) + 7,
+      'font-size': 22,
+      fill: '#172033',
+    }, symbol));
+  });
 }
 
 function drawStaff(svg, x, y, width) {

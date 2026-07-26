@@ -25,6 +25,7 @@ const note = (pitch, duration, extra = {}) => {
 const rest = (duration) => note(null, duration, { isRest: true, pitch: null });
 const measure = (items, extra = {}) => ({
   number: "",
+  implicit: false,
   divisions: 0,
   beats: 0,
   beatType: 0,
@@ -62,6 +63,28 @@ test("uma parte só com dois staves continua funcionando", () => {
   assert.deepEqual(score.events[0].notes.map((n) => [n.pitch, n.staff]), [["C3", 2], ["E5", 1]]);
 });
 
+test("a clave explícita vence o número local do staff em partes separadas", () => {
+  const attributes = (type) => ({
+    kind: "attributes",
+    divisions: 1,
+    beats: 4,
+    beatType: 4,
+    staves: 1,
+    clefs: [{ number: 1, type }],
+  });
+  const score = buildScoreEvents({
+    parts: [
+      part([measure([attributes("treble"), note("E5", 4, { staff: 1 })])]),
+      part([measure([attributes("bass"), note("C3", 4, { staff: 1 })])]),
+    ],
+  });
+
+  assert.deepEqual(
+    score.events[0].notes.map((entry) => [entry.pitch, entry.staff, entry.clef]),
+    [["C3", 1, "bass"], ["E5", 1, "treble"]],
+  );
+});
+
 test("ligadura de valor estende a nota em vez de pedir novo ataque", () => {
   const score = buildScoreEvents({
     parts: [part([
@@ -73,6 +96,7 @@ test("ligadura de valor estende a nota em vez de pedir novo ataque", () => {
   assert.equal(score.events.length, 1, "a nota ligada não pode virar dois ataques");
   assert.equal(score.events[0].beat, 0);
   assert.equal(score.events[0].duration, 8);
+  assert.equal(score.events[0].notes[0].tieStart, true);
 });
 
 test("corrente de ligaduras encadeadas soma todas as durações", () => {
@@ -118,6 +142,18 @@ test("compassos ficam alinhados quando uma parte é mais curta", () => {
   assert.equal(score.totalBeats, 8);
 });
 
+test("silêncio final implícito não encurta um compasso completo", () => {
+  const score = buildScoreEvents({
+    parts: [part([
+      measure([note("C4", 2)], { divisions: 1, beats: 4, beatType: 4 }),
+      measure([note("D4", 4)]),
+    ])],
+  });
+
+  assert.equal(score.events[1].beat, 4);
+  assert.equal(score.totalBeats, 8);
+});
+
 test("acordes, ornamentos e pausas respeitam o cursor do compasso", () => {
   const score = buildScoreEvents({
     parts: [part([measure([
@@ -135,13 +171,40 @@ test("acordes, ornamentos e pausas respeitam o cursor do compasso", () => {
   assert.equal(score.events[0].duration, 1);
   assert.equal(score.events[1].beat, 2, "a pausa avança o cursor");
   assert.deepEqual(score.events[1].pitches, ["A4"]);
+  assert.equal(score.rests.length, 1);
+  assert.equal(score.rests[0].beat, 1);
+  assert.equal(score.rests[0].duration, 1);
+});
+
+test("preserva armadura e linha do tempo dos compassos", () => {
+  const score = buildScoreEvents({
+    parts: [part([
+      measure([
+        {
+          kind: "attributes",
+          divisions: 1,
+          beats: 4,
+          beatType: 4,
+          keyFifths: 2,
+          keyMode: "major",
+          clefs: [],
+        },
+        note("D4", 4),
+      ]),
+      measure([note("A4", 4)]),
+    ])],
+  });
+
+  assert.equal(score.keyFifths, 2);
+  assert.equal(score.keyMode, "major");
+  assert.deepEqual(score.measures.map(({ beat, duration }) => [beat, duration]), [[0, 4], [4, 4]]);
 });
 
 test("divisions valem por parte e são herdadas pelos compassos seguintes", () => {
   const score = buildScoreEvents({
     parts: [
       part([
-        measure([note("C4", 480)], { divisions: 480, beats: 4, beatType: 4 }),
+        measure([note("C4", 480)], { divisions: 480, beats: 1, beatType: 4 }),
         measure([note("D4", 480)]),
       ]),
       part([measure([note("C2", 2)], { divisions: 2 })]),
@@ -169,7 +232,12 @@ test("fórmula de compasso é convertida para tempos de semínima", () => {
 test("anacruse é detectada pelo primeiro compasso incompleto", () => {
   const score = buildScoreEvents({
     parts: [part([
-      measure([note("G4", 1)], { divisions: 1, beats: 4, beatType: 4 }),
+      measure([note("G4", 1)], {
+        divisions: 1,
+        beats: 4,
+        beatType: 4,
+        implicit: true,
+      }),
       measure([note("C5", 4)]),
     ])],
   });
