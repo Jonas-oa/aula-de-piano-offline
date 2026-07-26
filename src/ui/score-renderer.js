@@ -1,42 +1,50 @@
-import { noteToMidi, midiToPortuguese } from '../core/music.js';
+import { diatonicStep, noteToMidi, parsePitch } from '../core/music.js';
 
 const NS = 'http://www.w3.org/2000/svg';
-const NATURAL_STEP = { C: 0, D: 1, E: 2, F: 3, G: 4, A: 5, B: 6 };
 
 // Geometria das pautas (coordenadas do viewBox)
 const TREBLE_TOP = 80;
-const BASS_TOP = 210;
+const BASS_TOP = 180;
 const STEP = 6;
 const SCORE_WIDTH = 920;
+const SCORE_VIEW_X = 35;
+const SCORE_VIEW_WIDTH = 850;
 const NOTE_START_X = 180;
-const NOTE_SPACING = 88;
+const BEAT_SPACING = 88;
 const PLAYHEAD_X = 310;
+const VISIBLE_NOTE_COUNT = 10;
 const SCROLL_DURATION_MS = 280;
 const TRACK_ANIMATIONS = new WeakMap();
+const SCORE_EVENT_GROUPS = new WeakMap();
+const STAFF_LINE_SPACING = 12;
 
-// Metadados corretivos para transcrições que ainda usam o formato legado.
-// Für Elise está em 3/8: como as durações do catálogo usam a semínima como 1,
-// cada compasso equivale a 1,5 unidades.
-const SCORE_METADATA = {
-  'fur-elise': { beatsPerBar: 1.5, timeSignature: '3/8' },
-};
+// A mão vem do <staff> do MusicXML quando existe. O corte pelo dó central é só
+// o palpite de reserva: com ele, uma nota grave da mão direita (ou aguda da
+// esquerda) ia parar na clave errada.
+export function isOnBassStaff(pitch, hasBass) {
+  if (!hasBass) return false;
+  if (pitch?.clef === 'bass') return true;
+  if (pitch?.clef === 'treble') return false;
+  if (Number.isFinite(Number(pitch?.staff)) && Number(pitch.staff) > 0) {
+    return Number(pitch.staff) >= 2;
+  }
+  try {
+    return noteToMidi(pitch?.pitch) < 60;
+  } catch {
+    return false;
+  }
+}
 
 export function effectiveBeatsPerBar(song) {
-  const override = SCORE_METADATA[song?.id]?.beatsPerBar;
-  if (Number.isFinite(override)) return override;
-
   if (song?.beatsPerBar !== undefined && song?.beatsPerBar !== null) {
     const configured = Number(song.beatsPerBar);
     return Number.isFinite(configured) ? configured : 0;
   }
-
   return 4;
 }
 
 export function timeSignatureLabel(song) {
   if (song?.timeSignature) return String(song.timeSignature);
-  const override = SCORE_METADATA[song?.id]?.timeSignature;
-  if (override) return override;
 
   const beatsPerBar = effectiveBeatsPerBar(song);
   if (beatsPerBar === 4) return '4/4';
@@ -49,42 +57,261 @@ export function scoreTranslateXForIndex(song, currentIndex = 0) {
   const noteCount = Math.max(0, song?.notes?.length || 0);
   if (!noteCount) return 0;
   const visualIndex = Math.min(Math.max(Number(currentIndex) || 0, 0), noteCount - 1);
-  const currentX = NOTE_START_X + visualIndex * NOTE_SPACING;
+  const currentX = scoreEventX(song, visualIndex);
   return Math.min(0, PLAYHEAD_X - currentX);
 }
 
-export function renderScore(container, song, currentIndex = 0, showNames = true) {
-  const scoreKey = `${song.id}:${showNames ? 1 : 0}`;
+function eventBeat(event, index) {
+  return Number.isFinite(Number(event?.beat)) ? Number(event.beat) : index;
+}
+
+export function scoreXForBeat(beat) {
+  return NOTE_START_X + Math.max(0, Number(beat) || 0) * BEAT_SPACING;
+}
+
+export function scoreEventX(song, index) {
+  return scoreXForBeat(eventBeat(song?.notes?.[index], index));
+}
+
+export function scoreVerticalBounds(song, currentIndex = 0) {
+  const hasBass = song?.clef === 'grand';
+  let minY = 32;
+  let maxY = hasBass ? BASS_TOP + 68 : TREBLE_TOP + 78;
+  const notes = song?.notes || [];
+  const start = Math.max(0, Math.min(Number(currentIndex) || 0, Math.max(0, notes.length - 1)) - 1);
+  const visible = notes.slice(start, start + VISIBLE_NOTE_COUNT);
+
+  visible.forEach((event) => {
+    (event.pitches || [event]).forEach((pitch) => {
+      if (!pitch?.pitch) return;
+      try {
+        const y = noteY(pitch.pitch, isOnBassStaff(pitch, hasBass));
+        minY = Math.min(minY, y - 28);
+        maxY = Math.max(maxY, y + 28);
+      } catch {
+        // Uma altura inválida não deve comprometer o restante da pauta.
+      }
+    });
+  });
+
+  const minimumHeight = hasBass ? 216 : 176;
+  if (maxY - minY < minimumHeight) {
+    const padding = (minimumHeight - (maxY - minY)) / 2;
+    minY -= padding;
+    maxY += padding;
+  }
+  return {
+    minY: Math.floor(minY),
+    maxY: Math.ceil(maxY),
+    height: Math.ceil(maxY) - Math.floor(minY),
+  };
+}
+
+export function scoreViewBox(song, currentIndex = 0) {
+  const { minY, height } = scoreVerticalBounds(song, currentIndex);
+  return `${SCORE_VIEW_X} ${minY} ${SCORE_VIEW_WIDTH} ${height}`;
+}
+
+// Cabeçalho da pauta. Peças sem tonalidade ou sem fórmula de compasso não devem
+// deixar separadores soltos como " · 72 bpm".
+export function scoreHeadline(song) {
+  return [
+    song?.key,
+    Number.isFinite(Number(song?.bpm)) ? `${song.bpm} bpm` : "",
+    timeSignatureLabel(song),
+  ].filter(Boolean).join(' · ');
+}
+
+export function isExplicitMeasureBoundary(notes, index) {
+  const event = notes?.[index];
+  if (!Number.isInteger(event?.measureIndex)) return false;
+  return index === 0 || event.measureIndex !== notes[index - 1]?.measureIndex;
+}
+
+export function scoreIndexesToRefresh(noteCount, previousIndex, currentIndex) {
+  const total = Math.max(0, Number(noteCount) || 0);
+  if (!total) return [];
+  const current = Math.max(0, Math.min(Number(currentIndex) || 0, total));
+  if (!Number.isInteger(previousIndex)) {
+    return Array.from({ length: total }, (_, index) => index);
+  }
+  const previous = Math.max(0, Math.min(previousIndex, total));
+  const first = Math.max(0, Math.min(previous, current) - 1);
+  const last = Math.min(total - 1, Math.max(previous, current));
+  return Array.from({ length: last - first + 1 }, (_, offset) => first + offset);
+}
+
+export function bassClefGeometry() {
+  const staffLines = Array.from(
+    { length: 5 },
+    (_, index) => BASS_TOP + index * STAFF_LINE_SPACING,
+  );
+  const fLineY = staffLines[1]; // quarta linha contando de baixo para cima
+  return {
+    staffLines,
+    fLineY,
+    dotYs: [fLineY - STAFF_LINE_SPACING / 2, fLineY + STAFF_LINE_SPACING / 2],
+  };
+}
+
+export function scoreIndexForDrag(startIndex, deltaClientX, svgWidth, noteCount, song = null) {
+  const total = Math.max(0, Number(noteCount) || song?.notes?.length || 0);
+  if (!total) return 0;
+  const width = Math.max(1, Number(svgWidth) || 1);
+  const scoreUnitsPerPixel = SCORE_VIEW_WIDTH / width;
+  if (song?.notes?.length) {
+    const start = Math.max(0, Math.min(total - 1, Number(startIndex) || 0));
+    const targetX = scoreEventX(song, start)
+      - (Number(deltaClientX) || 0) * scoreUnitsPerPixel;
+    return nearestScoreIndex(song, targetX);
+  }
+  const movedNotes = Math.round(
+    (Number(deltaClientX) || 0) * scoreUnitsPerPixel / BEAT_SPACING,
+  );
+  return Math.max(0, Math.min(total - 1, Number(startIndex) - movedNotes));
+}
+
+function nearestScoreIndex(song, scoreX) {
+  const notes = song?.notes || [];
+  if (!notes.length) return 0;
+  let low = 0;
+  let high = notes.length - 1;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (scoreEventX(song, middle) < scoreX) low = middle + 1;
+    else high = middle;
+  }
+  if (low > 0) {
+    const before = scoreEventX(song, low - 1);
+    const after = scoreEventX(song, low);
+    if (Math.abs(scoreX - before) <= Math.abs(after - scoreX)) return low - 1;
+  }
+  return low;
+}
+
+export function scoreIndexAtClientX(svg, song, clientX) {
+  const noteCount = song?.notes?.length || 0;
+  if (!svg || !noteCount) return 0;
+  let localX;
+  try {
+    const point = svg.createSVGPoint();
+    point.x = clientX;
+    point.y = 0;
+    localX = point.matrixTransform(svg.getScreenCTM().inverse()).x;
+  } catch {
+    const rect = svg.getBoundingClientRect();
+    localX = SCORE_VIEW_X
+      + ((clientX - rect.left) / Math.max(1, rect.width)) * SCORE_VIEW_WIDTH;
+  }
+  const translateX = Number(svg.querySelector('.score-track')?.dataset.translateX || 0);
+  return nearestScoreIndex(song, localX - translateX);
+}
+
+export function renderScore(
+  container,
+  song,
+  currentIndex = 0,
+  loop = null,
+  { immediate = false } = {},
+) {
+  const scoreKey = String(song.id);
   let svg = container.querySelector('svg[data-score-key]');
 
   if (!svg || svg.dataset.scoreKey !== scoreKey) {
     container.replaceChildren();
-    svg = buildScore(song, showNames);
+    svg = buildScore(song);
     container.append(svg);
   }
 
-  updateScoreState(svg, song, currentIndex);
+  updateLoopRegion(svg, song, loop);
+  updateScoreState(svg, song, currentIndex, { immediate });
 }
 
-function buildScore(song, showNames) {
+// Faixa de repetição A–B, desenhada dentro do track para rolar junto das notas.
+function updateLoopRegion(svg, song, loop) {
+  const track = svg.querySelector('.score-track');
+  if (!track) return;
+  const loopKey = loop && loop.a != null && loop.b != null
+    ? `${loop.a}:${loop.b}:${loop.count || 0}`
+    : '';
+  if (svg.dataset.loopKey === loopKey) return;
+  svg.dataset.loopKey = loopKey;
+  track.querySelector('.score-loop')?.remove();
+
+  const noteCount = song.notes?.length || 0;
+  if (!loop || loop.a == null || loop.b == null || !noteCount) return;
+  const a = Math.max(0, Math.min(loop.a, loop.b, noteCount - 1));
+  const b = Math.min(noteCount - 1, Math.max(loop.a, loop.b));
+  if (b < a) return;
+
   const hasBass = song.clef === 'grand';
-  const height = hasBass ? 430 : 310;
-  const svg = create('svg', {
-    viewBox: `0 0 ${SCORE_WIDTH} ${height}`,
-    role: 'presentation',
-    'data-score-key': `${song.id}:${showNames ? 1 : 0}`,
+  const bottom = hasBass ? BASS_TOP + 60 : 150;
+  const xA = scoreEventX(song, a) - 34;
+  const xB = scoreEventX(song, b) + 34;
+  const group = create('g', { class: 'score-loop' });
+  group.append(create('rect', {
+    x: xA, y: 60, width: Math.max(0, xB - xA), height: bottom - 60, rx: 8,
+    fill: 'rgba(215,168,75,0.15)',
+  }));
+  [[xA, 'A'], [xB, 'B']].forEach(([x, label]) => {
+    const handle = create('g', {
+      class: 'score-loop-handle',
+      'data-loop-point': label.toLowerCase(),
+      role: 'button',
+      'aria-label': `Mover ponto ${label}`,
+    });
+    handle.append(create('rect', {
+      x: x - 25, y: 30, width: 50, height: bottom - 24, rx: 12,
+      fill: 'transparent',
+    }));
+    handle.append(create('line', { x1: x, y1: 54, x2: x, y2: bottom, stroke: '#d7a84b', 'stroke-width': 3 }));
+    handle.append(create('rect', { x: x - 15, y: 40, width: 30, height: 22, rx: 6, fill: '#d7a84b' }));
+    handle.append(create('text', {
+      x, y: 56, 'text-anchor': 'middle', 'font-size': 14, 'font-weight': 800, fill: '#1a1400',
+    }, label));
+    group.append(handle);
   });
-  svg.dataset.focusViewBox = hasBass ? '35 20 850 375' : '35 20 850 245';
-  svg.append(create('rect', { x: 0, y: 0, width: SCORE_WIDTH, height, fill: '#fbfcfd' }));
+  if (loop.count) {
+    const mid = (xA + xB) / 2;
+    group.append(create('rect', { x: mid - 26, y: 40, width: 52, height: 22, rx: 11, fill: '#33240a' }));
+    group.append(create('text', {
+      x: mid, y: 56, 'text-anchor': 'middle', 'font-size': 12, 'font-weight': 700, fill: '#f0cd85',
+    }, `↻ ${loop.count}`));
+  }
+  track.prepend(group);
+}
+
+function buildScore(song) {
+  const hasBass = song.clef === 'grand';
+  // A pauta é sempre compacta na vertical: os nomes das notas ficam no teclado
+  // de apoio, o que devolve largura útil para a partitura em paisagem.
+  const height = hasBass ? 352 : 250;
+  const svg = create('svg', {
+    viewBox: scoreViewBox(song, 0),
+    role: 'presentation',
+    preserveAspectRatio: 'xMidYMid meet',
+    'data-score-key': String(song.id),
+  });
+  // O fundo é reposicionado em updateScoreState: o enquadramento vertical muda
+  // conforme as notas visíveis, e uma altura fixa deixava faixas transparentes
+  // quando havia linhas suplementares agudas.
+  svg.append(create('rect', {
+    class: 'score-background',
+    x: 0,
+    y: 0,
+    width: SCORE_WIDTH,
+    height,
+    fill: '#fbfcfd',
+  }));
 
   const clipId = `score-window-${safeId(song.id)}`;
   const defs = create('defs');
   const clipPath = create('clipPath', { id: clipId, clipPathUnits: 'userSpaceOnUse' });
   clipPath.append(create('rect', {
     x: 145,
-    y: 42,
+    y: -400,
     width: 735,
-    height: hasBass ? 330 : 220,
+    height: 1000,
   }));
   defs.append(clipPath);
   svg.append(defs);
@@ -100,13 +327,7 @@ function buildScore(song, showNames) {
 
   if (hasBass) {
     drawStaff(svg, 55, BASS_TOP, 820);
-    svg.append(create('text', {
-      x: 66,
-      y: 238,
-      'font-size': 46,
-      'font-family': 'serif',
-      fill: '#172033',
-    }, '𝄢'));
+    drawBassClef(svg, 68);
     svg.append(create('line', {
       x1: 55,
       y1: TREBLE_TOP,
@@ -117,14 +338,17 @@ function buildScore(song, showNames) {
     }));
   }
 
-  const signature = timeSignatureLabel(song);
+  drawKeySignature(svg, song, false);
+  if (hasBass) drawKeySignature(svg, song, true);
+
   svg.append(create('text', {
-    x: 122,
-    y: 77,
-    'font-size': 15,
+    class: 'score-headline',
+    x: 60,
+    y: 50,
+    'font-size': 14,
     'font-weight': 800,
     fill: '#667085',
-  }, `${song.key} · ${song.bpm} bpm${signature ? ` · ${signature}` : ''}`));
+  }, scoreHeadline(song)));
 
   // A linha fica parada enquanto as notas deslizam por baixo dela.
   svg.append(create('line', {
@@ -151,47 +375,111 @@ function buildScore(song, showNames) {
   viewport.append(track);
   svg.append(viewport);
 
-  const namesY = hasBass ? 320 : 205;
-  const durationY = hasBass ? 348 : 235;
   const barBottom = hasBass ? BASS_TOP + 48 : 128;
   const beatsPerBar = effectiveBeatsPerBar(song);
+  const hasMeasureTimeline = Boolean(song.measures?.length);
+  const hasMeasureInformation = hasMeasureTimeline
+    || song.notes.some((event) => Number.isInteger(event.measureIndex));
   const pickupOffset = song.pickupBeats && beatsPerBar > 0
     ? beatsPerBar - Number(song.pickupBeats)
     : 0;
   let runningBeat = pickupOffset;
 
+  if (hasMeasureTimeline) {
+    song.measures.forEach((measure, measureIndex) => {
+      const boundaryX = scoreXForBeat(measure.beat) - 34;
+      track.append(create('line', {
+        class: 'score-barline',
+        'data-measure': measure.number || measure.index + 1,
+        x1: boundaryX,
+        y1: TREBLE_TOP,
+        x2: boundaryX,
+        y2: barBottom,
+        stroke: '#667085',
+        'stroke-width': 2,
+      }));
+      const previousSignature = song.measures[measureIndex - 1]?.timeSignature
+        || song.timeSignature;
+      if (
+        measureIndex > 0
+        && measure.timeSignature
+        && measure.timeSignature !== previousSignature
+      ) {
+        for (const isBass of hasBass ? [false, true] : [false]) {
+          track.append(create('text', {
+            class: 'score-time-change',
+            x: boundaryX + 9,
+            y: (isBass ? BASS_TOP : TREBLE_TOP) + 31,
+            'font-size': 18,
+            'font-weight': 800,
+            fill: '#172033',
+          }, measure.timeSignature));
+        }
+      }
+    });
+  }
+
+  for (const rest of song.rests || []) {
+    drawRest(
+      track,
+      rest,
+      scoreXForBeat(rest.beat),
+      isOnBassStaff(rest, hasBass),
+    );
+  }
+
+  const previousClefs = new Map();
   song.notes.forEach((event, index) => {
-    const x = NOTE_START_X + index * NOTE_SPACING;
+    const x = scoreEventX(song, index);
     const eventGroup = create('g', {
       class: 'score-event',
       'data-index': index,
     });
 
-    const crossesBar = beatsPerBar > 0
+    const measureBoundary = isExplicitMeasureBoundary(song.notes, index);
+    const inferredBoundary = beatsPerBar > 0
       && ((index === 0 && !song.pickupBeats)
         || Math.floor(runningBeat / beatsPerBar)
           !== Math.floor((runningBeat - 0.001) / beatsPerBar));
-    if (crossesBar) {
+    const crossesBar = hasMeasureInformation ? measureBoundary : inferredBoundary;
+    if (!hasMeasureTimeline && crossesBar) {
       track.append(create('line', {
+        class: 'score-barline',
+        'data-measure': event.measureNumber || event.measureIndex + 1,
         x1: x - 34,
-        y1: 80,
+        y1: TREBLE_TOP,
         x2: x - 34,
         y2: barBottom,
-        stroke: '#aeb8c4',
-        'stroke-width': 1.5,
+        stroke: '#667085',
+        'stroke-width': 2,
       }));
     }
 
     const pitches = event.pitches || [event];
-    const treble = hasBass ? pitches.filter((pitch) => noteToMidi(pitch.pitch) >= 60) : pitches;
-    const bass = hasBass ? pitches.filter((pitch) => noteToMidi(pitch.pitch) < 60) : [];
+    for (const pitch of pitches) {
+      if (!pitch.clef) continue;
+      const key = `${pitch.partIndex ?? 0}:${pitch.staff ?? 1}`;
+      const previous = previousClefs.get(key);
+      if (previous && previous !== pitch.clef) {
+        eventGroup.append(create('text', {
+          class: 'score-clef-change',
+          x: x - 29,
+          y: (pitch.clef === 'bass' ? BASS_TOP : TREBLE_TOP) + 39,
+          'font-size': 32,
+          'font-family': 'serif',
+          fill: '#172033',
+        }, pitch.clef === 'bass' ? '𝄢' : '𝄞'));
+      }
+      previousClefs.set(key, pitch.clef);
+    }
+    const bass = pitches.filter((pitch) => isOnBassStaff(pitch, hasBass));
+    const treble = pitches.filter((pitch) => !isOnBassStaff(pitch, hasBass));
 
     const haloGroup = create('g', { class: 'score-current-halo', visibility: 'hidden' });
     pitches.forEach((pitch) => {
-      const onBass = hasBass && noteToMidi(pitch.pitch) < 60;
       haloGroup.append(create('circle', {
         cx: x,
-        cy: noteY(pitch.pitch, onBass),
+        cy: noteY(pitch.pitch, isOnBassStaff(pitch, hasBass)),
         r: 22,
         fill: 'rgba(215,168,75,0.18)',
       }));
@@ -201,47 +489,54 @@ function buildScore(song, showNames) {
     drawEventOnStaff(eventGroup, treble, x, false);
     drawEventOnStaff(eventGroup, bass, x, true);
 
-    if (showNames) {
-      const label = pitches.map((pitch) => midiToPortuguese(noteToMidi(pitch.pitch))).join(' + ');
-      eventGroup.append(create('text', {
-        x,
-        y: namesY,
-        'text-anchor': 'middle',
-        'font-size': pitches.length > 1 ? 11 : 14,
-        'font-weight': 750,
-        fill: 'currentColor',
-      }, label));
-    }
-
-    eventGroup.append(create('text', {
-      x,
-      y: durationY,
-      'text-anchor': 'middle',
-      'font-size': 12,
-      fill: '#8993a2',
-    }, durationSymbol(event.duration)));
-
     track.append(eventGroup);
     runningBeat += Number(event.duration) || 0;
   });
 
-  svg.append(create('text', {
-    x: 55,
-    y: height - 28,
-    'font-size': 13,
-    fill: '#667085',
-  }, 'Dedilhado sugerido junto às notas · leitura simplificada'));
+  if (song.notes.length) {
+    const lastMeasure = song.measures?.at(-1);
+    const finalX = lastMeasure
+      ? scoreXForBeat(lastMeasure.beat + lastMeasure.duration) - 34
+      : scoreEventX(song, song.notes.length - 1) + 34;
+    track.append(create('line', {
+      class: 'score-barline score-final-barline',
+      x1: finalX,
+      y1: TREBLE_TOP,
+      x2: finalX,
+      y2: barBottom,
+      stroke: '#172033',
+      'stroke-width': 3,
+    }));
+  }
 
   return svg;
 }
 
-function updateScoreState(svg, song, currentIndex) {
+function updateScoreState(svg, song, currentIndex, { immediate = false } = {}) {
   const completedAll = currentIndex >= song.notes.length;
-
-  svg.querySelectorAll('.score-event').forEach((group) => {
-    const index = Number(group.dataset.index);
-    const isCurrent = !completedAll && index === currentIndex;
-    const isCompleted = completedAll || index < currentIndex;
+  const bounds = scoreVerticalBounds(song, currentIndex);
+  svg.setAttribute('viewBox', `${SCORE_VIEW_X} ${bounds.minY} ${SCORE_VIEW_WIDTH} ${bounds.height}`);
+  // O fundo acompanha o enquadramento para não sobrar faixa transparente.
+  const background = svg.querySelector('.score-background');
+  if (background) {
+    background.setAttribute('y', String(bounds.minY));
+    background.setAttribute('height', String(bounds.height));
+  }
+  let groups = SCORE_EVENT_GROUPS.get(svg);
+  if (!groups) {
+    groups = [...svg.querySelectorAll('.score-event')];
+    SCORE_EVENT_GROUPS.set(svg, groups);
+  }
+  const previousIndex = Number.isInteger(Number(svg.dataset.currentIndex))
+    ? Number(svg.dataset.currentIndex)
+    : null;
+  svg.dataset.currentIndex = String(currentIndex);
+  scoreIndexesToRefresh(groups.length, previousIndex, currentIndex).forEach((groupIndex) => {
+    const group = groups[groupIndex];
+    if (!group) return;
+    const eventIndex = Number(group.dataset.index);
+    const isCurrent = !completedAll && eventIndex === currentIndex;
+    const isCompleted = completedAll || eventIndex < currentIndex;
     const color = isCurrent ? '#d7a84b' : isCompleted ? '#177a4b' : '#172033';
     group.style.color = color;
     group.querySelector('.score-current-halo')?.setAttribute('visibility', isCurrent ? 'visible' : 'hidden');
@@ -252,7 +547,15 @@ function updateScoreState(svg, song, currentIndex) {
 
   const track = svg.querySelector('.score-track');
   if (!track) return;
-  animateTrackTo(track, scoreTranslateXForIndex(song, currentIndex));
+  const targetX = scoreTranslateXForIndex(song, currentIndex);
+  if (immediate) {
+    const activeFrame = TRACK_ANIMATIONS.get(track);
+    if (activeFrame && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(activeFrame);
+    TRACK_ANIMATIONS.delete(track);
+    setTrackTranslate(track, targetX);
+  } else {
+    animateTrackTo(track, targetX);
+  }
 }
 
 function animateTrackTo(track, targetX) {
@@ -342,7 +645,8 @@ function drawEventOnStaff(parent, pitches, x, isBass) {
   });
 
   const shortest = Math.min(...placed.map((pitch) => pitch.duration));
-  if (shortest < 4) {
+  const notation = durationNotation(shortest);
+  if (notation.base < 4) {
     const anchor = stemUp ? heads[heads.length - 1] : heads[0];
     const tip = stemUp ? heads[0].y - 43 : heads[heads.length - 1].y + 43;
     parent.append(create('line', {
@@ -353,10 +657,11 @@ function drawEventOnStaff(parent, pitches, x, isBass) {
       stroke: 'currentColor',
       'stroke-width': 2.4,
     }));
-    if (shortest < 1) {
+    for (let flag = 0; flag < notation.flags; flag += 1) {
+      const flagY = tip + (stemUp ? flag * 9 : -flag * 9);
       const flagPath = stemUp
-        ? `M ${stemX} ${tip} Q ${stemX + 18} ${tip + 9} ${stemX + 5} ${tip + 23}`
-        : `M ${stemX} ${tip} Q ${stemX - 18} ${tip - 9} ${stemX - 5} ${tip - 23}`;
+        ? `M ${stemX} ${flagY} Q ${stemX + 18} ${flagY + 9} ${stemX + 5} ${flagY + 23}`
+        : `M ${stemX} ${flagY} Q ${stemX - 18} ${flagY - 9} ${stemX - 5} ${flagY - 23}`;
       parent.append(create('path', {
         d: flagPath,
         fill: 'none',
@@ -365,6 +670,107 @@ function drawEventOnStaff(parent, pitches, x, isBass) {
       }));
     }
   }
+
+  for (let dot = 0; dot < notation.dots; dot += 1) {
+    parent.append(create('circle', {
+      cx: x + 15 + dot * 7,
+      cy: meanY - 3,
+      r: 2.2,
+      fill: 'currentColor',
+    }));
+  }
+
+  for (const pitch of placed) {
+    if (!pitch.tieStart) continue;
+    const endX = x + Math.max(28, Number(pitch.duration || 0) * BEAT_SPACING);
+    const y = pitch.y + (stemUp ? 15 : -15);
+    parent.append(create('path', {
+      class: 'score-tie',
+      d: `M ${x + 7} ${y} Q ${(x + endX) / 2} ${y + (stemUp ? 13 : -13)} ${endX - 7} ${y}`,
+      fill: 'none',
+      stroke: 'currentColor',
+      'stroke-width': 1.8,
+    }));
+  }
+}
+
+export function durationNotation(duration) {
+  const value = Math.max(1 / 64, Number(duration) || 1);
+  const bases = [4, 2, 1, 0.5, 0.25, 0.125, 0.0625];
+  let best = { base: 1, dots: 0, difference: Number.POSITIVE_INFINITY };
+  for (const base of bases) {
+    let factor = 1;
+    for (let dots = 0; dots <= 2; dots += 1) {
+      const candidate = base * factor;
+      const difference = Math.abs(value - candidate);
+      if (difference < best.difference) best = { base, dots, difference };
+      factor += 1 / (2 ** (dots + 1));
+    }
+  }
+  return {
+    base: best.base,
+    dots: best.dots,
+    flags: best.base < 1 ? Math.max(1, Math.round(Math.log2(1 / best.base))) : 0,
+  };
+}
+
+function drawRest(parent, rest, x, isBass) {
+  const notation = durationNotation(rest.duration);
+  const symbol = notation.base >= 4 ? '𝄻'
+    : notation.base >= 2 ? '𝄼'
+      : notation.base >= 1 ? '𝄽'
+        : notation.base >= 0.5 ? '𝄾'
+          : notation.base >= 0.25 ? '𝄿'
+            : notation.base >= 0.125 ? '𝅀'
+              : '𝅁';
+  const y = (isBass ? BASS_TOP : TREBLE_TOP) + 30;
+  const group = create('g', {
+    class: 'score-rest',
+    'data-beat': rest.beat,
+  });
+  group.append(create('text', {
+    x,
+    y,
+    'text-anchor': 'middle',
+    'font-size': 28,
+    'font-family': 'serif',
+    fill: '#667085',
+  }, symbol));
+  for (let dot = 0; dot < notation.dots; dot += 1) {
+    group.append(create('circle', {
+      cx: x + 13 + dot * 7,
+      cy: y - 6,
+      r: 2,
+      fill: '#667085',
+    }));
+  }
+  parent.append(group);
+}
+
+export function keySignaturePitches(fifths, isBass = false) {
+  const count = Math.min(7, Math.abs(Number(fifths) || 0));
+  if (!count) return [];
+  const sharps = isBass
+    ? ['F3', 'C3', 'G3', 'D3', 'A2', 'E3', 'B2']
+    : ['F5', 'C5', 'G5', 'D5', 'A4', 'E5', 'B4'];
+  const flats = isBass
+    ? ['B2', 'E3', 'A2', 'D3', 'G2', 'C3', 'F2']
+    : ['B4', 'E5', 'A4', 'D5', 'G4', 'C5', 'F4'];
+  return (Number(fifths) > 0 ? sharps : flats).slice(0, count);
+}
+
+function drawKeySignature(svg, song, isBass) {
+  const fifths = Number(song?.keyFifths) || 0;
+  const symbol = fifths > 0 ? '♯' : '♭';
+  keySignaturePitches(fifths, isBass).forEach((pitch, index) => {
+    svg.append(create('text', {
+      class: 'score-key-signature',
+      x: 108 + index * 10,
+      y: noteY(pitch, isBass) + 7,
+      'font-size': 22,
+      fill: '#172033',
+    }, symbol));
+  });
 }
 
 function drawStaff(svg, x, y, width) {
@@ -382,9 +788,50 @@ function drawStaff(svg, x, y, width) {
   svg.append(create('line', { x1: x + width, y1: y, x2: x + width, y2: y + 48, stroke: '#172033', 'stroke-width': 2 }));
 }
 
+function drawBassClef(svg, x) {
+  const { fLineY, dotYs } = bassClefGeometry();
+  const group = create('g', {
+    class: 'bass-clef',
+    'data-f-line-y': fLineY,
+    fill: 'none',
+    stroke: '#172033',
+    'stroke-linecap': 'round',
+    'stroke-linejoin': 'round',
+  });
+  group.append(create('ellipse', {
+    cx: x + 4,
+    cy: fLineY,
+    rx: 7,
+    ry: 6,
+    fill: '#172033',
+    stroke: 'none',
+  }));
+  group.append(create('path', {
+    d: `M ${x + 5} ${fLineY - 6}
+        C ${x + 28} ${fLineY - 22}, ${x + 42} ${fLineY - 7}, ${x + 34} ${fLineY + 11}
+        C ${x + 29} ${fLineY + 23}, ${x + 18} ${fLineY + 31}, ${x - 2} ${fLineY + 39}
+        C ${x + 13} ${fLineY + 27}, ${x + 23} ${fLineY + 15}, ${x + 25} ${fLineY + 4}
+        C ${x + 27} ${fLineY - 5}, ${x + 18} ${fLineY - 12}, ${x + 5} ${fLineY - 6}`,
+    'stroke-width': 4.8,
+  }));
+  dotYs.forEach((cy) => {
+    group.append(create('circle', {
+      cx: x + 47,
+      cy,
+      r: 3.4,
+      fill: '#172033',
+      stroke: 'none',
+    }));
+  });
+  svg.append(group);
+}
+
+const ACCIDENTAL_SYMBOL = { '#': '♯', b: '♭', '##': '𝄪', x: '𝄪', bb: '𝄫' };
+
 function drawAccidental(parent, pitch, x, y) {
-  if (pitch.includes('#')) parent.append(create('text', { x, y, 'font-size': 22, fill: 'currentColor' }, '♯'));
-  if (pitch.includes('b')) parent.append(create('text', { x, y, 'font-size': 22, fill: 'currentColor' }, '♭'));
+  const symbol = ACCIDENTAL_SYMBOL[parsePitch(pitch)?.accidental];
+  if (!symbol) return;
+  parent.append(create('text', { x, y, 'font-size': 22, fill: 'currentColor' }, symbol));
 }
 
 function drawLedgerLines(parent, x, y, isBass) {
@@ -407,28 +854,14 @@ function drawLedgerLines(parent, x, y, isBass) {
   })));
 }
 
-function diatonicStep(pitch) {
-  const match = /^([A-G])(?:#|b)?(-?\d)$/.exec(pitch);
-  return Number(match[2]) * 7 + NATURAL_STEP[match[1]];
-}
-
-function noteY(pitch, isBass = false) {
+export function noteY(pitch, isBass = false) {
   const step = diatonicStep(pitch);
   if (isBass) {
-    const g2 = 2 * 7 + NATURAL_STEP.G;
+    const g2 = diatonicStep('G2');
     return BASS_TOP + 48 - (step - g2) * STEP;
   }
-  const e4 = 4 * 7 + NATURAL_STEP.E;
+  const e4 = diatonicStep('E4');
   return TREBLE_TOP + 48 - (step - e4) * STEP;
-}
-
-function durationSymbol(duration) {
-  if (duration >= 4) return '4 tempos';
-  if (duration >= 2) return '2 tempos';
-  if (duration >= 1) return '1 tempo';
-  if (duration >= 0.5) return '½ tempo';
-  if (duration >= 0.25) return '¼ de tempo';
-  return 'subdivisão';
 }
 
 function safeId(value) {

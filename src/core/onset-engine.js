@@ -1,7 +1,26 @@
+// Quadro de análise. O reconhecimento de altura quer uma janela longa (quanto
+// maior, melhor separa semitons graves); o detector de ataque quer uma janela
+// curta (quanto menor, mais cedo percebe a batida). Em vez de escolher um meio
+// termo ruim para os dois, usamos o quadro inteiro para a altura e só a cauda
+// mais recente para o ataque.
+const FRAME_SIZE = 8192;      // ~170 ms a 48 kHz
+const ONSET_TAIL = 2048;      // ~43 ms mais recentes
+const POLL_INTERVAL_MS = 12;  // cadência própria, independente da tela
+const LEVEL_INTERVAL_MS = 50; // o medidor não precisa de mais que isso
+
+function rmsOf(samples) {
+  let squares = 0;
+  for (let index = 0; index < samples.length; index += 1) {
+    squares += samples[index] * samples[index];
+  }
+  return Math.sqrt(squares / samples.length);
+}
+
 export class OnsetEngine {
-  constructor({ onOnset, onLevel, onError } = {}) {
+  constructor({ onOnset, onLevel, onSamples, onError } = {}) {
     this.onOnset = onOnset || (() => {});
     this.onLevel = onLevel || (() => {});
+    this.onSamples = onSamples || (() => {});
     this.onError = onError || (() => {});
     this.running = false;
     this.context = null;
@@ -9,10 +28,12 @@ export class OnsetEngine {
     this.source = null;
     this.analyser = null;
     this.buffer = null;
-    this.frameId = null;
+    this.onsetTail = null;
+    this.timerId = null;
     this.floor = 0.006;
     this.previousRms = 0;
     this.lastOnsetAt = -Infinity;
+    this.lastLevelAt = -Infinity;
   }
 
   async start() {
@@ -37,12 +58,13 @@ export class OnsetEngine {
       await this.context.resume();
       this.source = this.context.createMediaStreamSource(this.stream);
       this.analyser = this.context.createAnalyser();
-      this.analyser.fftSize = 2048;
+      this.analyser.fftSize = FRAME_SIZE;
       this.analyser.smoothingTimeConstant = 0;
       this.buffer = new Float32Array(this.analyser.fftSize);
+      this.onsetTail = this.buffer.subarray(this.buffer.length - ONSET_TAIL);
       this.source.connect(this.analyser);
       this.running = true;
-      this.#loop();
+      this.#tick();
     } catch (error) {
       this.onError(error);
       throw error;
@@ -51,8 +73,8 @@ export class OnsetEngine {
 
   async stop() {
     this.running = false;
-    if (this.frameId) cancelAnimationFrame(this.frameId);
-    this.frameId = null;
+    if (this.timerId !== null) clearTimeout(this.timerId);
+    this.timerId = null;
     this.stream?.getTracks().forEach((track) => track.stop());
     this.source?.disconnect();
     this.analyser?.disconnect();
@@ -62,15 +84,20 @@ export class OnsetEngine {
     this.source = null;
     this.analyser = null;
     this.buffer = null;
+    this.onsetTail = null;
+    this.previousRms = 0;
+    this.lastOnsetAt = -Infinity;
   }
 
-  #loop = () => {
+  // A cadência é própria, e não a da tela. Com requestAnimationFrame a escuta
+  // parava junto com o desenho — justamente quando o aparelho fica apoiado no
+  // piano, com a tela escurecendo — e variava entre telas de 60 e 120 Hz.
+  #tick = () => {
     if (!this.running || !this.analyser || !this.buffer) return;
 
     this.analyser.getFloatTimeDomainData(this.buffer);
-    let sum = 0;
-    for (const value of this.buffer) sum += value * value;
-    const rms = Math.sqrt(sum / this.buffer.length);
+    const now = performance.now();
+    const rms = rmsOf(this.onsetTail);
 
     if (rms < this.floor * 1.7) {
       this.floor = this.floor * 0.985 + rms * 0.015;
@@ -79,20 +106,23 @@ export class OnsetEngine {
     }
 
     const rise = rms - this.previousRms;
-    const now = performance.now();
     const threshold = Math.max(0.014, this.floor * 2.7);
     const isAttack = rms > threshold
       && rise > Math.max(0.0045, this.floor * 0.65)
       && now - this.lastOnsetAt > 75;
 
-    this.onLevel(Math.min(1, rms / Math.max(threshold * 2.5, 0.04)));
+    if (now - this.lastLevelAt >= LEVEL_INTERVAL_MS) {
+      this.lastLevelAt = now;
+      this.onLevel(Math.min(1, rms / Math.max(threshold * 2.5, 0.04)));
+    }
+    this.onSamples(this.buffer, this.context.sampleRate, now);
     if (isAttack) {
       this.lastOnsetAt = now;
       this.onOnset(now);
     }
 
     this.previousRms = rms;
-    this.frameId = requestAnimationFrame(this.#loop);
+    this.timerId = setTimeout(this.#tick, POLL_INTERVAL_MS);
   };
 }
 

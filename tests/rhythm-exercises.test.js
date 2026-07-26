@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { rhythmExercises, parseRhythmPattern, pitchToMidi } from "../src/data/rhythm-exercises.js";
+import { rhythmExercises, parseRhythmPattern } from "../src/data/rhythm-exercises.js";
+import { noteToMidi } from "../src/core/music.js";
 
 test("mantém 24 exercícios rítmicos reais e de escolha livre", () => {
   assert.equal(rhythmExercises.length, 24);
@@ -29,5 +30,5 @@ test("parser preserva ataques, acordes e durações", () => {
   assert.deepEqual(events.slice(0, 3).map((event) => event.beat), [0, 1, 1.5]);
   assert.deepEqual(events[0].midis, [48, 60, 64]);
   assert.equal(events.at(-1).beat, 3.5);
-  assert.equal(pitchToMidi("F#4"), 66);
+  assert.equal(noteToMidi("F#4"), 66);
 });

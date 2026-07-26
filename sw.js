@@ -1,4 +1,15 @@
-const CACHE_NAME = "partitura-viva-v1-100";
+const CACHE_NAME = "partitura-viva-v1-121";
+const PIANO_SAMPLE_SHELL = [
+  "A0v10.mp3", "A1v10.mp3", "A2v10.mp3", "A3v10.mp3", "A4v10.mp3",
+  "A5v10.mp3", "A6v10.mp3", "A7v10.mp3",
+  "C1v10.mp3", "C2v10.mp3", "C3v10.mp3", "C4v10.mp3", "C5v10.mp3",
+  "C6v10.mp3", "C7v10.mp3", "C8v10.mp3",
+  "D%231v10.mp3", "D%232v10.mp3", "D%233v10.mp3", "D%234v10.mp3",
+  "D%235v10.mp3", "D%236v10.mp3", "D%237v10.mp3",
+  "F%231v10.mp3", "F%232v10.mp3", "F%233v10.mp3", "F%234v10.mp3",
+  "F%235v10.mp3", "F%236v10.mp3", "F%237v10.mp3",
+].map((filename) => `./assets/audio/piano/acoustic-grand/${filename}`);
+
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -8,17 +19,23 @@ const APP_SHELL = [
   "./src/core/library-store.js",
   "./src/core/music.js",
   "./src/core/musicxml.js",
+  "./src/core/musicxml-file.js",
+  "./src/core/musicxml-export.js",
   "./src/core/onset-engine.js",
+  "./src/core/piano-playback-engine.js",
+  "./src/core/piano-recognition-engine.js",
   "./src/core/screen-wake-lock.js",
   "./src/core/timing-evaluator.js",
+  "./src/core/follow-evaluator.js",
   "./src/data/rhythm-exercises.js",
   "./src/ui/document-viewer.js",
+  "./src/ui/piano-keyboard.js",
   "./src/ui/score-renderer.js",
-  "./vendor/osmd/opensheetmusicdisplay.min.js",
   "./vendor/pdfjs/pdf.min.mjs",
   "./vendor/pdfjs/pdf.worker.min.mjs",
   "./assets/icons/icon-192.png",
   "./assets/icons/icon-512.png",
+  ...PIANO_SAMPLE_SHELL,
 ];
 
 self.addEventListener("install", (event) => {
