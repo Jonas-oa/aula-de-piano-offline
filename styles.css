@@ -16,6 +16,7 @@
   --warning: #cf7b00;
   --danger: #d33131;
   --shadow: 0 9px 0 rgba(39, 61, 80, .07), 0 18px 40px rgba(39, 61, 80, .08);
+  --panel-width: min(290px, 72vw);
 }
 
 * { box-sizing: border-box; }
@@ -409,7 +410,7 @@ main { width: min(1160px, calc(100% - 28px)); margin: 0 auto; padding: 28px 0 48
 .practice-topbar {
   position: absolute; top: 3px; bottom: 3px; left: 3px; z-index: 72;
   display: grid; grid-template-columns: auto minmax(0, 1fr); align-content: start; align-items: center; gap: 10px;
-  width: min(290px, 72vw); padding: 12px; overflow-y: auto;
+  width: var(--panel-width); padding: 12px; overflow-y: auto;
   border-radius: 14px; background: var(--ink); color: #f4f1ea;
   box-shadow: var(--shadow); transition: width 170ms ease, padding 170ms ease, background 170ms ease;
 }
@@ -432,8 +433,16 @@ main { width: min(1160px, calc(100% - 28px)); margin: 0 auto; padding: 28px 0 48
   width: 28px; padding: 0; overflow: visible; border-radius: 9px;
   background: rgba(23,43,77,.2); box-shadow: none;
 }
-.practice-topbar.is-collapsed > :not(.panel-toggle) { display: none !important; }
+/* A saída não pode sumir junto com as ferramentas: o estudo roda em tela cheia,
+   sem barra do navegador, e recolher o painel deixava o aluno sem como voltar. */
+.practice-topbar.is-collapsed > :not(.panel-toggle):not(#leavePracticeButton) { display: none !important; }
 .practice-topbar.is-collapsed > .panel-toggle { right: -8px; width: 30px; height: 64px; }
+.practice-topbar.is-collapsed > #leavePracticeButton {
+  position: absolute; top: 0; left: -2px;
+  width: 32px; height: 32px; min-height: 32px; padding: 0;
+  border-color: transparent; border-radius: 10px;
+  background: rgba(23, 27, 47, .82); color: #f4f1ea; font-size: 1rem;
+}
 .practice-topbar .practice-title h1 { max-width: 190px; }
 
 .input-choice { display: inline-flex; padding: 3px; border-radius: 999px; background: var(--soft); gap: 3px; }
@@ -510,6 +519,11 @@ main { width: min(1160px, calc(100% - 28px)); margin: 0 auto; padding: 28px 0 48
 .practice-primary-actions .playback-start {
   min-width: 92px;
   min-height: 38px;
+}
+/* Com as ferramentas da direita abertas, "Iniciar" e "Tocar" ficavam embaixo do
+   painel e não recebiam o toque. A barra desliza para o lado das ferramentas. */
+#practiceView.right-panel-open .practice-primary-actions {
+  right: calc(var(--panel-width) + max(14px, env(safe-area-inset-right)));
 }
 
 /* Área principal: partitura dominante e piano didático sempre visível */
@@ -606,7 +620,7 @@ main { width: min(1160px, calc(100% - 28px)); margin: 0 auto; padding: 28px 0 48
 .practice-bottombar {
   position: absolute; top: 3px; right: 3px; bottom: 3px; z-index: 72;
   display: flex; flex-direction: column; align-items: stretch; gap: 12px;
-  width: min(290px, 72vw); padding: 12px; border-radius: 14px;
+  width: var(--panel-width); padding: 12px; border-radius: 14px;
   background: white; box-shadow: var(--shadow); overflow-y: auto; scrollbar-width: none;
   transition: width 170ms ease, padding 170ms ease, background 170ms ease;
 }
@@ -659,10 +673,11 @@ main { width: min(1160px, calc(100% - 28px)); margin: 0 auto; padding: 28px 0 48
 }
 
 @media (orientation: landscape) and (max-height: 500px) {
+  :root { --panel-width: min(270px, 72vw); }
   #practiceView.active { padding: 3px; }
   .practice-workspace { grid-template-rows: minmax(0, 1fr) minmax(86px, 22vh); gap: 3px; }
   .practice-topbar:not(.is-collapsed),
-  .practice-bottombar:not(.is-collapsed) { width: min(270px, 72vw); padding: 9px; }
+  .practice-bottombar:not(.is-collapsed) { padding: 9px; }
   .practice-primary-actions { top: 5px; padding: 3px; }
   .practice-primary-actions .practice-start,
   .practice-primary-actions .playback-start {

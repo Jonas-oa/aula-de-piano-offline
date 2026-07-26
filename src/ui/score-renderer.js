@@ -302,6 +302,7 @@ function buildScore(song) {
   }
 
   svg.append(create('text', {
+    class: 'score-headline',
     x: 122,
     y: 77,
     'font-size': 15,
@@ -645,7 +646,7 @@ function drawLedgerLines(parent, x, y, isBass) {
   })));
 }
 
-function noteY(pitch, isBass = false) {
+export function noteY(pitch, isBass = false) {
   const step = diatonicStep(pitch);
   if (isBass) {
     const g2 = diatonicStep('G2');
