@@ -11,11 +11,16 @@ const SCORE_VIEW_X = 35;
 const SCORE_VIEW_WIDTH = 850;
 const NOTE_START_X = 180;
 const BEAT_SPACING = 88;
+// Colcheias e semicolcheias não podem herdar uma distância tão pequena que
+// cabeças, acidentes, hastes e bandeirolas se sobreponham. A pauta continua
+// proporcional ao tempo, mas cada novo ataque recebe esta largura mínima.
+export const MIN_EVENT_SPACING = 62;
 const PLAYHEAD_X = 310;
 const VISIBLE_NOTE_COUNT = 10;
 const SCROLL_DURATION_MS = 280;
 const TRACK_ANIMATIONS = new WeakMap();
 const SCORE_EVENT_GROUPS = new WeakMap();
+const SCORE_BEAT_LAYOUTS = new WeakMap();
 const STAFF_LINE_SPACING = 12;
 
 // A mão vem do <staff> do MusicXML quando existe. O corte pelo dó central é só
@@ -65,12 +70,62 @@ function eventBeat(event, index) {
   return Number.isFinite(Number(event?.beat)) ? Number(event.beat) : index;
 }
 
-export function scoreXForBeat(beat) {
-  return NOTE_START_X + Math.max(0, Number(beat) || 0) * BEAT_SPACING;
+function scoreBeatLayout(song) {
+  if (!song || typeof song !== 'object') return null;
+  const cached = SCORE_BEAT_LAYOUTS.get(song);
+  if (cached) return cached;
+
+  const beats = [];
+  const positions = [];
+  for (const [index, event] of (song.notes || []).entries()) {
+    const beat = Math.max(0, eventBeat(event, index));
+    if (!beats.length) {
+      beats.push(beat);
+      positions.push(NOTE_START_X + beat * BEAT_SPACING);
+      continue;
+    }
+    const previousBeat = beats.at(-1);
+    if (Math.abs(beat - previousBeat) < 1e-7) continue;
+    const rhythmicDistance = Math.max(0, beat - previousBeat) * BEAT_SPACING;
+    beats.push(beat);
+    positions.push(positions.at(-1) + Math.max(MIN_EVENT_SPACING, rhythmicDistance));
+  }
+
+  const layout = { beats, positions };
+  SCORE_BEAT_LAYOUTS.set(song, layout);
+  return layout;
+}
+
+// Converte qualquer posição temporal (nota, pausa ou barra de compasso) para a
+// mesma malha visual. Entre dois ataques a interpolação mantém a proporção; nos
+// trechos densos a malha se expande para proteger a leitura.
+export function scoreXForBeat(beat, song = null) {
+  const value = Math.max(0, Number(beat) || 0);
+  const layout = scoreBeatLayout(song);
+  if (!layout?.beats.length) return NOTE_START_X + value * BEAT_SPACING;
+
+  const { beats, positions } = layout;
+  if (value <= beats[0]) {
+    return positions[0] - (beats[0] - value) * BEAT_SPACING;
+  }
+  const last = beats.length - 1;
+  if (value >= beats[last]) {
+    return positions[last] + (value - beats[last]) * BEAT_SPACING;
+  }
+
+  let low = 0;
+  let high = last;
+  while (low + 1 < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (beats[middle] <= value) low = middle;
+    else high = middle;
+  }
+  const progress = (value - beats[low]) / Math.max(1e-7, beats[high] - beats[low]);
+  return positions[low] + (positions[high] - positions[low]) * progress;
 }
 
 export function scoreEventX(song, index) {
-  return scoreXForBeat(eventBeat(song?.notes?.[index], index));
+  return scoreXForBeat(eventBeat(song?.notes?.[index], index), song);
 }
 
 export function scoreVerticalBounds(song, currentIndex = 0) {
@@ -151,6 +206,10 @@ export function bassClefGeometry() {
     staffLines,
     fLineY,
     dotYs: [fLineY - STAFF_LINE_SPACING / 2, fLineY + STAFF_LINE_SPACING / 2],
+    symbol: '𝄢',
+    symbolX: 61,
+    symbolY: BASS_TOP + 57,
+    fontSize: 68,
   };
 }
 
@@ -327,7 +386,7 @@ function buildScore(song) {
 
   if (hasBass) {
     drawStaff(svg, 55, BASS_TOP, 820);
-    drawBassClef(svg, 68);
+    drawBassClef(svg);
     svg.append(create('line', {
       x1: 55,
       y1: TREBLE_TOP,
@@ -387,7 +446,7 @@ function buildScore(song) {
 
   if (hasMeasureTimeline) {
     song.measures.forEach((measure, measureIndex) => {
-      const boundaryX = scoreXForBeat(measure.beat) - 34;
+      const boundaryX = scoreXForBeat(measure.beat, song) - 34;
       track.append(create('line', {
         class: 'score-barline',
         'data-measure': measure.number || measure.index + 1,
@@ -423,7 +482,7 @@ function buildScore(song) {
     drawRest(
       track,
       rest,
-      scoreXForBeat(rest.beat),
+      scoreXForBeat(rest.beat, song),
       isOnBassStaff(rest, hasBass),
     );
   }
@@ -496,7 +555,7 @@ function buildScore(song) {
   if (song.notes.length) {
     const lastMeasure = song.measures?.at(-1);
     const finalX = lastMeasure
-      ? scoreXForBeat(lastMeasure.beat + lastMeasure.duration) - 34
+      ? scoreXForBeat(lastMeasure.beat + lastMeasure.duration, song) - 34
       : scoreEventX(song, song.notes.length - 1) + 34;
     track.append(create('line', {
       class: 'score-barline score-final-barline',
@@ -788,41 +847,27 @@ function drawStaff(svg, x, y, width) {
   svg.append(create('line', { x1: x + width, y1: y, x2: x + width, y2: y + 48, stroke: '#172033', 'stroke-width': 2 }));
 }
 
-function drawBassClef(svg, x) {
-  const { fLineY, dotYs } = bassClefGeometry();
+function drawBassClef(svg) {
+  const {
+    fLineY,
+    symbol,
+    symbolX,
+    symbolY,
+    fontSize,
+  } = bassClefGeometry();
   const group = create('g', {
     class: 'bass-clef',
     'data-f-line-y': fLineY,
-    fill: 'none',
-    stroke: '#172033',
-    'stroke-linecap': 'round',
-    'stroke-linejoin': 'round',
-  });
-  group.append(create('ellipse', {
-    cx: x + 4,
-    cy: fLineY,
-    rx: 7,
-    ry: 6,
     fill: '#172033',
-    stroke: 'none',
-  }));
-  group.append(create('path', {
-    d: `M ${x + 5} ${fLineY - 6}
-        C ${x + 28} ${fLineY - 22}, ${x + 42} ${fLineY - 7}, ${x + 34} ${fLineY + 11}
-        C ${x + 29} ${fLineY + 23}, ${x + 18} ${fLineY + 31}, ${x - 2} ${fLineY + 39}
-        C ${x + 13} ${fLineY + 27}, ${x + 23} ${fLineY + 15}, ${x + 25} ${fLineY + 4}
-        C ${x + 27} ${fLineY - 5}, ${x + 18} ${fLineY - 12}, ${x + 5} ${fLineY - 6}`,
-    'stroke-width': 4.8,
-  }));
-  dotYs.forEach((cy) => {
-    group.append(create('circle', {
-      cx: x + 47,
-      cy,
-      r: 3.4,
-      fill: '#172033',
-      stroke: 'none',
-    }));
   });
+  group.append(create('text', {
+    class: 'bass-clef-symbol',
+    x: symbolX,
+    y: symbolY,
+    'font-size': fontSize,
+    'font-family': '"Noto Music", "Bravura Text", "Segoe UI Symbol", serif',
+    fill: 'currentColor',
+  }, symbol));
   svg.append(group);
 }
 

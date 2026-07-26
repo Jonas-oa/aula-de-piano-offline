@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  MIN_EVENT_SPACING,
   bassClefGeometry,
   durationNotation,
   isExplicitMeasureBoundary,
@@ -81,6 +82,7 @@ test("clave de Fá referencia a quarta linha da pauta, entre os dois pontos", ()
   );
   assert.ok(geometry.dotYs[0] < geometry.fLineY);
   assert.ok(geometry.dotYs[1] > geometry.fLineY);
+  assert.equal(geometry.symbol, "𝄢", "usa o símbolo musical tipográfico padrão");
 });
 
 test("a clave segue o staff do MusicXML, não o corte pelo dó central", () => {
@@ -123,9 +125,25 @@ test("espaçamento horizontal acompanha o tempo musical", () => {
       { beat: 2 },
     ],
   };
-  assert.equal(scoreEventX(song, 1) - scoreEventX(song, 0), 44);
+  assert.equal(scoreEventX(song, 1) - scoreEventX(song, 0), MIN_EVENT_SPACING);
   assert.equal(scoreEventX(song, 2) - scoreEventX(song, 1), 132);
   assert.equal(scoreIndexForDrag(1, -132, 850, 3, song), 2);
+});
+
+test("ataques rápidos mantêm distância mínima para hastes e acidentes não se sobreporem", () => {
+  const song = {
+    notes: [
+      { beat: 0 },
+      { beat: 0.125 },
+      { beat: 0.25 },
+      { beat: 0.5 },
+    ],
+  };
+  const gaps = song.notes.slice(1).map((_, index) =>
+    scoreEventX(song, index + 1) - scoreEventX(song, index));
+
+  assert.deepEqual(gaps, [MIN_EVENT_SPACING, MIN_EVENT_SPACING, MIN_EVENT_SPACING]);
+  assert.ok(MIN_EVENT_SPACING >= 60, "a largura precisa acomodar cabeça, haste e alteração");
 });
 
 test("durações pontuadas e bandeirolas são classificadas corretamente", () => {
