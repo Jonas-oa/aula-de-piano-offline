@@ -13,6 +13,7 @@ test("shell offline inclui leitores, biblioteca e avaliador rítmico", () => {
     "musicxml.js",
     "musicxml-export.js",
     "onset-engine.js",
+    "piano-playback-engine.js",
     "piano-recognition-engine.js",
     "timing-evaluator.js",
     "rhythm-exercises.js",
@@ -24,7 +25,7 @@ test("shell offline inclui leitores, biblioteca e avaliador rítmico", () => {
   ]) {
     assert.match(worker, new RegExp(asset.replaceAll(".", "\\.")));
   }
-  assert.match(worker, /partitura-viva-v1-114/);
+  assert.match(worker, /partitura-viva-v1-115/);
 });
 
 test("interface é centrada em repertório, MusicXML e partitura", () => {
@@ -40,6 +41,8 @@ test("interface é centrada em repertório, MusicXML e partitura", () => {
   assert.match(html, /id="topbarToggleButton"/);
   assert.match(html, /id="bottombarToggleButton"/);
   assert.match(html, /id="pianoKeyboard"/);
+  assert.match(html, /id="playbackControls"/);
+  assert.match(html, /id="playbackToggleButton"/);
   assert.equal((html.match(/data-view-target="importView"/g) || []).length, 1);
   assert.equal((html.match(/Adicionar partitura/g) || []).length, 1);
   assert.doesNotMatch(html, /Catálogo/);
