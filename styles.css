@@ -23,6 +23,10 @@
 }
 
 * { box-sizing: border-box; }
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
 html { background: #fffdf8; }
 body {
   margin: 0;
@@ -459,26 +463,62 @@ main { width: min(1160px, calc(100% - 28px)); margin: 0 auto; padding: 28px 0 48
 .practice-topbar .input-choice.small .choice-button.active { background: var(--primary); color: #1a1400; box-shadow: none; }
 
 .tempo-chip {
-  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 7px;
-  min-height: 40px; padding: 4px 12px; border-radius: 14px; background: #242a44;
-  color: #f4f1ea; font-size: .82rem; cursor: pointer;
+  position: relative; display: flex; justify-content: center;
 }
-.tempo-chip-label { color: #aeb6d6; font-size: .7rem; font-weight: 800; }
-.tempo-chip output { font-weight: 800; min-width: 22px; text-align: right; }
-.tempo-chip input[type=range] { grid-column: 1 / -1; width: 100%; accent-color: var(--primary); }
-.tempo-chip.is-expanded {
-  position: fixed; top: 50%; left: 50%; z-index: 96;
-  width: min(460px, calc(100vw - 64px)); min-height: 128px; padding: 20px 22px;
-  border: 2px solid rgba(255,255,255,.16); border-radius: 22px;
-  box-shadow: 0 28px 80px rgba(10,18,34,.42);
-  transform: translate(-50%, -50%);
+.tempo-chip-button {
+  display: grid; grid-template-columns: auto auto; grid-template-rows: auto auto;
+  align-items: center; justify-content: center; column-gap: 7px;
+  width: 100%; min-height: 52px; padding: 5px 12px;
+  border: 0; border-radius: 15px; background: var(--primary); color: #342704;
+  cursor: pointer;
 }
-.tempo-chip.is-expanded .tempo-chip-label { font-size: .9rem; }
-.tempo-chip.is-expanded output { min-width: 54px; font-size: 1.65rem; }
-.tempo-chip.is-expanded input[type=range] { height: 42px; }
-#practiceView.tempo-open::after {
-  content: ""; position: fixed; inset: 0; z-index: 90;
-  background: rgba(16,22,42,.44); backdrop-filter: blur(2px);
+.tempo-chip-button > span { grid-row: 1 / 3; font-size: 1.15rem; font-weight: 900; }
+.tempo-chip-button output { align-self: end; min-width: 34px; font-size: 1.05rem; font-weight: 950; line-height: 1; }
+.tempo-chip-button small { align-self: start; font-size: .55rem; font-weight: 950; line-height: 1; letter-spacing: .05em; }
+.tempo-chip-button:disabled { opacity: .58; cursor: default; }
+.tempo-panel {
+  position: fixed; top: 50%; left: 44px; z-index: 96;
+  display: flex; flex-direction: column; gap: 14px;
+  width: min(340px, calc(100vw - 72px)); padding: 20px 20px 16px;
+  border: 2px solid #4a5875; border-left: 7px solid var(--primary); border-radius: 24px;
+  background: #1f2943; color: #f4f1ea;
+  box-shadow: 0 22px 55px rgba(5,9,18,.46);
+  transform: translateY(-50%);
+}
+.tempo-panel[hidden] { display: none !important; }
+.tempo-panel-header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.tempo-panel-header strong {
+  color: #aeb6d6; font-size: .72rem; font-weight: 900; letter-spacing: .09em; text-transform: uppercase;
+}
+.tempo-panel-header span { color: #aeb6d6; font-size: .68rem; white-space: nowrap; }
+.tempo-stepper { display: grid; grid-template-columns: 68px minmax(96px, 1fr) 68px; align-items: center; gap: 12px; }
+.tempo-stepper > button {
+  min-width: 68px; min-height: 68px; padding: 0; border: 0; border-radius: 19px;
+  background: #303c5a; color: #f4f1ea; font-size: 1.45rem; font-weight: 950; cursor: pointer;
+}
+.tempo-stepper > button:active { background: #3c496b; transform: scale(.97); }
+.tempo-current { display: flex; flex-direction: column; align-items: center; }
+.tempo-current > output { color: var(--primary); font-size: 2.45rem; font-weight: 950; line-height: 1; }
+.tempo-current > span { margin-top: 5px; color: #aeb6d6; font-size: .72rem; font-weight: 900; }
+.tempo-slider-row { display: flex; flex-direction: column; gap: 2px; }
+.tempo-slider-row input[type=range] {
+  width: 100%; height: 44px; margin: 0; accent-color: var(--primary); cursor: pointer;
+}
+.tempo-range-labels { display: flex; justify-content: space-between; color: #aeb6d6; font-size: .65rem; }
+.tempo-presets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.tempo-presets button,
+.tempo-reset {
+  min-height: 48px; border: 1px solid transparent; border-radius: 15px;
+  background: #303c5a; color: #f4f1ea; font: inherit; font-size: .86rem; font-weight: 900; cursor: pointer;
+}
+.tempo-presets button.active { background: var(--primary); color: #342704; }
+.tempo-reset {
+  min-height: 44px; border-color: #465470; background: #252f49;
+  color: #aeb6d6; font-size: .7rem; text-transform: uppercase;
+}
+.tempo-chip button:focus-visible,
+.tempo-panel input:focus-visible {
+  outline: 3px solid #fff2c5; outline-offset: 3px;
 }
 #practiceView.tempo-open .practice-topbar { z-index: 95; }
 

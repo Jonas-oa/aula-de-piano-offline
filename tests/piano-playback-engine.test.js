@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  PianoPlaybackEngine,
   playbackRegion,
   sampleForMidi,
 } from "../src/core/piano-playback-engine.js";
@@ -62,4 +63,58 @@ test("preserva índice original ao reconstruir uma sessão pausada", () => {
     playbackRegion(events).events.map((event) => event.originalIndex),
     [8, 9],
   );
+});
+
+test("altera o andamento em reprodução preservando a posição musical", () => {
+  const previousWindow = globalThis.window;
+  globalThis.window = {
+    clearTimeout() {},
+    cancelAnimationFrame() {},
+  };
+  try {
+    const engine = new PianoPlaybackEngine();
+    let schedules = 0;
+    let cursorTicks = 0;
+    engine.context = { currentTime: 2 };
+    engine.schedule = () => { schedules += 1; };
+    engine.tickCursor = () => { cursorTicks += 1; };
+    engine.session = {
+      region: {
+        durationBeats: 4,
+        events: [
+          { relativeBeat: 0 },
+          { relativeBeat: 1 },
+          { relativeBeat: 2 },
+          { relativeBeat: 3 },
+        ],
+      },
+      bpm: 60,
+      loop: false,
+      startPositionBeats: 0,
+      startedAt: 0,
+      nextEventIndex: 3,
+      nextCycle: 0,
+      lastCursorIndex: 2,
+    };
+
+    engine.setTempo(120);
+
+    assert.equal(engine.session.bpm, 120);
+    assert.equal(engine.session.startPositionBeats, 2);
+    assert.equal(engine.session.nextEventIndex, 2);
+    assert.equal(engine.session.startedAt, 2.04);
+    assert.equal(schedules, 1);
+    assert.equal(cursorTicks, 1);
+  } finally {
+    globalThis.window = previousWindow;
+  }
+});
+
+test("alterar o andamento pausado não inicia a reprodução", () => {
+  const engine = new PianoPlaybackEngine();
+  engine.pausedSession = { bpm: 72 };
+
+  assert.equal(engine.setTempo(54), 54);
+  assert.equal(engine.pausedSession.bpm, 54);
+  assert.equal(engine.session, null);
 });
