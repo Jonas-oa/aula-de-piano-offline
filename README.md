@@ -10,7 +10,10 @@ Aplicativo web offline para estudar peças completas com a partitura aberta e re
 - compatibilidade de leitura com PDFs salvos em versões anteriores;
 - leitura de partituras de piano com as duas mãos, seja em uma parte com dois
   staves, seja em duas partes separadas, respeitando claves, armadura,
-  compassos, pausas, ligaduras de valor, durações pontuadas e dedilhado;
+  compassos, pausas, ligaduras de valor, durações pontuadas, dedilhado e barras
+  de união de colcheias, semicolcheias e figuras menores;
+- barras de união fiéis ao MusicXML quando o arquivo informa `beam`, com
+  agrupamento automático por pulsação como reserva para arquivos incompletos;
 - reconhecimento de notas e acordes pelo microfone no modo professor com MusicXML;
 - microfone preparado automaticamente ao abrir o estudo, com indicador visível
   e análise bloqueada até o aluno pressionar **Iniciar**;

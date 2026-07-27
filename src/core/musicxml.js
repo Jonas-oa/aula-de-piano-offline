@@ -29,12 +29,27 @@ function hasTie(note, type) {
   );
 }
 
+function readBeams(note) {
+  return [...note.children]
+    .filter((child) => child.localName === "beam")
+    .map((beam) => ({
+      number: Number(beam.getAttribute("number")) || 1,
+      value: beam.textContent?.trim() || "",
+    }))
+    .filter(({ number, value }) =>
+      number > 0
+      && ["begin", "continue", "end", "forward hook", "backward hook"].includes(value));
+}
+
 function readNote(note) {
   const pitch = directChild(note, "pitch");
   const alter = Number(text(pitch, "alter", "0"));
   const step = text(pitch, "step");
   const octave = text(pitch, "octave");
   const accidental = ACCIDENTAL_BY_ALTER[String(alter)];
+  const type = directChild(note, "type")?.textContent?.trim() || "";
+  const stem = directChild(note, "stem")?.textContent?.trim() || "";
+  const timeModification = directChild(note, "time-modification");
 
   return {
     kind: "note",
@@ -49,6 +64,17 @@ function readNote(note) {
       : null,
     staff: Number(text(note, "staff", "0")) || 0,
     voice: text(note, "voice", "1"),
+    type,
+    dotCount: [...note.children].filter((child) => child.localName === "dot").length,
+    stem: stem === "up" || stem === "down" ? stem : "",
+    beams: readBeams(note),
+    timeModification: timeModification
+      ? {
+          actualNotes: Number(text(timeModification, "actual-notes", "0")) || 0,
+          normalNotes: Number(text(timeModification, "normal-notes", "0")) || 0,
+          normalType: text(timeModification, "normal-type", ""),
+        }
+      : null,
     finger: text(note, "notations technical fingering", "") || null,
     tieStop: hasTie(note, "stop"),
     tieStart: hasTie(note, "start"),
@@ -182,6 +208,11 @@ function walkPart(part, partIndex, partCount) {
           partIndex,
           declaredStaves,
           voice: `${partIndex}:${item.voice}`,
+          type: item.type || "",
+          dotCount: Number(item.dotCount) || 0,
+          stem: item.stem || "",
+          beams: Array.isArray(item.beams) ? item.beams : [],
+          timeModification: item.timeModification || null,
           finger: item.finger,
           tieStop: item.tieStop,
           tieStart: item.tieStart,
@@ -393,6 +424,12 @@ export function buildScoreEvents(score) {
           staff: note.staff,
           clef: note.clef,
           partIndex: note.partIndex,
+          voice: note.voice,
+          type: note.type,
+          dotCount: note.dotCount,
+          stem: note.stem,
+          beams: note.beams,
+          timeModification: note.timeModification,
           finger: note.finger,
           duration: note.duration,
           tieStart: note.tieStart,
