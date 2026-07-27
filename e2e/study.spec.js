@@ -44,10 +44,30 @@ test("modo de estudo permanece legível e utilizável em celular horizontal", as
   expect(gaps.length).toBeGreaterThan(2);
   expect(Math.min(...gaps)).toBeGreaterThanOrEqual(60);
 
-  await page.locator("#tempoChip").click();
+  await page.locator("#tempoChipButton").click();
   await expect(page.locator("#tempoChip")).toHaveClass(/is-expanded/);
-  const tempoBox = await page.locator("#tempoChip").boundingBox();
-  expect(tempoBox.width).toBeGreaterThan(250);
+  await expect(page.locator("#tempoPanel")).toBeVisible();
+  const tempoBox = await page.locator("#tempoPanel").boundingBox();
+  expect(tempoBox).not.toBeNull();
+  if (!tempoBox) throw new Error("Controle de andamento não abriu.");
+  expect(tempoBox.width).toBeGreaterThanOrEqual(300);
+  expect(tempoBox.x).toBeLessThan(80);
+  expect(tempoBox.y).toBeGreaterThanOrEqual(0);
+  expect(tempoBox.y + tempoBox.height).toBeLessThanOrEqual(412);
+
+  await page.locator("[data-tempo-percent='75']").click();
+  await expect(page.locator("#tempoOutput")).toHaveText("48");
+  await expect(page.locator("#tempoPercentOutput")).toHaveText("75%");
+  await expect(page.locator("#tempoChipOutput")).toHaveText("48");
+  await expect(page.locator("[data-tempo-percent='75']")).toHaveAttribute("aria-pressed", "true");
+
+  await page.locator("#tempoIncreaseButton").click();
+  await expect(page.locator("#tempoOutput")).toHaveText("53");
+  await expect(page.locator("#tempoPercentOutput")).toHaveText("83%");
+
+  await page.locator("#tempoResetButton").click();
+  await expect(page.locator("#tempoOutput")).toHaveText("64");
+  await expect(page.locator("[data-tempo-percent='100']")).toHaveAttribute("aria-pressed", "true");
 });
 
 test("renderizador une colcheias e semicolcheias indicadas pelo MusicXML", async ({ page }) => {

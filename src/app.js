@@ -29,6 +29,11 @@ import {
   matchOnset,
   summarizeAttempts,
 } from "./core/timing-evaluator.js";
+import {
+  clampTempo,
+  tempoFromPercent,
+  tempoPercent,
+} from "./core/tempo-control.js";
 import { DocumentViewer } from "./ui/document-viewer.js";
 import { PianoKeyboard } from "./ui/piano-keyboard.js";
 import {
@@ -716,8 +721,7 @@ async function openPractice(item) {
 
   byId("practiceTitle").textContent = item.title;
   byId("practiceComposer").textContent = (item.composer || item.style || "EXERCÍCIO").toUpperCase();
-  byId("tempoSlider").value = String(item.bpm || 72);
-  byId("tempoOutput").value = String(item.bpm || 72);
+  reflectTempo(item.bpm || 72);
   resetPracticeUi();
   showView("practiceView");
   await wakeLock.setEnabled(true);
@@ -764,6 +768,8 @@ function reflectPracticeRunning(running) {
   byId("startPracticeButton").disabled = running;
   byId("stopPracticeButton").hidden = !running;
   byId("stopPracticeButton").disabled = !running;
+  byId("tempoChipButton").disabled = running;
+  if (running) setTempoExpanded(false);
 }
 
 function setAnalysisMode(label, explanation) {
@@ -948,9 +954,60 @@ function togglePanel(panel) {
 function setTempoExpanded(expanded) {
   const chip = byId("tempoChip");
   chip.classList.toggle("is-expanded", expanded);
-  chip.setAttribute("aria-expanded", String(expanded));
+  byId("tempoChipButton").setAttribute("aria-expanded", String(expanded));
+  byId("tempoPanel").hidden = !expanded;
   byId("practiceView").classList.toggle("tempo-open", expanded);
   if (expanded) byId("tempoSlider").focus({ preventScroll: true });
+}
+
+function originalTempo() {
+  return clampTempo(state.currentItem?.bpm || 72);
+}
+
+function reflectTempo(value) {
+  const bpm = clampTempo(value, originalTempo());
+  const percent = tempoPercent(bpm, originalTempo());
+  byId("tempoSlider").value = String(bpm);
+  byId("tempoOutput").value = String(bpm);
+  byId("tempoChipOutput").value = String(bpm);
+  byId("tempoPercentOutput").value = `${percent}%`;
+  byId("tempoOriginalOutput").value = String(originalTempo());
+  byId("tempoSlider").setAttribute(
+    "aria-valuetext",
+    `${bpm} BPM, ${percent}% do andamento original`,
+  );
+  byId("tempoChipButton").setAttribute("aria-label", `Ajustar andamento: ${bpm} BPM`);
+  for (const button of document.querySelectorAll("[data-tempo-percent]")) {
+    const presetBpm = tempoFromPercent(originalTempo(), button.dataset.tempoPercent);
+    const active = presetBpm === bpm;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  }
+  return bpm;
+}
+
+function applyTempo(value) {
+  const bpm = reflectTempo(value);
+  if (playbackEngine.isPlaying || playbackEngine.isPaused) {
+    playbackEngine.setTempo(bpm);
+    setFeedback(
+      "neutral",
+      "ANDAMENTO ALTERADO",
+      `${bpm} BPM · ${tempoPercent(bpm, originalTempo())}%`,
+      playbackEngine.isPlaying
+        ? "A reprodução continua do mesmo ponto."
+        : "O novo andamento será usado ao continuar.",
+    );
+  }
+  return bpm;
+}
+
+function changeTempoBy(delta) {
+  return applyTempo(Number(byId("tempoSlider").value) + delta);
+}
+
+function selectTempoPercent(percent) {
+  return applyTempo(tempoFromPercent(originalTempo(), percent));
 }
 
 const STAT_LABELS = {
@@ -1548,20 +1605,43 @@ byId("startPracticeButton").addEventListener("click", startPractice);
 byId("stopPracticeButton").addEventListener("click", () => stopPractice({ showResult: true }));
 byId("playbackToggleButton").addEventListener("click", togglePlayback);
 byId("playbackStopButton").addEventListener("click", stopPlayback);
-byId("tempoChip").addEventListener("pointerdown", () => setTempoExpanded(true));
-byId("tempoChip").addEventListener("keydown", (event) => {
-  if (event.key === "Enter" || event.key === " ") {
-    event.preventDefault();
-    setTempoExpanded(true);
-  }
-});
+byId("tempoChipButton").addEventListener("click", () =>
+  setTempoExpanded(!byId("tempoChip").classList.contains("is-expanded")));
 byId("tempoSlider").addEventListener("input", (event) => {
-  byId("tempoOutput").value = event.target.value;
-  if (playbackEngine.isActive) {
-    playbackEngine.stop({ preserveCursor: true });
-    setFeedback("neutral", "ANDAMENTO ALTERADO", `${event.target.value} bpm`, "Toque para continuar no novo andamento.");
-  }
+  reflectTempo(event.target.value);
 });
+byId("tempoSlider").addEventListener("change", (event) => {
+  applyTempo(event.target.value);
+});
+byId("tempoDecreaseButton").addEventListener("click", () => changeTempoBy(-5));
+byId("tempoIncreaseButton").addEventListener("click", () => changeTempoBy(5));
+byId("tempoResetButton").addEventListener("click", () => selectTempoPercent(100));
+for (const button of document.querySelectorAll("[data-tempo-percent]")) {
+  button.addEventListener("click", () => selectTempoPercent(button.dataset.tempoPercent));
+}
+
+function enableTempoHold(button, delta) {
+  let delayTimer = null;
+  let repeatTimer = null;
+  const stop = () => {
+    window.clearTimeout(delayTimer);
+    window.clearInterval(repeatTimer);
+    delayTimer = null;
+    repeatTimer = null;
+  };
+  button.addEventListener("pointerdown", () => {
+    stop();
+    delayTimer = window.setTimeout(() => {
+      repeatTimer = window.setInterval(() => changeTempoBy(delta), 120);
+    }, 420);
+  });
+  button.addEventListener("pointerup", stop);
+  button.addEventListener("pointercancel", stop);
+  button.addEventListener("pointerleave", stop);
+}
+
+enableTempoHold(byId("tempoDecreaseButton"), -5);
+enableTempoHold(byId("tempoIncreaseButton"), 5);
 byId("previousPageButton").addEventListener("click", () => (state.currentScore ? stepStructured(-1) : viewer.previousPage()));
 byId("nextPageButton").addEventListener("click", () => (state.currentScore ? stepStructured(1) : viewer.nextPage()));
 byId("zoomOutButton").addEventListener("click", () => viewer.zoomBy(-0.12));

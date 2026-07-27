@@ -180,14 +180,52 @@
               <button id="microphoneModeButton" class="choice-button active" aria-label="Microfone">🎤</button>
               <button id="midiModeButton" class="choice-button">🎹</button>
             </div>
-            <label
-              id="tempoChip"
-              class="tempo-chip"
-              tabindex="0"
-              aria-expanded="false"
-              aria-label="Ajustar andamento"
-            ><span class="tempo-chip-label">Andamento</span><span aria-hidden="true">♩</span><output id="tempoOutput">72</output>
-              <input id="tempoSlider" class="collapsible-control" type="range" min="30" max="240" value="72" aria-label="Andamento" /></label>
+            <div id="tempoChip" class="tempo-chip">
+              <button
+                id="tempoChipButton"
+                class="tempo-chip-button"
+                type="button"
+                aria-expanded="false"
+                aria-controls="tempoPanel"
+                aria-label="Ajustar andamento: 72 BPM"
+              >
+                <span aria-hidden="true">♩</span>
+                <output id="tempoChipOutput">72</output>
+                <small>BPM</small>
+              </button>
+              <section
+                id="tempoPanel"
+                class="tempo-panel"
+                role="dialog"
+                aria-modal="false"
+                aria-labelledby="tempoPanelTitle"
+                hidden
+              >
+                <header class="tempo-panel-header">
+                  <strong id="tempoPanelTitle">Andamento da peça</strong>
+                  <span>Original <output id="tempoOriginalOutput">72</output></span>
+                </header>
+                <div class="tempo-stepper">
+                  <button id="tempoDecreaseButton" type="button" aria-label="Diminuir 5 BPM">−5</button>
+                  <div class="tempo-current" aria-live="polite">
+                    <output id="tempoOutput">72</output>
+                    <span>BPM · <output id="tempoPercentOutput">100%</output></span>
+                  </div>
+                  <button id="tempoIncreaseButton" type="button" aria-label="Aumentar 5 BPM">+5</button>
+                </div>
+                <label class="tempo-slider-row">
+                  <span class="sr-only">Andamento</span>
+                  <input id="tempoSlider" type="range" min="30" max="240" step="1" value="72" aria-label="Andamento" />
+                  <span class="tempo-range-labels" aria-hidden="true"><small>30 BPM</small><small>240 BPM</small></span>
+                </label>
+                <div class="tempo-presets" role="group" aria-label="Porcentagem do andamento original">
+                  <button type="button" data-tempo-percent="50">50%</button>
+                  <button type="button" data-tempo-percent="75">75%</button>
+                  <button type="button" data-tempo-percent="100">100%</button>
+                </div>
+                <button id="tempoResetButton" class="tempo-reset" type="button">↺ Voltar ao andamento original</button>
+              </section>
+            </div>
             <div id="pdfOnlyOptions" class="pdf-options collapsible-control">
               <select id="subdivisionSelect" aria-label="Subdivisão da grade">
                 <option value="1">Semínimas</option>

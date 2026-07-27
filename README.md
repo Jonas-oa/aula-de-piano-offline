@@ -18,8 +18,9 @@ Aplicativo web offline para estudar peças completas com a partitura aberta e re
 - microfone preparado automaticamente ao abrir o estudo, com indicador visível
   e análise bloqueada até o aluno pressionar **Iniciar**;
 - audição de partituras MusicXML com piano acústico, cursor sincronizado, andamento
-  ajustável e seleção de trecho A–B com repetição opcional, diretamente dentro
-  da tela de estudo;
+  ajustável por BPM ou porcentagem do original, retomada automática no mesmo
+  ponto e seleção de trecho A–B com repetição opcional, diretamente dentro da
+  tela de estudo;
 - avaliação do tempo pelo microfone em partituras PDF, diretamente no navegador;
 - entrada Web MIDI para captar notas e acordes com maior precisão;
 - 24 exercícios rítmicos originais para duas mãos, sem fases ou bloqueios;

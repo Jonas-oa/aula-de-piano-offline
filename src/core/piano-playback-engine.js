@@ -240,7 +240,7 @@ export class PianoPlaybackEngine {
       if (absoluteBeat >= positionBeats - 0.04 / secondsPerBeat) {
         const event = session.region.events[session.nextEventIndex];
         const when = session.startedAt + (absoluteBeat - session.startPositionBeats) * secondsPerBeat;
-        this.scheduleEvent(event, when, secondsPerBeat);
+        this.scheduleEvent(event, when, secondsPerBeat, session);
       }
       const previousIndex = session.nextEventIndex;
       this.advanceEvent(session);
@@ -254,7 +254,7 @@ export class PianoPlaybackEngine {
     this.schedulerTimer = window.setTimeout(() => this.schedule(), 80);
   }
 
-  async scheduleEvent(event, when, secondsPerBeat) {
+  async scheduleEvent(event, when, secondsPerBeat, session) {
     const midis = event.midis || [];
     // O acento é do ataque, não de cada nota: usar a posição dentro do acorde
     // fazia notas do mesmo acorde saírem com volumes diferentes sem motivo.
@@ -264,7 +264,7 @@ export class PianoPlaybackEngine {
     for (const midi of midis) {
       const definition = sampleForMidi(midi);
       const buffer = await this.loadSample(definition.midi);
-      if (!this.session || when < this.context.currentTime - 0.04) continue;
+      if (this.session !== session || when < this.context.currentTime - 0.04) continue;
       const source = this.context.createBufferSource();
       const gain = this.context.createGain();
       const noteSeconds = Math.max(0.08, event.duration * secondsPerBeat);
@@ -312,6 +312,40 @@ export class PianoPlaybackEngine {
   setLoop(loop) {
     if (this.session) this.session.loop = Boolean(loop);
     if (this.pausedSession) this.pausedSession.loop = Boolean(loop);
+  }
+
+  setTempo(bpm) {
+    const safeBpm = Math.max(30, Math.min(240, Number(bpm) || 72));
+    if (this.pausedSession) {
+      this.pausedSession.bpm = safeBpm;
+      return safeBpm;
+    }
+    if (!this.session) return safeBpm;
+
+    const previous = this.session;
+    const position = this.currentPositionBeats();
+    const duration = previous.region.durationBeats;
+    const offsetBeats = previous.loop
+      ? ((position % duration) + duration) % duration
+      : Math.min(position, duration - 0.001);
+
+    this.clearPlaybackTimers();
+    this.stopActiveSources();
+    this.session = {
+      ...previous,
+      bpm: safeBpm,
+      startPositionBeats: Math.max(0, offsetBeats),
+      startedAt: this.context.currentTime + 0.04,
+      nextEventIndex: 0,
+      nextCycle: 0,
+      lastCursorIndex: null,
+    };
+    while (this.eventAbsoluteBeat(this.session) < offsetBeats - 0.0001) {
+      this.advanceEvent(this.session);
+    }
+    this.schedule();
+    this.tickCursor();
+    return safeBpm;
   }
 
   pause() {

@@ -1,4 +1,4 @@
-const CACHE_NAME = "partitura-viva-v1-123";
+const CACHE_NAME = "partitura-viva-v1-124";
 const PIANO_SAMPLE_SHELL = [
   "A0v10.mp3", "A1v10.mp3", "A2v10.mp3", "A3v10.mp3", "A4v10.mp3",
   "A5v10.mp3", "A6v10.mp3", "A7v10.mp3",
@@ -25,6 +25,7 @@ const APP_SHELL = [
   "./src/core/piano-playback-engine.js",
   "./src/core/piano-recognition-engine.js",
   "./src/core/screen-wake-lock.js",
+  "./src/core/tempo-control.js",
   "./src/core/timing-evaluator.js",
   "./src/core/follow-evaluator.js",
   "./src/data/rhythm-exercises.js",
