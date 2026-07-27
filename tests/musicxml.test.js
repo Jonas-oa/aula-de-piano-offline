@@ -330,6 +330,63 @@ test("dedilhado e staff chegam ao renderizador", () => {
   );
 });
 
+test("metadados de grafia chegam ao renderizador sem misturar as vozes", () => {
+  const score = buildScoreEvents({
+    parts: [part([measure([
+      note("C5", 1, {
+        staff: 1,
+        voice: "1",
+        type: "eighth",
+        stem: "up",
+        beams: [{ number: 1, value: "begin" }],
+      }),
+      { kind: "backup", duration: 1 },
+      note("E4", 1, {
+        staff: 1,
+        voice: "2",
+        type: "eighth",
+        dotCount: 1,
+        stem: "down",
+        beams: [{ number: 1, value: "begin" }],
+        timeModification: { actualNotes: 3, normalNotes: 2, normalType: "eighth" },
+      }),
+    ], { divisions: 2, beats: 4, beatType: 4 })])],
+  });
+
+  assert.equal(score.events.length, 1, "a execução continua tratando o ataque como simultâneo");
+  assert.deepEqual(
+    score.events[0].notes.map((entry) => ({
+      pitch: entry.pitch,
+      voice: entry.voice,
+      type: entry.type,
+      dotCount: entry.dotCount,
+      stem: entry.stem,
+      beams: entry.beams,
+      timeModification: entry.timeModification,
+    })),
+    [
+      {
+        pitch: "E4",
+        voice: "0:2",
+        type: "eighth",
+        dotCount: 1,
+        stem: "down",
+        beams: [{ number: 1, value: "begin" }],
+        timeModification: { actualNotes: 3, normalNotes: 2, normalType: "eighth" },
+      },
+      {
+        pitch: "C5",
+        voice: "0:1",
+        type: "eighth",
+        dotCount: 0,
+        stem: "up",
+        beams: [{ number: 1, value: "begin" }],
+        timeModification: null,
+      },
+    ],
+  );
+});
+
 test("alturas ilegíveis são descartadas sem derrubar a peça", () => {
   const score = buildScoreEvents({
     parts: [part([measure([

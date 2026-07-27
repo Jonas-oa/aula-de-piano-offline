@@ -22,6 +22,8 @@ const TRACK_ANIMATIONS = new WeakMap();
 const SCORE_EVENT_GROUPS = new WeakMap();
 const SCORE_BEAT_LAYOUTS = new WeakMap();
 const STAFF_LINE_SPACING = 12;
+const BEAM_LEVEL_GAP = 8;
+const BEAM_THICKNESS = 6;
 
 // A mão vem do <staff> do MusicXML quando existe. O corte pelo dó central é só
 // o palpite de reserva: com ele, uma nota grave da mão direita (ou aguda da
@@ -488,6 +490,7 @@ function buildScore(song) {
   }
 
   const previousClefs = new Map();
+  const stemGeometries = [];
   song.notes.forEach((event, index) => {
     const x = scoreEventX(song, index);
     const eventGroup = create('g', {
@@ -545,12 +548,35 @@ function buildScore(song) {
     });
     eventGroup.append(haloGroup);
 
-    drawEventOnStaff(eventGroup, treble, x, false);
-    drawEventOnStaff(eventGroup, bass, x, true);
+    for (const [isBass, staffPitches] of [[false, treble], [true, bass]]) {
+      const voiceGroups = groupPitchesByVoice(staffPitches);
+      for (const voicePitches of voiceGroups) {
+        const geometry = drawEventOnStaff(
+          eventGroup,
+          voicePitches,
+          x,
+          isBass,
+          voiceGroups.length > 1,
+        );
+        if (geometry) {
+          stemGeometries.push({
+            ...geometry,
+            beat: Number(event.beat) || 0,
+            measureIndex: event.measureIndex,
+            eventIndex: index,
+            eventGroup,
+            isBass,
+            voiceKey: notationVoiceKey(voicePitches[0]),
+          });
+        }
+      }
+    }
 
     track.append(eventGroup);
     runningBeat += Number(event.duration) || 0;
   });
+
+  drawBeams(withAutomaticBeams(stemGeometries, song));
 
   if (song.notes.length) {
     const lastMeasure = song.measures?.at(-1);
@@ -657,8 +683,8 @@ function setTrackTranslate(track, value) {
   track.setAttribute('transform', `translate(${normalized.toFixed(2)} 0)`);
 }
 
-function drawEventOnStaff(parent, pitches, x, isBass) {
-  if (!pitches.length) return;
+function drawEventOnStaff(parent, pitches, x, isBass, hasMultipleVoices = false) {
+  if (!pitches.length) return null;
   const placed = pitches
     .map((pitch) => ({ ...pitch, y: noteY(pitch.pitch, isBass), step: diatonicStep(pitch.pitch) }))
     .sort((a, b) => a.y - b.y);
@@ -667,7 +693,15 @@ function drawEventOnStaff(parent, pitches, x, isBass) {
 
   const midStaffY = isBass ? BASS_TOP + 24 : TREBLE_TOP + 24;
   const meanY = placed.reduce((sum, pitch) => sum + pitch.y, 0) / placed.length;
-  const stemUp = meanY >= midStaffY;
+  const explicitStem = placed.map((pitch) => pitch.stem).find((stem) =>
+    stem === 'up' || stem === 'down');
+  const voiceNumber = Number(String(placed[0]?.voice || '').split(':').at(-1));
+  const voiceStemUp = Number.isInteger(voiceNumber) ? voiceNumber % 2 === 1 : null;
+  const stemUp = explicitStem
+    ? explicitStem === 'up'
+    : hasMultipleVoices && voiceStemUp !== null
+      ? voiceStemUp
+      : meanY >= midStaffY;
   const stemX = stemUp ? x + 8 : x - 8;
 
   let previousStep = null;
@@ -703,30 +737,39 @@ function drawEventOnStaff(parent, pitches, x, isBass) {
     }
   });
 
-  const shortest = Math.min(...placed.map((pitch) => pitch.duration));
-  const notation = durationNotation(shortest);
+  const shortest = placed.reduce((current, pitch) =>
+    notationForPitch(pitch).base < notationForPitch(current).base ? pitch : current);
+  const notation = notationForPitch(shortest);
+  let stemLine = null;
+  let tip = null;
+  const flagElements = [];
   if (notation.base < 4) {
     const anchor = stemUp ? heads[heads.length - 1] : heads[0];
-    const tip = stemUp ? heads[0].y - 43 : heads[heads.length - 1].y + 43;
-    parent.append(create('line', {
+    tip = stemUp ? heads[0].y - 43 : heads[heads.length - 1].y + 43;
+    stemLine = create('line', {
+      class: 'score-stem',
       x1: stemX,
       y1: anchor.y,
       x2: stemX,
       y2: tip,
       stroke: 'currentColor',
       'stroke-width': 2.4,
-    }));
-    for (let flag = 0; flag < notation.flags; flag += 1) {
-      const flagY = tip + (stemUp ? flag * 9 : -flag * 9);
+    });
+    parent.append(stemLine);
+    for (let level = 1; level <= notation.flags; level += 1) {
+      const flagY = tip + (stemUp ? (level - 1) * 9 : -(level - 1) * 9);
       const flagPath = stemUp
         ? `M ${stemX} ${flagY} Q ${stemX + 18} ${flagY + 9} ${stemX + 5} ${flagY + 23}`
         : `M ${stemX} ${flagY} Q ${stemX - 18} ${flagY - 9} ${stemX - 5} ${flagY - 23}`;
-      parent.append(create('path', {
+      const flagElement = create('path', {
+        class: 'score-flag',
         d: flagPath,
         fill: 'none',
         stroke: 'currentColor',
         'stroke-width': 2.4,
-      }));
+      });
+      flagElements.push(flagElement);
+      parent.append(flagElement);
     }
   }
 
@@ -751,6 +794,331 @@ function drawEventOnStaff(parent, pitches, x, isBass) {
       'stroke-width': 1.8,
     }));
   }
+
+  return {
+    beams: mergedBeams(placed),
+    duration: Number(shortest.duration) || notation.base,
+    flagElements,
+    flags: notation.flags,
+    stemLine,
+    stemUp,
+    stemX,
+    tipY: tip,
+  };
+}
+
+function notationVoiceKey(pitch) {
+  return [
+    pitch?.partIndex ?? 0,
+    pitch?.voice || '1',
+    pitch?.staff || 1,
+    pitch?.clef || '',
+  ].join(':');
+}
+
+function groupPitchesByVoice(pitches) {
+  const groups = new Map();
+  for (const pitch of pitches || []) {
+    const key = notationVoiceKey(pitch);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(pitch);
+  }
+  return [...groups.values()];
+}
+
+function mergedBeams(pitches) {
+  const byLevel = new Map();
+  for (const beam of (pitches || []).flatMap((pitch) => pitch.beams || [])) {
+    const level = Number(beam?.number) || 1;
+    if (!byLevel.has(level) && beam?.value) byLevel.set(level, beam.value);
+  }
+  return [...byLevel.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([number, value]) => ({ number, value }));
+}
+
+export function explicitBeamRuns(nodes, level = 1) {
+  const runs = [];
+  let active = [];
+  const flush = () => {
+    if (active.length >= 2) runs.push({ type: 'run', nodes: active });
+    active = [];
+  };
+
+  for (const node of nodes || []) {
+    const value = (node.beams || []).find((beam) => beam.number === level)?.value || '';
+    if (value === 'begin') {
+      flush();
+      active = [node];
+    } else if (value === 'continue') {
+      if (!active.length) active = [node];
+      else active.push(node);
+    } else if (value === 'end') {
+      if (!active.length) active = [node];
+      else active.push(node);
+      flush();
+    } else if (value === 'forward hook' || value === 'backward hook') {
+      flush();
+      runs.push({ type: value, nodes: [node] });
+    } else {
+      flush();
+    }
+  }
+  flush();
+  return runs;
+}
+
+export function beamLineGeometry(nodes) {
+  if (!nodes?.length) return [];
+  if (nodes.length === 1) return [{ ...nodes[0], beamY: nodes[0].tipY }];
+  const first = nodes[0];
+  const last = nodes.at(-1);
+  const dx = Math.max(1, last.stemX - first.stemX);
+  const rawSlope = (last.tipY - first.tipY) / dx;
+  const slope = Math.max(-0.18, Math.min(0.18, rawSlope));
+  const raw = nodes.map((node) =>
+    first.tipY + (node.stemX - first.stemX) * slope);
+  const offsets = nodes.map((node, index) => node.tipY - raw[index]);
+  const shift = first.stemUp ? Math.min(...offsets) : Math.max(...offsets);
+  return nodes.map((node, index) => ({ ...node, beamY: raw[index] + shift }));
+}
+
+function streamKey(stem) {
+  return `${stem.voiceKey}:${stem.isBass ? 'bass' : 'treble'}`;
+}
+
+function streamsFromStems(stems) {
+  const streams = new Map();
+  for (const stem of stems) {
+    if (!stem.stemLine || stem.tipY == null) continue;
+    const key = streamKey(stem);
+    if (!streams.has(key)) streams.set(key, []);
+    streams.get(key).push(stem);
+  }
+  for (const stream of streams.values()) {
+    stream.sort((a, b) => a.beat - b.beat || a.eventIndex - b.eventIndex);
+  }
+  return streams;
+}
+
+function drawBeams(stems) {
+  const streams = streamsFromStems(stems);
+  for (const stream of streams.values()) {
+    const maxLevel = Math.max(0, ...stream.flatMap((stem) =>
+      stem.beams.map((beam) => Number(beam.number) || 1)));
+    for (let level = 1; level <= maxLevel; level += 1) {
+      for (const run of explicitBeamRuns(stream, level)) {
+        if (run.type === 'run') {
+          run.nodes.forEach((node) => node.flagElements?.[level - 1]?.remove());
+          drawBeamRun(run.nodes, level);
+        } else {
+          run.nodes[0].flagElements?.[level - 1]?.remove();
+          drawBeamHook(run.nodes[0], level, run.type === 'forward hook');
+        }
+      }
+    }
+  }
+}
+
+function timeSignatureParts(signature) {
+  const match = /^(\d+)\/(\d+)$/.exec(String(signature || ""));
+  if (!match) return null;
+  const beats = Number(match[1]);
+  const beatType = Number(match[2]);
+  return beats > 0 && beatType > 0 ? { beats, beatType } : null;
+}
+
+export function metricBeamPattern(signature) {
+  const parts = timeSignatureParts(signature);
+  if (!parts) return [];
+  const { beats, beatType } = parts;
+  const denominatorUnit = 4 / beatType;
+  if (beatType === 8 && beats >= 6 && beats % 3 === 0) {
+    return Array.from({ length: beats / 3 }, () => 3 * denominatorUnit);
+  }
+  const irregular = beatType === 8 && {
+    5: [2, 3],
+    7: [2, 2, 3],
+    8: [3, 3, 2],
+  }[beats];
+  if (irregular) return irregular.map((count) => count * denominatorUnit);
+  return Array.from({ length: beats }, () => denominatorUnit);
+}
+
+function measureForStem(node, song) {
+  if (Number.isInteger(node.measureIndex)) {
+    return song?.measures?.[node.measureIndex]
+      || song?.measures?.find((measure) => measure.index === node.measureIndex)
+      || null;
+  }
+  return null;
+}
+
+function metricGroupKey(node, song) {
+  const measure = measureForStem(node, song);
+  const signature = measure?.timeSignature || song?.timeSignature || "";
+  const pattern = metricBeamPattern(signature);
+  const fallbackLength = Number(measure?.beatsPerBar)
+    || effectiveBeatsPerBar(song);
+  const inferredMeasureIndex = Number.isInteger(node.measureIndex)
+    ? node.measureIndex
+    : fallbackLength > 0
+      ? Math.floor((node.beat + 1e-7) / fallbackLength)
+      : 0;
+  const measureStart = Number.isFinite(Number(measure?.beat))
+    ? Number(measure.beat)
+    : inferredMeasureIndex * Math.max(0, fallbackLength);
+  const relativeBeat = Math.max(0, node.beat - measureStart);
+  if (!pattern.length) {
+    return `${inferredMeasureIndex}:${Math.floor(relativeBeat + 1e-7)}`;
+  }
+  let boundary = 0;
+  for (const [index, length] of pattern.entries()) {
+    boundary += length;
+    if (relativeBeat < boundary - 1e-7) {
+      return `${inferredMeasureIndex}:${index}`;
+    }
+  }
+  return `${inferredMeasureIndex}:${pattern.length - 1}`;
+}
+
+function assignAutomaticBeamLevel(run, level) {
+  let eligible = [];
+  const flush = () => {
+    if (!eligible.length) return;
+    if (eligible.length === 1) {
+      const [{ node, index }] = eligible;
+      node.beams.push({
+        number: level,
+        value: index < run.length - 1 ? 'forward hook' : 'backward hook',
+      });
+    } else {
+      eligible.forEach(({ node }, index) => {
+        node.beams.push({
+          number: level,
+          value: index === 0 ? 'begin' : index === eligible.length - 1 ? 'end' : 'continue',
+        });
+      });
+    }
+    eligible = [];
+  };
+
+  run.forEach((node, index) => {
+    if (node.flags >= level) eligible.push({ node, index });
+    else flush();
+  });
+  flush();
+}
+
+export function automaticBeamPlan(nodes, song) {
+  const planned = (nodes || []).map((node) => ({
+    ...node,
+    beams: [...(node.beams || [])],
+  }));
+  let run = [];
+  const flush = () => {
+    if (run.length >= 2) {
+      const maxLevel = Math.max(...run.map((node) => node.flags || 0));
+      for (let level = 1; level <= maxLevel; level += 1) {
+        assignAutomaticBeamLevel(run, level);
+      }
+    }
+    run = [];
+  };
+
+  for (const node of planned) {
+    const previous = run.at(-1);
+    const eligible = node.flags > 0 && node.beams.length === 0;
+    const sameMetricGroup = previous
+      && metricGroupKey(previous, song) === metricGroupKey(node, song);
+    const expectedBeat = previous
+      ? previous.beat + Math.max(0, Number(previous.duration) || 0)
+      : node.beat;
+    const consecutive = previous && Math.abs(node.beat - expectedBeat) <= 1e-4;
+    if (!eligible || (previous && (!sameMetricGroup || !consecutive))) flush();
+    if (eligible) run.push(node);
+  }
+  flush();
+  return planned;
+}
+
+function withAutomaticBeams(stems, song) {
+  const planned = [];
+  for (const stream of streamsFromStems(stems).values()) {
+    planned.push(...automaticBeamPlan(stream, song));
+  }
+  return planned;
+}
+
+function drawBeamRun(nodes, level) {
+  const geometry = level > 1 && nodes.every((node) => node.primaryBeamY != null)
+    ? nodes.map((node) => ({ ...node, beamY: node.primaryBeamY }))
+    : beamLineGeometry(nodes);
+  if (level === 1) {
+    geometry.forEach((node, index) => {
+      nodes[index].primaryBeamY = node.beamY;
+      node.stemLine?.setAttribute('y2', String(node.beamY));
+    });
+  }
+  const direction = geometry[0].stemUp ? 1 : -1;
+  for (let index = 0; index < geometry.length - 1; index += 1) {
+    const from = geometry[index];
+    const to = geometry[index + 1];
+    from.eventGroup.append(create('line', {
+      class: 'score-beam',
+      'data-beam-level': level,
+      x1: from.stemX,
+      y1: from.beamY + direction * (level - 1) * BEAM_LEVEL_GAP,
+      x2: to.stemX,
+      y2: to.beamY + direction * (level - 1) * BEAM_LEVEL_GAP,
+      stroke: 'currentColor',
+      'stroke-width': BEAM_THICKNESS,
+      'stroke-linecap': 'butt',
+    }));
+  }
+}
+
+function drawBeamHook(node, level, forward) {
+  if (!node?.eventGroup) return;
+  const direction = node.stemUp ? 1 : -1;
+  const hookLength = 18 * (forward ? 1 : -1);
+  const beamY = node.primaryBeamY ?? node.tipY;
+  node.eventGroup.append(create('line', {
+    class: 'score-beam score-beam-hook',
+    'data-beam-level': level,
+    x1: node.stemX,
+    y1: beamY + direction * (level - 1) * BEAM_LEVEL_GAP,
+    x2: node.stemX + hookLength,
+    y2: beamY + direction * (level - 1) * BEAM_LEVEL_GAP,
+    stroke: 'currentColor',
+    'stroke-width': BEAM_THICKNESS,
+    'stroke-linecap': 'butt',
+  }));
+}
+
+const NOTE_TYPE_BASE = {
+  maxima: 32,
+  long: 16,
+  breve: 8,
+  whole: 4,
+  half: 2,
+  quarter: 1,
+  eighth: 0.5,
+  '16th': 0.25,
+  '32nd': 0.125,
+  '64th': 0.0625,
+  '128th': 0.03125,
+  '256th': 0.015625,
+};
+
+export function notationForPitch(pitch) {
+  const base = NOTE_TYPE_BASE[pitch?.type];
+  if (!base) return durationNotation(pitch?.duration);
+  return {
+    base,
+    dots: Math.max(0, Number(pitch?.dotCount) || 0),
+    flags: base < 1 ? Math.max(1, Math.round(Math.log2(1 / base))) : 0,
+  };
 }
 
 export function durationNotation(duration) {

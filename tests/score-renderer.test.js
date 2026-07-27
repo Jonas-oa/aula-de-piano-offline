@@ -3,12 +3,17 @@ import assert from "node:assert/strict";
 
 import {
   MIN_EVENT_SPACING,
+  automaticBeamPlan,
   bassClefGeometry,
+  beamLineGeometry,
   durationNotation,
+  explicitBeamRuns,
   isExplicitMeasureBoundary,
   isOnBassStaff,
   keySignaturePitches,
   noteY,
+  notationForPitch,
+  metricBeamPattern,
   scoreEventX,
   scoreHeadline,
   scoreIndexForDrag,
@@ -151,6 +156,135 @@ test("durações pontuadas e bandeirolas são classificadas corretamente", () =>
   assert.deepEqual(durationNotation(1.5), { base: 1, dots: 1, flags: 0 });
   assert.deepEqual(durationNotation(0.75), { base: 0.5, dots: 1, flags: 1 });
   assert.deepEqual(durationNotation(0.25), { base: 0.25, dots: 0, flags: 2 });
+});
+
+test("figura explícita do MusicXML vence a duração sonora de uma tercina", () => {
+  assert.deepEqual(
+    notationForPitch({ type: "eighth", dotCount: 0, duration: 1 / 3 }),
+    { base: 0.5, dots: 0, flags: 1 },
+  );
+  assert.deepEqual(
+    notationForPitch({ type: "16th", dotCount: 1, duration: 0.375 }),
+    { base: 0.25, dots: 1, flags: 2 },
+  );
+});
+
+test("beams explícitos respeitam begin, continue, end e hooks", () => {
+  const node = (value) => ({ beams: value ? [{ number: 1, value }] : [] });
+  const a = node("begin");
+  const b = node("continue");
+  const c = node("end");
+  const hook = node("forward hook");
+  const runs = explicitBeamRuns([a, b, c, node(""), hook], 1);
+
+  assert.equal(runs.length, 2);
+  assert.deepEqual(runs[0], { type: "run", nodes: [a, b, c] });
+  assert.deepEqual(runs[1], { type: "forward hook", nodes: [hook] });
+});
+
+test("pulsação automática diferencia compassos simples, compostos e irregulares", () => {
+  assert.deepEqual(metricBeamPattern("4/4"), [1, 1, 1, 1]);
+  assert.deepEqual(metricBeamPattern("6/8"), [1.5, 1.5]);
+  assert.deepEqual(metricBeamPattern("9/8"), [1.5, 1.5, 1.5]);
+  assert.deepEqual(metricBeamPattern("5/8"), [1, 1.5]);
+  assert.deepEqual(metricBeamPattern("7/8"), [1, 1, 1.5]);
+});
+
+test("fallback agrupa por pulso sem atravessar pausas, compassos ou marcação explícita", () => {
+  const node = (beat, extra = {}) => ({
+    beat,
+    duration: 0.5,
+    flags: 1,
+    beams: [],
+    measureIndex: Math.floor(beat / 4),
+    ...extra,
+  });
+  const explicit = node(2, { beams: [{ number: 1, value: "forward hook" }] });
+  const planned = automaticBeamPlan([
+    node(0),
+    node(0.5),
+    node(1),
+    node(1.5),
+    explicit,
+    node(2.5),
+    node(3.5),
+    node(4),
+    node(4.5),
+  ], {
+    timeSignature: "4/4",
+    beatsPerBar: 4,
+    measures: [
+      { index: 0, beat: 0, duration: 4, timeSignature: "4/4" },
+      { index: 1, beat: 4, duration: 4, timeSignature: "4/4" },
+    ],
+  });
+
+  assert.deepEqual(planned.slice(0, 4).map(({ beams }) => beams[0]?.value), [
+    "begin", "end", "begin", "end",
+  ]);
+  assert.deepEqual(planned[4].beams, explicit.beams, "a marcação de origem tem prioridade");
+  assert.deepEqual(planned[5].beams, [], "não atravessa a lacuna deixada por uma pausa");
+  assert.deepEqual(planned.slice(7).map(({ beams }) => beams[0]?.value), ["begin", "end"]);
+});
+
+test("fallback sem linha do tempo reinicia o agrupamento em cada compasso", () => {
+  const planned = automaticBeamPlan(
+    Array.from({ length: 12 }, (_, index) => ({
+      beat: index * 0.5,
+      duration: 0.5,
+      flags: 1,
+      beams: [],
+    })),
+    { timeSignature: "4/4", beatsPerBar: 4, measures: [] },
+  );
+
+  assert.deepEqual(
+    planned.map(({ beams }) => beams[0]?.value),
+    [
+      "begin", "end", "begin", "end", "begin", "end", "begin", "end",
+      "begin", "end", "begin", "end",
+    ],
+  );
+});
+
+test("beam explícito incompleto não apaga a bandeirola de segurança", () => {
+  const runs = explicitBeamRuns([
+    { beams: [{ number: 1, value: "begin" }] },
+    { beams: [] },
+  ]);
+  assert.deepEqual(runs, []);
+});
+
+test("fallback de semicolcheias cria beam secundário e hook quando necessário", () => {
+  const planned = automaticBeamPlan([
+    { beat: 0, duration: 0.5, flags: 1, beams: [], measureIndex: 0 },
+    { beat: 0.5, duration: 0.25, flags: 2, beams: [], measureIndex: 0 },
+    { beat: 0.75, duration: 0.25, flags: 2, beams: [], measureIndex: 0 },
+  ], {
+    timeSignature: "4/4",
+    beatsPerBar: 4,
+    measures: [{ index: 0, beat: 0, duration: 4, timeSignature: "4/4" }],
+  });
+
+  assert.deepEqual(planned.map(({ beams }) => beams), [
+    [{ number: 1, value: "begin" }],
+    [{ number: 1, value: "continue" }, { number: 2, value: "begin" }],
+    [{ number: 1, value: "end" }, { number: 2, value: "end" }],
+  ]);
+});
+
+test("inclinação do beam é limitada e todas as hastes alcançam a barra", () => {
+  const nodes = [
+    { stemX: 10, tipY: 50, stemUp: true },
+    { stemX: 50, tipY: 20, stemUp: true },
+    { stemX: 90, tipY: 80, stemUp: true },
+  ];
+  const geometry = beamLineGeometry(nodes);
+  const slope = (geometry.at(-1).beamY - geometry[0].beamY)
+    / (geometry.at(-1).stemX - geometry[0].stemX);
+
+  assert.ok(Math.abs(slope) <= 0.1800001);
+  geometry.forEach((item, index) => assert.ok(item.beamY <= nodes[index].tipY));
 });
 
 test("armadura usa a ordem musical correta nas duas claves", () => {

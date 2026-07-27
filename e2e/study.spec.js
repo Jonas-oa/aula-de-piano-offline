@@ -49,3 +49,61 @@ test("modo de estudo permanece legível e utilizável em celular horizontal", as
   const tempoBox = await page.locator("#tempoChip").boundingBox();
   expect(tempoBox.width).toBeGreaterThan(250);
 });
+
+test("renderizador une colcheias e semicolcheias indicadas pelo MusicXML", async ({ page }) => {
+  await page.goto("/");
+  await page.evaluate(async () => {
+    const { renderScore } = await import("/src/ui/score-renderer.js");
+    const container = document.createElement("div");
+    container.id = "beamSimulation";
+    document.body.replaceChildren(container);
+    const pitch = (name, duration, beams) => ({
+      pitch: name,
+      duration,
+      staff: 1,
+      clef: "treble",
+      partIndex: 0,
+      voice: "0:1",
+      type: duration === 0.5 ? "eighth" : "16th",
+      dotCount: 0,
+      stem: "up",
+      beams,
+    });
+    renderScore(container, {
+      id: "beam-explicit-simulation",
+      title: "Simulação de beams explícitos",
+      bpm: 80,
+      timeSignature: "4/4",
+      beatsPerBar: 4,
+      keyFifths: 0,
+      clef: "grand",
+      rests: [],
+      measures: [{ index: 0, number: "1", beat: 0, duration: 4, timeSignature: "4/4" }],
+      notes: [
+        { beat: 0, duration: 0.5, measureIndex: 0, pitches: [
+          pitch("C5", 0.5, [{ number: 1, value: "begin" }]),
+        ] },
+        { beat: 0.5, duration: 0.5, measureIndex: 0, pitches: [
+          pitch("D5", 0.5, [{ number: 1, value: "end" }]),
+        ] },
+        { beat: 1, duration: 0.25, measureIndex: 0, pitches: [
+          pitch("E5", 0.25, [
+            { number: 1, value: "begin" },
+            { number: 2, value: "begin" },
+          ]),
+        ] },
+        { beat: 1.25, duration: 0.25, measureIndex: 0, pitches: [
+          pitch("F5", 0.25, [
+            { number: 1, value: "end" },
+            { number: 2, value: "end" },
+          ]),
+        ] },
+      ],
+    });
+  });
+
+  await expect(page.locator("#beamSimulation .score-beam[data-beam-level='1']")).toHaveCount(2);
+  await expect(page.locator("#beamSimulation .score-beam[data-beam-level='2']")).toHaveCount(1);
+  await expect(page.locator("#beamSimulation .score-event path")).toHaveCount(0);
+  await expect(page.locator("#beamSimulation .score-stem")).toHaveCount(4);
+});
