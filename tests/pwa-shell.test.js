@@ -170,3 +170,24 @@ test("microfone é preparado ao abrir o estudo e informa seu estado", () => {
   assert.match(html, /id="inputStatus"/);
   assert.match(html, /Microfone em espera/);
 });
+
+test("o aviso de girar o aparelho não é apagado pelo `hidden` global", () => {
+  // `[hidden] { display: none !important }` vence a media query de retrato. Com
+  // o atributo no HTML, o aviso nunca aparecia e o aluno via apenas a tela de
+  // estudo borrada, sem saber que faltava girar o aparelho.
+  const html = fs.readFileSync(path.join(root, "index.html"), "utf8");
+  const css = fs.readFileSync(path.join(root, "styles.css"), "utf8");
+
+  assert.doesNotMatch(html, /id="rotateOverlay"[^>]*\shidden/);
+  assert.match(css, /\.rotate-overlay\s*\{[^}]*display:\s*none/);
+  assert.match(css, /orientation:\s*portrait/);
+});
+
+test("a importação recusa partituras sem notas e respeita o compasso do arquivo", () => {
+  const app = fs.readFileSync(path.join(root, "src/app.js"), "utf8");
+  // Uma peça sem ataques abriria uma tela de estudo permanentemente vazia.
+  assert.match(app, /Esta partitura não contém notas para estudar/);
+  // O cartão do repertório precisa dizer a mesma fórmula que a tela de estudo
+  // usa — e ela vem do arquivo, não do seletor padrão em 4\/4.
+  assert.match(app, /timeSignature: parsed\?\.timeSignature \|\| byId\("pieceTimeSignature"\)\.value/);
+});

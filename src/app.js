@@ -46,6 +46,7 @@ const byId = (id) => document.getElementById(id);
 const state = {
   pieces: [],
   selectedFiles: [],
+  pendingImport: null,
   currentItem: null,
   currentEvents: null,
   currentMusicMetadata: null,
@@ -139,6 +140,11 @@ const midiInput = new MidiInput({
   onStatus: (status, count) => {
     if (status === "connected") toast(`${count} entrada MIDI conectada${count > 1 ? "s" : ""}.`);
     if (status === "empty") toast("Nenhum piano MIDI foi encontrado.");
+    // Conectar e desconectar o instrumento no meio do estudo precisa aparecer:
+    // sem isso o indicador continuava dizendo "Microfone em espera".
+    if (state.inputMode === "midi" && status !== "disconnected") {
+      reflectInputStatus(status === "connected" ? "midi" : "stopped");
+    }
   },
 });
 
@@ -275,15 +281,55 @@ function renderSelectedFiles() {
   }
 }
 
-function acceptFiles(files) {
+async function acceptFiles(files) {
   const accepted = [...files].filter((file) => isMusicXmlFilename(file.name));
   state.selectedFiles = accepted.slice(0, 1);
+  state.pendingImport = null;
   renderSelectedFiles();
   if (!accepted.length && files.length) {
     toast("Nesta versão, selecione um arquivo MusicXML (.musicxml, .mxl ou .xml).");
-  } else if (accepted.length > 1) {
-    toast("Selecione uma partitura por vez.");
+    return;
   }
+  if (accepted.length > 1) toast("Selecione uma partitura por vez.");
+  await prefillImportForm(state.selectedFiles[0]);
+}
+
+// O próprio arquivo já sabe título, compositor, compasso e andamento. Ler esses
+// valores na hora da escolha evita que a peça seja salva com o 4/4 e os 72 BPM
+// padrão do formulário, que depois contradiziam a partitura na tela de estudo.
+async function prefillImportForm(file) {
+  if (!file) return;
+  let parsed = null;
+  try {
+    parsed = parseMusicXml(await readMusicXmlFile(file));
+  } catch (error) {
+    toast(readableError(error));
+    return;
+  }
+  state.pendingImport = { name: file.name, parsed };
+
+  if (parsed.title && !byId("pieceTitle").value.trim()) byId("pieceTitle").value = parsed.title;
+  if (parsed.composer && !byId("pieceComposer").value.trim()) {
+    byId("pieceComposer").value = parsed.composer;
+  }
+  if (parsed.timeSignature) selectTimeSignatureOption(parsed.timeSignature);
+  if (parsed.tempo) byId("pieceBpm").value = String(clampTempo(parsed.tempo));
+  if (!parsed.events?.length) {
+    toast("Este arquivo não traz notas tocáveis. Escolha outra partitura.");
+  }
+}
+
+// Compassos fora da lista curta do formulário (7/8, 9/8…) existem no repertório
+// real; recusá-los em silêncio salvaria a peça com a fórmula errada.
+function selectTimeSignatureOption(timeSignature) {
+  const select = byId("pieceTimeSignature");
+  if (![...select.options].some((option) => option.value === timeSignature)) {
+    const option = document.createElement("option");
+    option.value = timeSignature;
+    option.textContent = timeSignature;
+    select.append(option);
+  }
+  select.value = timeSignature;
 }
 
 async function importPiece(event) {
@@ -294,11 +340,19 @@ async function importPiece(event) {
     return;
   }
 
-  let parsed = null;
-  try {
-    parsed = parseMusicXml(await readMusicXmlFile(xmlFile));
-  } catch (error) {
-    toast(readableError(error));
+  let parsed = state.pendingImport?.name === xmlFile.name ? state.pendingImport.parsed : null;
+  if (!parsed) {
+    try {
+      parsed = parseMusicXml(await readMusicXmlFile(xmlFile));
+    } catch (error) {
+      toast(readableError(error));
+      return;
+    }
+  }
+  // Sem ataques não há o que estudar, ouvir ou desenhar: a peça abriria numa
+  // tela de estudo permanentemente vazia.
+  if (!parsed.events?.length) {
+    toast("Esta partitura não contém notas para estudar.");
     return;
   }
 
@@ -309,8 +363,11 @@ async function importPiece(event) {
     type: "piece",
     title,
     composer: byId("pieceComposer").value.trim() || parsed?.composer || "",
-    bpm: Number(byId("pieceBpm").value) || 72,
-    timeSignature: byId("pieceTimeSignature").value,
+    bpm: clampTempo(byId("pieceBpm").value || parsed?.tempo || 72),
+    // A fórmula lida no arquivo vence a do formulário: é ela que a tela de
+    // estudo usa, e o cartão do repertório precisa dizer a mesma coisa.
+    timeSignature: parsed?.timeSignature || byId("pieceTimeSignature").value,
+    beatsPerBar: Number(parsed?.beatsPerBar) > 0 ? Number(parsed.beatsPerBar) : null,
     pdfAsset: null,
     musicXmlAsset,
     createdAt: new Date().toISOString(),
@@ -322,6 +379,7 @@ async function importPiece(event) {
     byId("importForm").reset();
     byId("pieceBpm").value = "72";
     state.selectedFiles = [];
+    state.pendingImport = null;
     renderSelectedFiles();
     renderLibrary();
     showView("libraryView");
@@ -453,7 +511,9 @@ function setStructuredPageLabel() {
 }
 
 function stepStructured(delta) {
-  if (!state.currentScore || state.practiceActive || state.countInActive || playbackEngine.isPlaying) return;
+  if (!state.currentScore || state.practiceActive || state.countInActive) return;
+  // Durante a audição os botões ‹ › não podiam ficar mudos: o gesto de arrastar
+  // a pauta já interrompe a reprodução, e aqui a regra passa a ser a mesma.
   if (playbackEngine.isActive) {
     playbackEngine.stop({ preserveCursor: true });
   }
@@ -753,6 +813,20 @@ async function openPractice(item) {
       pianoKeyboard.setUnavailable("A partitura PDF não contém notas estruturadas");
       setAnalysisMode("Tempo pelo PDF", "Esta é uma partitura PDF salva anteriormente. O microfone pode acompanhar o ritmo, mas não identificar as notas escritas.");
       byId("pdfOnlyOptions").hidden = false;
+    } else {
+      // Sem ataques e sem PDF não há nada para desenhar. Antes desta saída o
+      // palco ficava parado no "Carregando partitura…" para sempre.
+      byId("documentStage").replaceChildren();
+      byId("documentStage").append(Object.assign(document.createElement("div"), {
+        className: "loading-state",
+        textContent: "Esta peça não contém notas para estudar. Importe a partitura novamente.",
+      }));
+      pianoKeyboard.setUnavailable("A peça não trouxe notas");
+      setAnalysisMode(
+        "Partitura vazia",
+        "O arquivo salvo não traz ataques legíveis. Reimporte a peça a partir do MusicXML original.",
+      );
+      byId("pdfOnlyOptions").hidden = true;
     }
     applyPracticeModeAvailability();
     applyPieceControls();
@@ -1051,6 +1125,7 @@ async function selectInputMode(mode) {
     try {
       const count = await midiInput.connect();
       if (!count) toast("Conecte e ligue o piano MIDI, depois tente novamente.");
+      reflectInputStatus(count ? "midi" : "stopped");
     } catch (error) {
       state.inputMode = "microphone";
       byId("microphoneModeButton").classList.add("active");
@@ -1070,6 +1145,7 @@ function reflectInputStatus(status) {
   const labels = {
     requesting: "Ativando microfone…",
     active: "● Microfone ativo",
+    midi: "● MIDI conectado",
     stopped: state.inputMode === "midi" ? "Entrada MIDI" : "Microfone em espera",
     error: "Microfone bloqueado",
   };
@@ -1577,7 +1653,7 @@ document.querySelectorAll("[data-view-target]").forEach((button) => {
 byId("brandButton").addEventListener("click", () => showView("libraryView"));
 byId("librarySearch").addEventListener("input", renderLibrary);
 byId("rhythmFilter").addEventListener("change", renderRhythms);
-byId("pieceFiles").addEventListener("change", (event) => acceptFiles(event.target.files));
+byId("pieceFiles").addEventListener("change", (event) => void acceptFiles(event.target.files));
 byId("importForm").addEventListener("submit", importPiece);
 byId("dropZone").addEventListener("dragover", (event) => {
   event.preventDefault();
@@ -1587,7 +1663,7 @@ byId("dropZone").addEventListener("dragleave", () => byId("dropZone").classList.
 byId("dropZone").addEventListener("drop", (event) => {
   event.preventDefault();
   byId("dropZone").classList.remove("dragging");
-  acceptFiles(event.dataTransfer.files);
+  void acceptFiles(event.dataTransfer.files);
 });
 byId("leavePracticeButton").addEventListener("click", leavePractice);
 byId("documentStage").addEventListener("pointerdown", beginScoreGesture);

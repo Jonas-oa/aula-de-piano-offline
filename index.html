@@ -310,7 +310,11 @@
           <div id="attemptTimeline" class="attempt-timeline bottombar-collapsible" role="img" aria-label="Últimos ataques"></div>
         </div>
 
-        <div id="rotateOverlay" class="rotate-overlay" hidden>
+        <!-- A visibilidade é decidida por `@media (orientation: portrait)`. O
+             atributo `hidden` ficava sempre valendo por causa da regra global
+             `[hidden] { display: none !important }`, e o aviso nunca aparecia:
+             em retrato o aluno via a tela borrada sem explicação. -->
+        <div id="rotateOverlay" class="rotate-overlay">
           <div>
             <span class="rotate-mark" aria-hidden="true">↻</span>
             <strong>Gire o aparelho</strong>

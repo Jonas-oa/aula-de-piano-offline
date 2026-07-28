@@ -557,6 +557,7 @@ function buildScore(song) {
           x,
           isBass,
           voiceGroups.length > 1,
+          { song, beat: Number(event.beat) || 0 },
         );
         if (geometry) {
           stemGeometries.push({
@@ -683,7 +684,14 @@ function setTrackTranslate(track, value) {
   track.setAttribute('transform', `translate(${normalized.toFixed(2)} 0)`);
 }
 
-function drawEventOnStaff(parent, pitches, x, isBass, hasMultipleVoices = false) {
+function drawEventOnStaff(
+  parent,
+  pitches,
+  x,
+  isBass,
+  hasMultipleVoices = false,
+  { song = null, beat = 0 } = {},
+) {
   if (!pitches.length) return null;
   const placed = pitches
     .map((pitch) => ({ ...pitch, y: noteY(pitch.pitch, isBass), step: diatonicStep(pitch.pitch) }))
@@ -720,7 +728,10 @@ function drawEventOnStaff(parent, pitches, x, isBass, hasMultipleVoices = false)
       rx: 10,
       ry: 7,
       transform: `rotate(-18 ${pitch.headX} ${pitch.y})`,
-      fill: pitch.duration >= 2 ? '#fbfcfd' : 'currentColor',
+      // A cabeça vazada é decidida pela figura escrita, não pela duração que
+      // soa. Uma semínima ligada a outra soa dois tempos, mas continua sendo
+      // semínima: preenchê-la pela duração desenhava uma mínima na pauta.
+      fill: notationForPitch(pitch).base >= 2 ? '#fbfcfd' : 'currentColor',
       stroke: 'currentColor',
       'stroke-width': 2.5,
     }));
@@ -784,7 +795,11 @@ function drawEventOnStaff(parent, pitches, x, isBass, hasMultipleVoices = false)
 
   for (const pitch of placed) {
     if (!pitch.tieStart) continue;
-    const endX = x + Math.max(28, Number(pitch.duration || 0) * BEAT_SPACING);
+    // A ligadura termina onde a nota seguinte é desenhada. Medir em BEAT_SPACING
+    // ignorava a compressão da malha adaptativa, e uma ligadura longa passava por
+    // cima dos ataques seguintes em vez de alcançar apenas o próximo.
+    const tiedX = scoreXForBeat(beat + Math.max(0, Number(pitch.duration) || 0), song);
+    const endX = Math.max(x + 28, tiedX);
     const y = pitch.y + (stemUp ? 15 : -15);
     parent.append(create('path', {
       class: 'score-tie',

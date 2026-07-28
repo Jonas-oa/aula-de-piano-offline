@@ -1,7 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { renderScore } from "../src/ui/score-renderer.js";
+import { renderScore, scoreEventX } from "../src/ui/score-renderer.js";
+
+// Origem da malha da pauta, usada para provar que a distância deixou de ser
+// proporcional pura quando há semicolcheias entre os dois ataques.
+const NOTE_START_X_FOR_TEST = 180;
 
 function dataKey(name) {
   return name
@@ -278,6 +282,91 @@ test("simulação SVG mantém duas vozes independentes com hastes opostas", () =
       "voz 1 sobe pela direita e voz 2 desce pela esquerda",
     );
     assert.equal(container.querySelectorAll(".score-flag").length, 0);
+  } finally {
+    globalThis.document = previousDocument;
+  }
+});
+
+// Uma semínima ligada a outra soa dois tempos, mas continua sendo semínima. A
+// cabeça era preenchida pela duração que soa, e a pauta mostrava uma mínima —
+// um erro de ritmo que o aluno leria como escrito.
+function tiedQuarterScore() {
+  const pitch = (name, duration, extra = {}) => ({
+    pitch: name,
+    duration,
+    staff: 1,
+    clef: "treble",
+    partIndex: 0,
+    voice: "0:1",
+    type: "quarter",
+    dotCount: 0,
+    stem: "up",
+    beams: [],
+    ...extra,
+  });
+  return {
+    id: "tied-quarter-simulation",
+    title: "Simulação de ligadura de valor",
+    bpm: 80,
+    timeSignature: "4/4",
+    beatsPerBar: 4,
+    keyFifths: 0,
+    clef: "grand",
+    rests: [],
+    measures: [{ index: 0, number: "1", beat: 0, duration: 4, timeSignature: "4/4" }],
+    notes: [
+      // Semínima ligada à seguinte: duração 2 que soa, figura de semínima.
+      { beat: 0, duration: 2, measureIndex: 0, pitches: [pitch("C5", 2, { tieStart: true })] },
+      // Semicolcheias na mão esquerda esticam a malha entre os dois ataques:
+      // 0,25 tempo renderiza com MIN_EVENT_SPACING, não com 0,25 × BEAT_SPACING.
+      ...[0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75].map((beat) => ({
+        beat,
+        duration: 0.25,
+        measureIndex: 0,
+        pitches: [pitch("C3", 0.25, { type: "16th", clef: "bass", staff: 2, voice: "0:2" })],
+      })),
+      { beat: 2, duration: 2, measureIndex: 0, pitches: [pitch("E5", 2, { type: "half" })] },
+    ],
+  };
+}
+
+test("simulação SVG preenche a cabeça pela figura escrita, não pela duração ligada", () => {
+  const previousDocument = globalThis.document;
+  globalThis.document = {
+    createElementNS: (_namespace, tagName) => new FakeElement(tagName),
+  };
+  try {
+    const song = tiedQuarterScore();
+    const container = new FakeElement("div");
+    renderScore(container, song, 0, null, { immediate: true });
+
+    const events = container.querySelectorAll(".score-event");
+    const headOf = (event) => event.querySelectorAll("ellipse")[0];
+    assert.equal(
+      headOf(events[0]).getAttribute("fill"),
+      "currentColor",
+      "a semínima ligada continua com a cabeça cheia",
+    );
+    assert.equal(
+      headOf(events.at(-1)).getAttribute("fill"),
+      "#fbfcfd",
+      "a mínima escrita continua vazada",
+    );
+
+    // A ligadura termina onde a próxima nota é desenhada, e não a uma distância
+    // fixa em BEAT_SPACING que passaria por cima dos ataques seguintes.
+    const tie = container.querySelectorAll(".score-tie")[0];
+    assert.ok(tie, "a ligadura de valor é desenhada");
+    const end = Number(/([\d.]+)\s[\d.]+$/.exec(tie.getAttribute("d"))?.[1]);
+    const tiedX = scoreEventX(song, song.notes.length - 1);
+    assert.ok(
+      Math.abs(end - (tiedX - 7)) < 1,
+      `a curva deve alcançar a nota ligada em ${tiedX} (terminou em ${end})`,
+    );
+    assert.ok(
+      tiedX > NOTE_START_X_FOR_TEST + 2 * 88,
+      "a malha adaptativa afastou a nota ligada além da distância proporcional",
+    );
   } finally {
     globalThis.document = previousDocument;
   }
