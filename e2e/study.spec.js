@@ -20,6 +20,8 @@ test("modo de estudo permanece legível e utilizável em celular horizontal", as
   await expect(page.locator("#playbackToggleButton")).toBeVisible();
   await expect(page.locator(".bass-clef-symbol")).toHaveText("𝄢");
   await expect(page.locator("#inputStatus")).toHaveAttribute("data-status", "active");
+  // Em paisagem o aviso de girar não pode aparecer sobre a partitura.
+  await expect(page.locator("#rotateOverlay")).toBeHidden();
 
   const actionBoxes = await Promise.all([
     page.locator("#startPracticeButton").boundingBox(),
@@ -128,25 +130,27 @@ test("renderizador une colcheias e semicolcheias indicadas pelo MusicXML", async
   await expect(page.locator("#beamSimulation .score-stem")).toHaveCount(4);
 });
 
-test("em retrato o estudo explica que falta girar o aparelho", async ({ page }) => {
-  // O bloqueio de orientação depende do navegador e do modo de instalação;
-  // quando ele não vale, o aluno cai em retrato. A tela de estudo já ficava
-  // borrada nessa situação, mas o aviso nunca aparecia — e sem ele o app parece
-  // simplesmente quebrado.
-  await page.goto("/");
-  await page.locator("#rhythmPanel").evaluate((panel) => {
-    panel.open = true;
+// A tela abre já em retrato, e não girada no meio do teste: o estudo pede
+// `requestFullscreen()` ao abrir, e um navegador que atende ao pedido recusa
+// qualquer redimensionamento depois disso.
+test.describe("aparelho em retrato", () => {
+  test.use({ viewport: { width: 412, height: 915 } });
+
+  test("o estudo explica que falta girar o aparelho", async ({ page }) => {
+    // O bloqueio de orientação depende do navegador e do modo de instalação;
+    // quando ele não vale, o aluno cai em retrato. A tela de estudo já ficava
+    // borrada nessa situação, mas o aviso nunca aparecia — e sem ele o app
+    // parece simplesmente quebrado.
+    await page.goto("/");
+    await page.locator("#rhythmPanel").evaluate((panel) => {
+      panel.open = true;
+    });
+    await page.locator(".rhythm-card button").first().click();
+    await expect(page.locator("#practiceView")).toHaveClass(/active/);
+
+    await expect(page.locator("#rotateOverlay")).toBeVisible();
+    await expect(page.locator("#rotateOverlay")).toContainText("Gire o aparelho");
   });
-  await page.locator(".rhythm-card button").first().click();
-  await expect(page.locator("#practiceView")).toHaveClass(/active/);
-  await expect(page.locator("#rotateOverlay")).toBeHidden();
-
-  await page.setViewportSize({ width: 412, height: 915 });
-  await expect(page.locator("#rotateOverlay")).toBeVisible();
-  await expect(page.locator("#rotateOverlay")).toContainText("Gire o aparelho");
-
-  await page.setViewportSize({ width: 915, height: 412 });
-  await expect(page.locator("#rotateOverlay")).toBeHidden();
 });
 
 // Partitura mínima em 3/4 com andamento declarado: serve para provar que a
