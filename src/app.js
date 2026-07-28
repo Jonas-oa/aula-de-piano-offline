@@ -47,6 +47,7 @@ const state = {
   pieces: [],
   selectedFiles: [],
   pendingImport: null,
+  editingPieceId: null,
   currentItem: null,
   currentEvents: null,
   currentMusicMetadata: null,
@@ -210,6 +211,7 @@ function renderLibrary() {
         <details class="card-menu">
           <summary aria-label="Abrir opções de ${escapeHtml(piece.title)}">•••</summary>
           <div class="card-menu-popover">
+            <button class="edit-piece-button" type="button">Editar dados</button>
             ${piece.musicXmlAsset ? '<button class="download-musicxml-button" type="button">Baixar MusicXML</button>' : ""}
             <button class="delete-piece-button" type="button">Excluir do aparelho</button>
           </div>
@@ -227,6 +229,10 @@ function renderLibrary() {
       </div>
     `;
     card.querySelector(".open-piece-button").addEventListener("click", () => openPractice(piece));
+    card.querySelector(".edit-piece-button").addEventListener("click", () => {
+      card.querySelector(".card-menu").open = false;
+      openPieceEditor(piece);
+    });
     card.querySelector(".download-musicxml-button")?.addEventListener("click", () => {
       downloadPieceMusicXml(piece);
       card.querySelector(".card-menu").open = false;
@@ -389,6 +395,49 @@ async function importPiece(event) {
   }
 }
 
+// Depois de importada, uma peça só podia ser corrigida excluindo e importando
+// de novo. O arquivo em si continua intocado: aqui muda apenas como a peça se
+// apresenta no repertório e com que andamento ela abre.
+function openPieceEditor(piece) {
+  state.editingPieceId = piece.id;
+  byId("editPieceTitle").value = piece.title || "";
+  byId("editPieceComposer").value = piece.composer || "";
+  byId("editPieceBpm").value = String(clampTempo(piece.bpm || 72));
+  byId("editPieceTimeSignature").value = piece.timeSignature || "";
+  byId("editPieceDialog").showModal();
+}
+
+// O formulário usa `method="dialog"`: o próprio navegador fecha o diálogo no
+// envio, então aqui basta persistir. A peça vem por parâmetro porque o
+// fechamento limpa o estado e não há ordem garantida entre os dois eventos.
+async function savePieceEdits(pieceId) {
+  const piece = state.pieces.find((item) => item.id === pieceId);
+  if (!piece) return;
+
+  const timeSignature = byId("editPieceTimeSignature").value.trim();
+  const updated = {
+    ...piece,
+    title: byId("editPieceTitle").value.trim() || piece.title,
+    composer: byId("editPieceComposer").value.trim(),
+    bpm: clampTempo(byId("editPieceBpm").value, piece.bpm),
+    timeSignature: timeSignature || piece.timeSignature,
+    // A fórmula digitada manda também nos tempos por compasso; deixar o valor
+    // antigo faria a contagem de entrada discordar do que o cartão mostra.
+    beatsPerBar: timeSignature ? beatsPerBarFromSignature(timeSignature) : piece.beatsPerBar ?? null,
+  };
+
+  try {
+    await savePiece(updated);
+  } catch (error) {
+    toast(`Não foi possível salvar: ${readableError(error)}`);
+    return;
+  }
+  state.pieces = state.pieces.map((item) => (item.id === updated.id ? updated : item));
+  if (state.currentItem?.id === updated.id) state.currentItem = updated;
+  renderLibrary();
+  toast("Dados da peça atualizados.");
+}
+
 async function downloadPieceMusicXml(piece = state.currentItem) {
   if (!piece?.musicXmlAsset) {
     toast("Esta peça não possui um arquivo MusicXML.");
@@ -505,9 +554,20 @@ function syncPianoKeyboard() {
   pianoKeyboard.showNoteGroups(pianoGroupsFromScore());
 }
 
+// "Nota 37 / 412" não diz nada a quem estuda por compassos, que é como a peça é
+// ensaiada e como o professor pede o trecho. O número do compasso vem do
+// MusicXML e passa a liderar o rótulo.
+function progressLabel(index, total) {
+  if (!total) return "Partitura";
+  const position = Math.min(Math.max(index, 0), total - 1);
+  const measure = state.currentScore?.notes?.[position]?.measureNumber;
+  const note = `${position + 1}/${total}`;
+  return measure ? `Comp. ${measure} · ${note}` : `Nota ${note}`;
+}
+
 function setStructuredPageLabel() {
   const total = state.currentScore?.notes?.length || 0;
-  byId("pageLabel").textContent = total ? `Nota ${Math.min(state.viewIndex + 1, total)} / ${total}` : "Partitura";
+  byId("pageLabel").textContent = progressLabel(state.viewIndex, total);
 }
 
 function stepStructured(delta) {
@@ -876,7 +936,7 @@ function applyPieceControls() {
   byId("playbackControls").hidden = false;
   byId("playbackToggleButton").disabled = !playable;
   byId("playbackToggleButton").title = playable
-    ? "Ouvir a peça ou o trecho A–B."
+    ? "Ouvir a peça ou o trecho A–B (barra de espaço)."
     : "A audição precisa de uma partitura estruturada.";
   byId("inputToggle").hidden = false;
   byId("startPracticeButton").hidden = false;
@@ -1442,7 +1502,7 @@ function updateFollowStats() {
   const attempts = state.followStats.correct + state.followStats.wrong;
   const accuracy = attempts ? Math.round((state.followStats.correct / attempts) * 100) : 0;
   byId("accuracyStat").textContent = `${accuracy}%`;
-  byId("pageLabel").textContent = total ? `Nota ${Math.min(done + 1, total)} / ${total}` : "Partitura";
+  byId("pageLabel").textContent = progressLabel(done, total);
 }
 
 function updateFeedbackForAttempt(attempt) {
@@ -1453,27 +1513,28 @@ function updateFeedbackForAttempt(attempt) {
   setFeedback(attempt.grade, attempt.label.toUpperCase(), attempt.label, detail);
 }
 
+// Só a grade exata (MusicXML ou exercício) tem ataques a vencer. Fora dela o
+// laço rodava a cada quadro sem nada a fazer — com o aparelho apoiado no piano,
+// gastando bateria a troco de nada.
 function practiceTick() {
-  if (!state.practiceActive) return;
+  if (!state.practiceActive || !state.exactMode) return;
 
-  if (state.exactMode) {
-    const missed = markMissed(state.schedule, performance.now(), 430);
-    if (missed.length) {
-      state.missed += missed.length;
-      for (const event of missed) {
-        appendAttemptDot("missed");
-        advanceScore(event.index + 1);
-      }
-      setFeedback("missed", "PASSOU", "Ataque não detectado", "Retome no próximo pulso.");
-      updateStats();
+  const missed = markMissed(state.schedule, performance.now(), 430);
+  if (missed.length) {
+    state.missed += missed.length;
+    for (const event of missed) {
+      appendAttemptDot("missed");
+      advanceScore(event.index + 1);
     }
+    setFeedback("missed", "PASSOU", "Ataque não detectado", "Retome no próximo pulso.");
+    updateStats();
+  }
 
-    const complete = state.schedule.length
-      && state.schedule.every((event) => event.matched || event.missed);
-    if (complete) {
-      stopPractice({ showResult: true });
-      return;
-    }
+  const complete = state.schedule.length
+    && state.schedule.every((event) => event.matched || event.missed);
+  if (complete) {
+    stopPractice({ showResult: true });
+    return;
   }
 
   state.animationFrame = requestAnimationFrame(practiceTick);
@@ -1732,9 +1793,75 @@ document.addEventListener("pointerdown", (event) => {
     && !byId("tempoChip").contains(event.target)
   ) setTempoExpanded(false);
 });
-document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") setTempoExpanded(false);
+// Os menus dos cartões ficavam abertos ao rolar a biblioteca ou ao abrir outro
+// cartão, empilhando popovers sobre o repertório.
+document.addEventListener("pointerdown", (event) => {
+  for (const menu of document.querySelectorAll("details.card-menu[open]")) {
+    if (!menu.contains(event.target)) menu.open = false;
+  }
 });
+
+// Um teclado ligado ao aparelho (ou um Bluetooth no atril) é comum no estudo, e
+// até aqui a tela só respondia a ponteiro. Campos de texto continuam com a tecla.
+const PRACTICE_SHORTCUTS = {
+  ArrowLeft: () => stepStructured(-1),
+  ArrowRight: () => stepStructured(1),
+  " ": () => void togglePlayback(),
+  a: () => markLoop("a"),
+  b: () => markLoop("b"),
+  l: () => toggleLoop(),
+};
+
+function isTypingTarget(target) {
+  return Boolean(target?.closest?.("input, select, textarea, [contenteditable='true']"));
+}
+
+function isActivatableTarget(target) {
+  return Boolean(target?.closest?.("button, summary, a[href], [role='button']"));
+}
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    setTempoExpanded(false);
+    return;
+  }
+  if (
+    state.currentView !== "practiceView"
+    || event.metaKey || event.ctrlKey || event.altKey
+    || isTypingTarget(event.target)
+  ) return;
+
+  const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+  // Espaço aciona o elemento em foco. Roubar a tecla faria o botão que o aluno
+  // acabou de usar parar de responder ao próprio teclado.
+  if (key === " " && isActivatableTarget(event.target)) return;
+
+  const shortcut = PRACTICE_SHORTCUTS[key];
+  if (!shortcut) return;
+  event.preventDefault();
+  shortcut();
+});
+byId("editPieceForm").addEventListener("submit", () => void savePieceEdits(state.editingPieceId));
+byId("cancelEditPieceButton").addEventListener("click", () => byId("editPieceDialog").close());
+// Fechar pelo Escape não passa pelo envio; sem isto a peça em edição ficava
+// pendurada no estado e a próxima abertura herdava o alvo errado.
+byId("editPieceDialog").addEventListener("close", () => {
+  state.editingPieceId = null;
+});
+
+// O distintivo dizia "Salvo neste aparelho" mesmo com a rede caída. Como o
+// aplicativo se propõe a funcionar offline, o estado real importa: é ele que
+// explica por que a importação de um arquivo novo pode falhar.
+function reflectConnection() {
+  const badge = byId("offlineBadge");
+  const offline = navigator.onLine === false;
+  badge.textContent = offline ? "Offline · repertório disponível" : "Salvo neste aparelho";
+  badge.dataset.connection = offline ? "offline" : "online";
+}
+
+window.addEventListener("online", reflectConnection);
+window.addEventListener("offline", reflectConnection);
+reflectConnection();
 reflectLoopButtons();
 restorePanelPreferences();
 document.addEventListener("visibilitychange", () => {

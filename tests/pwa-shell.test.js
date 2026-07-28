@@ -191,3 +191,12 @@ test("a importação recusa partituras sem notas e respeita o compasso do arquiv
   // usa — e ela vem do arquivo, não do seletor padrão em 4\/4.
   assert.match(app, /timeSignature: parsed\?\.timeSignature \|\| byId\("pieceTimeSignature"\)\.value/);
 });
+
+test("o service worker nunca responde com `undefined` quando está offline", () => {
+  // `caches.match` resolve para `undefined` quando não encontra nada, e
+  // devolver isso ao `respondWith` vira erro de rede cru em vez da casca salva.
+  const worker = fs.readFileSync(path.join(root, "sw.js"), "utf8");
+  assert.match(worker, /function offlineResponse\(\)/);
+  assert.doesNotMatch(worker, /\.catch\(\(\) => caches\.match\("\.\/index\.html"\)\)/);
+  assert.match(worker, /offlineResponse\(\)\)?,?\s*\n?\s*\);?/);
+});

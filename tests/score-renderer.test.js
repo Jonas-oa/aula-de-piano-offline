@@ -5,6 +5,7 @@ import {
   MIN_EVENT_SPACING,
   automaticBeamPlan,
   bassClefGeometry,
+  scoreAccessibleLabel,
   beamLineGeometry,
   durationNotation,
   explicitBeamRuns,
@@ -309,4 +310,22 @@ test("cada nota cai na linha ou espaço certo das duas claves", () => {
   // A alteração não muda a linha: Fá♯4 e Fá4 ocupam o mesmo lugar.
   assert.equal(noteY("F#4"), noteY("F4"));
   assert.equal(noteY("Bb3", true), noteY("B3", true));
+});
+
+test("a pauta se apresenta a leitores de tela em vez de ficar invisível", () => {
+  // Com `role="presentation"` a partitura inteira sumia da árvore acessível e
+  // sobravam apenas os botões da tela de estudo.
+  assert.equal(
+    scoreAccessibleLabel({
+      title: "Prelúdio",
+      timeSignature: "3/4",
+      clef: "grand",
+      notes: [{}, {}, {}],
+    }),
+    "Partitura de Prelúdio, compasso 3/4, 3 ataques, em duas claves",
+  );
+  assert.equal(
+    scoreAccessibleLabel({ notes: [{}] }),
+    "Partitura de peça sem título, compasso 4/4, 1 ataque",
+  );
 });

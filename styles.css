@@ -747,6 +747,9 @@ main { width: min(1160px, calc(100% - 28px)); margin: 0 auto; padding: 28px 0 48
 .result-grid div { padding: 12px; border-radius: 12px; background: var(--soft); }
 .result-grid span { display: block; color: var(--muted); font-size: .7rem; }
 .result-grid strong { font-size: 1.25rem; }
+.result-dialog .form-grid { margin: 18px 0; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 9px; }
+#offlineBadge[data-connection="offline"] { background: #fff4df; color: var(--warning); }
 
 @media (max-width: 1050px) {
   .rhythm-grid { grid-template-columns: repeat(3, 1fr); }

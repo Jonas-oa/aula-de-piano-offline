@@ -179,6 +179,17 @@ export function scoreHeadline(song) {
   ].filter(Boolean).join(' · ');
 }
 
+export function scoreAccessibleLabel(song) {
+  const noteCount = song?.notes?.length || 0;
+  const signature = timeSignatureLabel(song);
+  return [
+    `Partitura de ${song?.title || 'peça sem título'}`,
+    signature ? `compasso ${signature}` : '',
+    `${noteCount} ${noteCount === 1 ? 'ataque' : 'ataques'}`,
+    song?.clef === 'grand' ? 'em duas claves' : '',
+  ].filter(Boolean).join(', ');
+}
+
 export function isExplicitMeasureBoundary(notes, index) {
   const event = notes?.[index];
   if (!Number.isInteger(event?.measureIndex)) return false;
@@ -349,7 +360,11 @@ function buildScore(song) {
   const height = hasBass ? 352 : 250;
   const svg = create('svg', {
     viewBox: scoreViewBox(song, 0),
-    role: 'presentation',
+    // `presentation` escondia a partitura inteira de quem usa leitor de tela:
+    // não sobrava nada além dos botões. Como imagem rotulada, ao menos a peça,
+    // a fórmula de compasso e o tamanho do trecho são anunciados.
+    role: 'img',
+    'aria-label': scoreAccessibleLabel(song),
     preserveAspectRatio: 'xMidYMid meet',
     'data-score-key': String(song.id),
   });

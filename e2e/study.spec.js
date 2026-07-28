@@ -148,3 +148,119 @@ test("em retrato o estudo explica que falta girar o aparelho", async ({ page }) 
   await page.setViewportSize({ width: 915, height: 412 });
   await expect(page.locator("#rotateOverlay")).toBeHidden();
 });
+
+// Partitura mínima em 3/4 com andamento declarado: serve para provar que a
+// importação lê o arquivo em vez de aceitar os padrões do formulário.
+const TEST_MUSICXML = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="3.1">
+  <work><work-title>Estudo de Teste</work-title></work>
+  <identification><creator type="composer">Autora Teste</creator></identification>
+  <part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes>
+        <divisions>1</divisions><key><fifths>0</fifths></key>
+        <time><beats>3</beats><beat-type>4</beat-type></time>
+        <clef><sign>G</sign><line>2</line></clef>
+      </attributes>
+      <direction><direction-type/><sound tempo="96"/></direction>
+      <note><pitch><step>C</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>
+      <note><pitch><step>D</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>
+      <note><pitch><step>E</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>
+    </measure>
+    <measure number="2">
+      <note><pitch><step>F</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>
+      <note><pitch><step>G</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>
+      <note><pitch><step>A</step><octave>4</octave></pitch><duration>1</duration><type>quarter</type></note>
+    </measure>
+  </part>
+</score-partwise>`;
+
+async function importTestPiece(page) {
+  await page.goto("/");
+  await page.locator("[data-view-target='importView']").click();
+  await page.locator("#pieceFiles").setInputFiles({
+    name: "estudo-de-teste.musicxml",
+    mimeType: "application/vnd.recordare.musicxml+xml",
+    buffer: Buffer.from(TEST_MUSICXML, "utf8"),
+  });
+}
+
+test("a importação obedece ao arquivo, e não aos padrões do formulário", async ({ page }) => {
+  await importTestPiece(page);
+
+  // Título, compositor, compasso e andamento vêm do próprio MusicXML.
+  await expect(page.locator("#pieceTitle")).toHaveValue("Estudo de Teste");
+  await expect(page.locator("#pieceComposer")).toHaveValue("Autora Teste");
+  await expect(page.locator("#pieceTimeSignature")).toHaveValue("3/4");
+  await expect(page.locator("#pieceBpm")).toHaveValue("96");
+
+  await page.locator("#rightsConfirmation").check();
+  await page.locator("#importForm button[type='submit']").click();
+
+  const card = page.locator(".piece-card").first();
+  await expect(card.locator("h3")).toHaveText("Estudo de Teste");
+  // O cartão precisa dizer a mesma fórmula que a tela de estudo usa.
+  await expect(card.locator(".card-tags")).toContainText("3/4");
+  await expect(card.locator(".card-tags")).toContainText("96 bpm");
+});
+
+test("dados da peça podem ser corrigidos sem reimportar o arquivo", async ({ page }) => {
+  await importTestPiece(page);
+  await page.locator("#rightsConfirmation").check();
+  await page.locator("#importForm button[type='submit']").click();
+
+  const card = page.locator(".piece-card").first();
+  await card.locator(".card-menu summary").click();
+  await card.locator(".edit-piece-button").click();
+
+  await expect(page.locator("#editPieceDialog")).toBeVisible();
+  await expect(page.locator("#editPieceTitle")).toHaveValue("Estudo de Teste");
+  await page.locator("#editPieceTitle").fill("Estudo Renomeado");
+  await page.locator("#editPieceBpm").fill("120");
+  await page.locator("#editPieceForm button[type='submit']").click();
+
+  await expect(page.locator("#editPieceDialog")).toBeHidden();
+  await expect(page.locator(".piece-card h3").first()).toHaveText("Estudo Renomeado");
+  await expect(page.locator(".piece-card .card-tags").first()).toContainText("120 bpm");
+
+  // E a correção sobrevive ao recarregamento: foi ao IndexedDB, não só à tela.
+  await page.reload();
+  await expect(page.locator(".piece-card h3").first()).toHaveText("Estudo Renomeado");
+});
+
+test("o estudo responde ao teclado e mostra o compasso atual", async ({ page }) => {
+  await importTestPiece(page);
+  await page.locator("#rightsConfirmation").check();
+  await page.locator("#importForm button[type='submit']").click();
+  await page.locator(".piece-card .open-piece-button").first().click();
+  await expect(page.locator("#practiceView")).toHaveClass(/active/);
+
+  // Com MusicXML o rótulo lidera pelo compasso, que é como a peça é ensaiada.
+  const label = page.locator("#pageLabel");
+  await expect(label).toContainText("Comp. 1");
+  const first = await label.textContent();
+
+  // O atalho vale na tela toda: o ouvinte está no documento, não na pauta.
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  await expect(label).not.toHaveText(first ?? "");
+
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("ArrowLeft");
+  await expect(label).toHaveText(first ?? "");
+
+  // A pauta deixa de ser invisível para leitores de tela.
+  const score = page.locator("#documentStage svg[data-score-key]");
+  await expect(score).toHaveAttribute("role", "img");
+  await expect(score).toHaveAttribute("aria-label", /Partitura de .+ataques/);
+
+  // Exercícios de ritmo não têm compasso numerado: o rótulo cai para a contagem
+  // de notas em vez de inventar um número.
+  await page.locator("#leavePracticeButton").click();
+  await page.locator("#rhythmPanel").evaluate((panel) => {
+    panel.open = true;
+  });
+  await page.locator(".rhythm-card button").first().click();
+  await expect(label).toContainText("Nota 1/");
+});
