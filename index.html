@@ -172,11 +172,11 @@
           >›</button>
 
           <div id="practiceTopbarControls" class="toolbar-controls">
-            <div id="modeToggle" class="input-choice small collapsible-control" role="group" aria-label="Modo de prática">
+            <div id="modeToggle" class="input-choice small" role="group" aria-label="Modo de prática">
               <button id="teacherModeButton" class="choice-button active">Professor</button>
               <button id="tempoModeButton" class="choice-button">Tempo</button>
             </div>
-            <div id="inputToggle" class="input-choice small collapsible-control" role="group" aria-label="Entrada do instrumento">
+            <div id="inputToggle" class="input-choice small" role="group" aria-label="Entrada do instrumento">
               <button id="microphoneModeButton" class="choice-button active" aria-label="Microfone">🎤</button>
               <button id="midiModeButton" class="choice-button">🎹</button>
             </div>
@@ -226,7 +226,7 @@
                 <button id="tempoResetButton" class="tempo-reset" type="button">↺ Voltar ao andamento original</button>
               </section>
             </div>
-            <div id="pdfOnlyOptions" class="pdf-options collapsible-control">
+            <div id="pdfOnlyOptions" class="pdf-options">
               <select id="subdivisionSelect" aria-label="Subdivisão da grade">
                 <option value="1">Semínimas</option>
                 <option value="2">Colcheias</option>
@@ -234,11 +234,11 @@
               </select>
             </div>
             <div class="document-controls">
-              <button id="previousPageButton" class="ghost-button small collapsible-control" aria-label="Anterior">‹</button>
+              <button id="previousPageButton" class="ghost-button small" aria-label="Anterior" title="Anterior (seta ←)">‹</button>
               <span id="pageLabel" class="status-pill">Partitura</span>
-              <button id="nextPageButton" class="ghost-button small collapsible-control" aria-label="Próxima">›</button>
-              <button id="zoomOutButton" class="ghost-button small collapsible-control" aria-label="Diminuir">−</button>
-              <button id="zoomInButton" class="ghost-button small collapsible-control" aria-label="Aumentar">+</button>
+              <button id="nextPageButton" class="ghost-button small" aria-label="Próxima" title="Próxima (seta →)">›</button>
+              <button id="zoomOutButton" class="ghost-button small" aria-label="Diminuir">−</button>
+              <button id="zoomInButton" class="ghost-button small" aria-label="Aumentar">+</button>
             </div>
           </div>
         </div>
@@ -286,12 +286,12 @@
             aria-label="Mostrar ferramentas à direita"
             title="Mostrar ferramentas à direita"
           >‹</button>
-          <span id="analysisModeBadge" class="mode-badge bottombar-collapsible">Partitura</span>
-          <div id="loopControls" class="loop-controls bottombar-collapsible">
-            <button id="markAButton" class="chip-button loop">Marcar A</button>
-            <button id="markBButton" class="chip-button loop">Marcar B</button>
+          <span id="analysisModeBadge" class="mode-badge">Partitura</span>
+          <div id="loopControls" class="loop-controls">
+            <button id="markAButton" class="chip-button loop" title="Marcar início A (tecla A)">Marcar A</button>
+            <button id="markBButton" class="chip-button loop" title="Marcar fim B (tecla B)">Marcar B</button>
             <button id="clearLoopButton" class="chip-button ghost">Limpar</button>
-            <button id="loopToggleButton" class="chip-button loop" aria-pressed="false">↻ Repetir A–B</button>
+            <button id="loopToggleButton" class="chip-button loop" aria-pressed="false" title="Repetir o trecho A–B (tecla L)">↻ Repetir A–B</button>
           </div>
           <div id="practiceStats" class="practice-stats compact">
             <div><span data-stat-label="first">No tempo</span><strong id="onTimeStat">0</strong></div>
@@ -299,7 +299,7 @@
             <div><span data-stat-label="third">Atrasado</span><strong id="lateStat">0</strong></div>
             <div><span>Precisão</span><strong id="accuracyStat">0%</strong></div>
           </div>
-          <div id="practiceBottomControls" class="bottombar-end bottombar-collapsible">
+          <div id="practiceBottomControls" class="bottombar-end">
             <span id="inputStatus" class="input-status" data-status="stopped">Microfone em espera</span>
             <span id="screenStatus" class="screen-status">Tela ativa</span>
             <details class="limitations">
@@ -307,10 +307,14 @@
               <p id="analysisExplanation">Com MusicXML, o microfone confere notas e acordes no modo professor. Com PDF puro, mede a proximidade de cada ataque à grade.</p>
             </details>
           </div>
-          <div id="attemptTimeline" class="attempt-timeline bottombar-collapsible" role="img" aria-label="Últimos ataques"></div>
+          <div id="attemptTimeline" class="attempt-timeline" role="img" aria-label="Últimos ataques"></div>
         </div>
 
-        <div id="rotateOverlay" class="rotate-overlay" hidden>
+        <!-- A visibilidade é decidida por `@media (orientation: portrait)`. O
+             atributo `hidden` ficava sempre valendo por causa da regra global
+             `[hidden] { display: none !important }`, e o aviso nunca aparecia:
+             em retrato o aluno via a tela borrada sem explicação. -->
+        <div id="rotateOverlay" class="rotate-overlay">
           <div>
             <span class="rotate-mark" aria-hidden="true">↻</span>
             <strong>Gire o aparelho</strong>
@@ -325,6 +329,36 @@
   <dialog id="resultDialog" class="result-dialog">
     <div id="resultContent"></div>
     <form method="dialog"><button class="primary-button wide">Continuar</button></form>
+  </dialog>
+
+  <dialog id="editPieceDialog" class="result-dialog">
+    <form id="editPieceForm" method="dialog">
+      <p class="eyebrow">DADOS DA PEÇA</p>
+      <h2>Editar informações</h2>
+      <p>O arquivo salvo não muda. Ajuste apenas como a peça aparece no repertório e com que andamento ela abre.</p>
+      <div class="form-grid">
+        <label>
+          <span>Título da peça</span>
+          <input id="editPieceTitle" name="title" required />
+        </label>
+        <label>
+          <span>Compositor</span>
+          <input id="editPieceComposer" name="composer" />
+        </label>
+        <label>
+          <span>Andamento inicial</span>
+          <div class="input-suffix"><input id="editPieceBpm" name="bpm" type="number" min="30" max="240" required /><span>bpm</span></div>
+        </label>
+        <label>
+          <span>Compasso</span>
+          <input id="editPieceTimeSignature" name="timeSignature" placeholder="4/4" />
+        </label>
+      </div>
+      <div class="dialog-actions">
+        <button class="ghost-button" type="button" id="cancelEditPieceButton">Cancelar</button>
+        <button class="primary-button" type="submit" value="save">Salvar alterações</button>
+      </div>
+    </form>
   </dialog>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 

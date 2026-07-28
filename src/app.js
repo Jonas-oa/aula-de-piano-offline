@@ -46,6 +46,8 @@ const byId = (id) => document.getElementById(id);
 const state = {
   pieces: [],
   selectedFiles: [],
+  pendingImport: null,
+  editingPieceId: null,
   currentItem: null,
   currentEvents: null,
   currentMusicMetadata: null,
@@ -139,6 +141,11 @@ const midiInput = new MidiInput({
   onStatus: (status, count) => {
     if (status === "connected") toast(`${count} entrada MIDI conectada${count > 1 ? "s" : ""}.`);
     if (status === "empty") toast("Nenhum piano MIDI foi encontrado.");
+    // Conectar e desconectar o instrumento no meio do estudo precisa aparecer:
+    // sem isso o indicador continuava dizendo "Microfone em espera".
+    if (state.inputMode === "midi" && status !== "disconnected") {
+      reflectInputStatus(status === "connected" ? "midi" : "stopped");
+    }
   },
 });
 
@@ -204,6 +211,7 @@ function renderLibrary() {
         <details class="card-menu">
           <summary aria-label="Abrir opções de ${escapeHtml(piece.title)}">•••</summary>
           <div class="card-menu-popover">
+            <button class="edit-piece-button" type="button">Editar dados</button>
             ${piece.musicXmlAsset ? '<button class="download-musicxml-button" type="button">Baixar MusicXML</button>' : ""}
             <button class="delete-piece-button" type="button">Excluir do aparelho</button>
           </div>
@@ -221,6 +229,10 @@ function renderLibrary() {
       </div>
     `;
     card.querySelector(".open-piece-button").addEventListener("click", () => openPractice(piece));
+    card.querySelector(".edit-piece-button").addEventListener("click", () => {
+      card.querySelector(".card-menu").open = false;
+      openPieceEditor(piece);
+    });
     card.querySelector(".download-musicxml-button")?.addEventListener("click", () => {
       downloadPieceMusicXml(piece);
       card.querySelector(".card-menu").open = false;
@@ -275,15 +287,55 @@ function renderSelectedFiles() {
   }
 }
 
-function acceptFiles(files) {
+async function acceptFiles(files) {
   const accepted = [...files].filter((file) => isMusicXmlFilename(file.name));
   state.selectedFiles = accepted.slice(0, 1);
+  state.pendingImport = null;
   renderSelectedFiles();
   if (!accepted.length && files.length) {
     toast("Nesta versão, selecione um arquivo MusicXML (.musicxml, .mxl ou .xml).");
-  } else if (accepted.length > 1) {
-    toast("Selecione uma partitura por vez.");
+    return;
   }
+  if (accepted.length > 1) toast("Selecione uma partitura por vez.");
+  await prefillImportForm(state.selectedFiles[0]);
+}
+
+// O próprio arquivo já sabe título, compositor, compasso e andamento. Ler esses
+// valores na hora da escolha evita que a peça seja salva com o 4/4 e os 72 BPM
+// padrão do formulário, que depois contradiziam a partitura na tela de estudo.
+async function prefillImportForm(file) {
+  if (!file) return;
+  let parsed = null;
+  try {
+    parsed = parseMusicXml(await readMusicXmlFile(file));
+  } catch (error) {
+    toast(readableError(error));
+    return;
+  }
+  state.pendingImport = { name: file.name, parsed };
+
+  if (parsed.title && !byId("pieceTitle").value.trim()) byId("pieceTitle").value = parsed.title;
+  if (parsed.composer && !byId("pieceComposer").value.trim()) {
+    byId("pieceComposer").value = parsed.composer;
+  }
+  if (parsed.timeSignature) selectTimeSignatureOption(parsed.timeSignature);
+  if (parsed.tempo) byId("pieceBpm").value = String(clampTempo(parsed.tempo));
+  if (!parsed.events?.length) {
+    toast("Este arquivo não traz notas tocáveis. Escolha outra partitura.");
+  }
+}
+
+// Compassos fora da lista curta do formulário (7/8, 9/8…) existem no repertório
+// real; recusá-los em silêncio salvaria a peça com a fórmula errada.
+function selectTimeSignatureOption(timeSignature) {
+  const select = byId("pieceTimeSignature");
+  if (![...select.options].some((option) => option.value === timeSignature)) {
+    const option = document.createElement("option");
+    option.value = timeSignature;
+    option.textContent = timeSignature;
+    select.append(option);
+  }
+  select.value = timeSignature;
 }
 
 async function importPiece(event) {
@@ -294,11 +346,19 @@ async function importPiece(event) {
     return;
   }
 
-  let parsed = null;
-  try {
-    parsed = parseMusicXml(await readMusicXmlFile(xmlFile));
-  } catch (error) {
-    toast(readableError(error));
+  let parsed = state.pendingImport?.name === xmlFile.name ? state.pendingImport.parsed : null;
+  if (!parsed) {
+    try {
+      parsed = parseMusicXml(await readMusicXmlFile(xmlFile));
+    } catch (error) {
+      toast(readableError(error));
+      return;
+    }
+  }
+  // Sem ataques não há o que estudar, ouvir ou desenhar: a peça abriria numa
+  // tela de estudo permanentemente vazia.
+  if (!parsed.events?.length) {
+    toast("Esta partitura não contém notas para estudar.");
     return;
   }
 
@@ -309,8 +369,11 @@ async function importPiece(event) {
     type: "piece",
     title,
     composer: byId("pieceComposer").value.trim() || parsed?.composer || "",
-    bpm: Number(byId("pieceBpm").value) || 72,
-    timeSignature: byId("pieceTimeSignature").value,
+    bpm: clampTempo(byId("pieceBpm").value || parsed?.tempo || 72),
+    // A fórmula lida no arquivo vence a do formulário: é ela que a tela de
+    // estudo usa, e o cartão do repertório precisa dizer a mesma coisa.
+    timeSignature: parsed?.timeSignature || byId("pieceTimeSignature").value,
+    beatsPerBar: Number(parsed?.beatsPerBar) > 0 ? Number(parsed.beatsPerBar) : null,
     pdfAsset: null,
     musicXmlAsset,
     createdAt: new Date().toISOString(),
@@ -322,6 +385,7 @@ async function importPiece(event) {
     byId("importForm").reset();
     byId("pieceBpm").value = "72";
     state.selectedFiles = [];
+    state.pendingImport = null;
     renderSelectedFiles();
     renderLibrary();
     showView("libraryView");
@@ -329,6 +393,49 @@ async function importPiece(event) {
   } catch (error) {
     toast(`Não foi possível salvar: ${readableError(error)}`);
   }
+}
+
+// Depois de importada, uma peça só podia ser corrigida excluindo e importando
+// de novo. O arquivo em si continua intocado: aqui muda apenas como a peça se
+// apresenta no repertório e com que andamento ela abre.
+function openPieceEditor(piece) {
+  state.editingPieceId = piece.id;
+  byId("editPieceTitle").value = piece.title || "";
+  byId("editPieceComposer").value = piece.composer || "";
+  byId("editPieceBpm").value = String(clampTempo(piece.bpm || 72));
+  byId("editPieceTimeSignature").value = piece.timeSignature || "";
+  byId("editPieceDialog").showModal();
+}
+
+// O formulário usa `method="dialog"`: o próprio navegador fecha o diálogo no
+// envio, então aqui basta persistir. A peça vem por parâmetro porque o
+// fechamento limpa o estado e não há ordem garantida entre os dois eventos.
+async function savePieceEdits(pieceId) {
+  const piece = state.pieces.find((item) => item.id === pieceId);
+  if (!piece) return;
+
+  const timeSignature = byId("editPieceTimeSignature").value.trim();
+  const updated = {
+    ...piece,
+    title: byId("editPieceTitle").value.trim() || piece.title,
+    composer: byId("editPieceComposer").value.trim(),
+    bpm: clampTempo(byId("editPieceBpm").value, piece.bpm),
+    timeSignature: timeSignature || piece.timeSignature,
+    // A fórmula digitada manda também nos tempos por compasso; deixar o valor
+    // antigo faria a contagem de entrada discordar do que o cartão mostra.
+    beatsPerBar: timeSignature ? beatsPerBarFromSignature(timeSignature) : piece.beatsPerBar ?? null,
+  };
+
+  try {
+    await savePiece(updated);
+  } catch (error) {
+    toast(`Não foi possível salvar: ${readableError(error)}`);
+    return;
+  }
+  state.pieces = state.pieces.map((item) => (item.id === updated.id ? updated : item));
+  if (state.currentItem?.id === updated.id) state.currentItem = updated;
+  renderLibrary();
+  toast("Dados da peça atualizados.");
 }
 
 async function downloadPieceMusicXml(piece = state.currentItem) {
@@ -447,13 +554,26 @@ function syncPianoKeyboard() {
   pianoKeyboard.showNoteGroups(pianoGroupsFromScore());
 }
 
+// "Nota 37 / 412" não diz nada a quem estuda por compassos, que é como a peça é
+// ensaiada e como o professor pede o trecho. O número do compasso vem do
+// MusicXML e passa a liderar o rótulo.
+function progressLabel(index, total) {
+  if (!total) return "Partitura";
+  const position = Math.min(Math.max(index, 0), total - 1);
+  const measure = state.currentScore?.notes?.[position]?.measureNumber;
+  const note = `${position + 1}/${total}`;
+  return measure ? `Comp. ${measure} · ${note}` : `Nota ${note}`;
+}
+
 function setStructuredPageLabel() {
   const total = state.currentScore?.notes?.length || 0;
-  byId("pageLabel").textContent = total ? `Nota ${Math.min(state.viewIndex + 1, total)} / ${total}` : "Partitura";
+  byId("pageLabel").textContent = progressLabel(state.viewIndex, total);
 }
 
 function stepStructured(delta) {
-  if (!state.currentScore || state.practiceActive || state.countInActive || playbackEngine.isPlaying) return;
+  if (!state.currentScore || state.practiceActive || state.countInActive) return;
+  // Durante a audição os botões ‹ › não podiam ficar mudos: o gesto de arrastar
+  // a pauta já interrompe a reprodução, e aqui a regra passa a ser a mesma.
   if (playbackEngine.isActive) {
     playbackEngine.stop({ preserveCursor: true });
   }
@@ -753,6 +873,20 @@ async function openPractice(item) {
       pianoKeyboard.setUnavailable("A partitura PDF não contém notas estruturadas");
       setAnalysisMode("Tempo pelo PDF", "Esta é uma partitura PDF salva anteriormente. O microfone pode acompanhar o ritmo, mas não identificar as notas escritas.");
       byId("pdfOnlyOptions").hidden = false;
+    } else {
+      // Sem ataques e sem PDF não há nada para desenhar. Antes desta saída o
+      // palco ficava parado no "Carregando partitura…" para sempre.
+      byId("documentStage").replaceChildren();
+      byId("documentStage").append(Object.assign(document.createElement("div"), {
+        className: "loading-state",
+        textContent: "Esta peça não contém notas para estudar. Importe a partitura novamente.",
+      }));
+      pianoKeyboard.setUnavailable("A peça não trouxe notas");
+      setAnalysisMode(
+        "Partitura vazia",
+        "O arquivo salvo não traz ataques legíveis. Reimporte a peça a partir do MusicXML original.",
+      );
+      byId("pdfOnlyOptions").hidden = true;
     }
     applyPracticeModeAvailability();
     applyPieceControls();
@@ -802,7 +936,7 @@ function applyPieceControls() {
   byId("playbackControls").hidden = false;
   byId("playbackToggleButton").disabled = !playable;
   byId("playbackToggleButton").title = playable
-    ? "Ouvir a peça ou o trecho A–B."
+    ? "Ouvir a peça ou o trecho A–B (barra de espaço)."
     : "A audição precisa de uma partitura estruturada.";
   byId("inputToggle").hidden = false;
   byId("startPracticeButton").hidden = false;
@@ -1051,6 +1185,7 @@ async function selectInputMode(mode) {
     try {
       const count = await midiInput.connect();
       if (!count) toast("Conecte e ligue o piano MIDI, depois tente novamente.");
+      reflectInputStatus(count ? "midi" : "stopped");
     } catch (error) {
       state.inputMode = "microphone";
       byId("microphoneModeButton").classList.add("active");
@@ -1070,6 +1205,7 @@ function reflectInputStatus(status) {
   const labels = {
     requesting: "Ativando microfone…",
     active: "● Microfone ativo",
+    midi: "● MIDI conectado",
     stopped: state.inputMode === "midi" ? "Entrada MIDI" : "Microfone em espera",
     error: "Microfone bloqueado",
   };
@@ -1366,7 +1502,7 @@ function updateFollowStats() {
   const attempts = state.followStats.correct + state.followStats.wrong;
   const accuracy = attempts ? Math.round((state.followStats.correct / attempts) * 100) : 0;
   byId("accuracyStat").textContent = `${accuracy}%`;
-  byId("pageLabel").textContent = total ? `Nota ${Math.min(done + 1, total)} / ${total}` : "Partitura";
+  byId("pageLabel").textContent = progressLabel(done, total);
 }
 
 function updateFeedbackForAttempt(attempt) {
@@ -1377,27 +1513,28 @@ function updateFeedbackForAttempt(attempt) {
   setFeedback(attempt.grade, attempt.label.toUpperCase(), attempt.label, detail);
 }
 
+// Só a grade exata (MusicXML ou exercício) tem ataques a vencer. Fora dela o
+// laço rodava a cada quadro sem nada a fazer — com o aparelho apoiado no piano,
+// gastando bateria a troco de nada.
 function practiceTick() {
-  if (!state.practiceActive) return;
+  if (!state.practiceActive || !state.exactMode) return;
 
-  if (state.exactMode) {
-    const missed = markMissed(state.schedule, performance.now(), 430);
-    if (missed.length) {
-      state.missed += missed.length;
-      for (const event of missed) {
-        appendAttemptDot("missed");
-        advanceScore(event.index + 1);
-      }
-      setFeedback("missed", "PASSOU", "Ataque não detectado", "Retome no próximo pulso.");
-      updateStats();
+  const missed = markMissed(state.schedule, performance.now(), 430);
+  if (missed.length) {
+    state.missed += missed.length;
+    for (const event of missed) {
+      appendAttemptDot("missed");
+      advanceScore(event.index + 1);
     }
+    setFeedback("missed", "PASSOU", "Ataque não detectado", "Retome no próximo pulso.");
+    updateStats();
+  }
 
-    const complete = state.schedule.length
-      && state.schedule.every((event) => event.matched || event.missed);
-    if (complete) {
-      stopPractice({ showResult: true });
-      return;
-    }
+  const complete = state.schedule.length
+    && state.schedule.every((event) => event.matched || event.missed);
+  if (complete) {
+    stopPractice({ showResult: true });
+    return;
   }
 
   state.animationFrame = requestAnimationFrame(practiceTick);
@@ -1577,7 +1714,7 @@ document.querySelectorAll("[data-view-target]").forEach((button) => {
 byId("brandButton").addEventListener("click", () => showView("libraryView"));
 byId("librarySearch").addEventListener("input", renderLibrary);
 byId("rhythmFilter").addEventListener("change", renderRhythms);
-byId("pieceFiles").addEventListener("change", (event) => acceptFiles(event.target.files));
+byId("pieceFiles").addEventListener("change", (event) => void acceptFiles(event.target.files));
 byId("importForm").addEventListener("submit", importPiece);
 byId("dropZone").addEventListener("dragover", (event) => {
   event.preventDefault();
@@ -1587,7 +1724,7 @@ byId("dropZone").addEventListener("dragleave", () => byId("dropZone").classList.
 byId("dropZone").addEventListener("drop", (event) => {
   event.preventDefault();
   byId("dropZone").classList.remove("dragging");
-  acceptFiles(event.dataTransfer.files);
+  void acceptFiles(event.dataTransfer.files);
 });
 byId("leavePracticeButton").addEventListener("click", leavePractice);
 byId("documentStage").addEventListener("pointerdown", beginScoreGesture);
@@ -1656,9 +1793,75 @@ document.addEventListener("pointerdown", (event) => {
     && !byId("tempoChip").contains(event.target)
   ) setTempoExpanded(false);
 });
-document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") setTempoExpanded(false);
+// Os menus dos cartões ficavam abertos ao rolar a biblioteca ou ao abrir outro
+// cartão, empilhando popovers sobre o repertório.
+document.addEventListener("pointerdown", (event) => {
+  for (const menu of document.querySelectorAll("details.card-menu[open]")) {
+    if (!menu.contains(event.target)) menu.open = false;
+  }
 });
+
+// Um teclado ligado ao aparelho (ou um Bluetooth no atril) é comum no estudo, e
+// até aqui a tela só respondia a ponteiro. Campos de texto continuam com a tecla.
+const PRACTICE_SHORTCUTS = {
+  ArrowLeft: () => stepStructured(-1),
+  ArrowRight: () => stepStructured(1),
+  " ": () => void togglePlayback(),
+  a: () => markLoop("a"),
+  b: () => markLoop("b"),
+  l: () => toggleLoop(),
+};
+
+function isTypingTarget(target) {
+  return Boolean(target?.closest?.("input, select, textarea, [contenteditable='true']"));
+}
+
+function isActivatableTarget(target) {
+  return Boolean(target?.closest?.("button, summary, a[href], [role='button']"));
+}
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    setTempoExpanded(false);
+    return;
+  }
+  if (
+    state.currentView !== "practiceView"
+    || event.metaKey || event.ctrlKey || event.altKey
+    || isTypingTarget(event.target)
+  ) return;
+
+  const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+  // Espaço aciona o elemento em foco. Roubar a tecla faria o botão que o aluno
+  // acabou de usar parar de responder ao próprio teclado.
+  if (key === " " && isActivatableTarget(event.target)) return;
+
+  const shortcut = PRACTICE_SHORTCUTS[key];
+  if (!shortcut) return;
+  event.preventDefault();
+  shortcut();
+});
+byId("editPieceForm").addEventListener("submit", () => void savePieceEdits(state.editingPieceId));
+byId("cancelEditPieceButton").addEventListener("click", () => byId("editPieceDialog").close());
+// Fechar pelo Escape não passa pelo envio; sem isto a peça em edição ficava
+// pendurada no estado e a próxima abertura herdava o alvo errado.
+byId("editPieceDialog").addEventListener("close", () => {
+  state.editingPieceId = null;
+});
+
+// O distintivo dizia "Salvo neste aparelho" mesmo com a rede caída. Como o
+// aplicativo se propõe a funcionar offline, o estado real importa: é ele que
+// explica por que a importação de um arquivo novo pode falhar.
+function reflectConnection() {
+  const badge = byId("offlineBadge");
+  const offline = navigator.onLine === false;
+  badge.textContent = offline ? "Offline · repertório disponível" : "Salvo neste aparelho";
+  badge.dataset.connection = offline ? "offline" : "online";
+}
+
+window.addEventListener("online", reflectConnection);
+window.addEventListener("offline", reflectConnection);
+reflectConnection();
 reflectLoopButtons();
 restorePanelPreferences();
 document.addEventListener("visibilitychange", () => {

@@ -1,4 +1,4 @@
-const CACHE_NAME = "partitura-viva-v1-124";
+const CACHE_NAME = "partitura-viva-v1-126";
 const PIANO_SAMPLE_SHELL = [
   "A0v10.mp3", "A1v10.mp3", "A2v10.mp3", "A3v10.mp3", "A4v10.mp3",
   "A5v10.mp3", "A6v10.mp3", "A7v10.mp3",
@@ -57,6 +57,13 @@ self.addEventListener("activate", (event) => {
   );
 });
 
+function offlineResponse() {
+  return new Response("Recurso indisponível offline.", {
+    status: 503,
+    headers: { "Content-Type": "text/plain; charset=utf-8" },
+  });
+}
+
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
   const url = new URL(event.request.url);
@@ -69,7 +76,12 @@ self.addEventListener("fetch", (event) => {
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, response.clone()));
           return response;
         })
-        .catch(() => caches.match("./index.html")),
+        // `caches.match` resolve para `undefined` quando não encontra nada, e
+        // devolver `undefined` ao `respondWith` vira um erro de rede cru em vez
+        // da casca offline. A cadeia termina numa resposta de verdade.
+        .catch(async () => await caches.match("./index.html")
+          || await caches.match("./")
+          || offlineResponse()),
     );
     return;
   }
@@ -83,10 +95,7 @@ self.addEventListener("fetch", (event) => {
           }
           return response;
         })
-        .catch(() => cached || new Response("Recurso indisponível offline.", {
-          status: 503,
-          headers: { "Content-Type": "text/plain; charset=utf-8" },
-        }));
+        .catch(() => cached || offlineResponse());
       return cached || network;
     }),
   );

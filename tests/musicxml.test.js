@@ -407,3 +407,18 @@ test("partitura vazia não quebra o resto do aplicativo", () => {
   assert.equal(score.measureCount, 0);
   assert.equal(score.pickupBeats, 0);
 });
+
+test("propaga o andamento declarado no arquivo", () => {
+  // Sem ler `<sound tempo>`, toda peça importada era salva com os 72 BPM
+  // padrão do formulário, mesmo quando o arquivo dizia outra coisa.
+  const withTempo = buildScoreEvents({
+    tempo: 96.4,
+    parts: [part([measure([note("C4", 1)], { divisions: 1, beats: 4, beatType: 4 })])],
+  });
+  assert.equal(withTempo.tempo, 96);
+
+  const withoutTempo = buildScoreEvents({
+    parts: [part([measure([note("C4", 1)], { divisions: 1, beats: 4, beatType: 4 })])],
+  });
+  assert.equal(withoutTempo.tempo, 0);
+});

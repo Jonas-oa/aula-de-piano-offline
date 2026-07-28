@@ -102,6 +102,14 @@ function readAttributes(attributes) {
   };
 }
 
+function readSoundTempo(document) {
+  for (const sound of document.querySelectorAll("sound[tempo]")) {
+    const tempo = Number(sound.getAttribute("tempo"));
+    if (Number.isFinite(tempo) && tempo > 0) return tempo;
+  }
+  return 0;
+}
+
 export function readMusicXmlDocument(document) {
   if (document.querySelector("parsererror")) {
     throw new Error("O arquivo MusicXML não pôde ser lido.");
@@ -114,6 +122,9 @@ export function readMusicXmlDocument(document) {
       || text(document, "movement-title")
       || "Peça importada",
     composer: document.querySelector('creator[type="composer"]')?.textContent?.trim() || "",
+    // `<sound tempo>` está em semínimas por minuto, a mesma unidade do resto do
+    // aplicativo. Sem ele, a importação salvava sempre os 72 BPM do formulário.
+    tempo: readSoundTempo(document),
     parts: partElements.map((part) => ({
       measures: [...part.querySelectorAll(":scope > measure")].map((measure) => ({
         number: measure.getAttribute("number") || "",
@@ -462,6 +473,7 @@ export function buildScoreEvents(score) {
   return {
     title: score?.title || "Peça importada",
     composer: score?.composer || "",
+    tempo: Number(score?.tempo) > 0 ? Math.round(Number(score.tempo)) : 0,
     events: attacks,
     rests: rests.sort((a, b) => a.beat - b.beat || a.staff - b.staff),
     measures: measureStarts.map((beat, index) => ({
