@@ -3,8 +3,29 @@ import * as tf from "@tensorflow/tfjs";
 const MODEL_SAMPLES = 43_844;
 const OUTPUT_NAMES = ["Identity_1", "Identity_2"];
 
-export async function createBasicPitchRuntime(modelUrl) {
+// Sem GPU o TensorFlow.js calcula no próprio thread da interface. O motor
+// acústico lê o microfone por um AnalyserNode que só guarda os ~170 ms mais
+// recentes, então uma inferência de CPU bloquearia o thread e faria o
+// aplicativo perder áudio de verdade — o motor que deveria ser a redundância
+// ficaria surdo justamente nos aparelhos mais fracos. É melhor recusar o
+// neural e deixar o acústico trabalhar sozinho.
+async function requireAcceleratedBackend() {
   await tf.ready();
+  if (tf.getBackend() === "webgl") return;
+  try {
+    await tf.setBackend("webgl");
+  } catch {
+    // A mensagem abaixo é a que o aluno vê; o erro cru do backend não ajuda.
+  }
+  if (tf.getBackend() !== "webgl") {
+    throw new Error(
+      "Este aparelho não oferece aceleração por GPU para o modelo neural.",
+    );
+  }
+}
+
+export async function createBasicPitchRuntime(modelUrl) {
+  await requireAcceleratedBackend();
   const model = await tf.loadGraphModel(String(modelUrl));
 
   return {
@@ -35,7 +56,6 @@ export async function createBasicPitchRuntime(modelUrl) {
       } finally {
         tf.dispose([input, ...(Array.isArray(outputs) ? outputs : [outputs])]);
       }
-      result.tensors = tf.memory().numTensors;
       return result;
     },
 
