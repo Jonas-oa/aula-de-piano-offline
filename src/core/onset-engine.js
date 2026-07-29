@@ -7,7 +7,7 @@ const FRAME_SIZE = 8192;      // ~170 ms a 48 kHz
 const ONSET_TAIL = 2048;      // ~43 ms mais recentes
 const POLL_INTERVAL_MS = 12;  // cadência própria, independente da tela
 const LEVEL_INTERVAL_MS = 50; // o medidor não precisa de mais que isso
-const INITIAL_NOISE_FLOOR = 0.0025;
+const INITIAL_NOISE_FLOOR = 0.0008;
 
 function rmsOf(samples) {
   let squares = 0;
@@ -25,8 +25,13 @@ function rmsOf(samples) {
 export class AdaptiveOnsetDetector {
   constructor({
     initialFloor = INITIAL_NOISE_FLOOR,
-    minAttackRms = 0.004,
-    minAttackRise = 0.0012,
+    // Estes dois valores existem só para não perseguir o silêncio absoluto. O
+    // que separa ataque de ruído é o piso adaptativo logo abaixo, que acompanha
+    // a sala e o ganho do aparelho. Fixados alto, como estavam, um microfone
+    // que entrega menos nível nunca cruzava o limiar e nenhum ataque era
+    // detectado — o aplicativo ficava mudo sem dizer por quê.
+    minAttackRms = 0.0012,
+    minAttackRise = 0.00035,
     floorMultiplier = 2.4,
     minimumIntervalMs = 82,
   } = {}) {
@@ -74,6 +79,10 @@ export class AdaptiveOnsetDetector {
       && level >= threshold * 0.65
       && rise > Math.max(0.0005, this.floor * 0.18)
       && now - this.lastOnsetAt > this.minimumIntervalMs;
+    // Folga sobre o limiar suficiente para o reconhecimento de altura, e não
+    // apenas para perceber que houve som. Abaixo disso o aluno precisa saber
+    // que o problema é a captação, não a execução dele.
+    const workable = level >= threshold * 2.5;
 
     if (isAttack) this.lastOnsetAt = now;
     this.previousRms = level;
@@ -85,6 +94,7 @@ export class AdaptiveOnsetDetector {
       rise,
       relativeRise,
       nearAttack,
+      workable,
     };
   }
 }
@@ -112,6 +122,7 @@ export class OnsetEngine {
     this.timerId = null;
     this.detector = new AdaptiveOnsetDetector();
     this.lastDiagnostic = null;
+    this.lastWorkableAt = -Infinity;
     this.lastLevelAt = -Infinity;
     this.startPromise = null;
     this.startGeneration = 0;
@@ -178,6 +189,7 @@ export class OnsetEngine {
       this.onsetTail = this.buffer.subarray(this.buffer.length - ONSET_TAIL);
       this.detector.reset();
       this.lastDiagnostic = null;
+      this.lastWorkableAt = -Infinity;
       source.connect(analyser);
       this.running = true;
       this.onStatus("active");
@@ -219,7 +231,15 @@ export class OnsetEngine {
     this.onsetTail = null;
     this.detector.reset();
     this.lastDiagnostic = null;
+    this.lastWorkableAt = -Infinity;
     this.onStatus("stopped");
+  }
+
+  // Houve sinal suficiente para reconhecer altura em algum momento recente?
+  // Serve para distinguir "o aluno não tocou" de "o microfone não alcança o
+  // piano" — sem isso, os dois casos apareciam como a mesma tela parada.
+  hasRecentWorkableLevel(withinMs = 1500) {
+    return performance.now() - this.lastWorkableAt <= withinMs;
   }
 
   // A cadência é própria, e não a da tela. Com requestAnimationFrame a escuta
@@ -233,10 +253,14 @@ export class OnsetEngine {
     const rms = rmsOf(this.onsetTail);
     const onset = this.detector.process(rms, now);
     this.lastDiagnostic = onset;
+    if (onset.workable) this.lastWorkableAt = now;
 
     if (now - this.lastLevelAt >= LEVEL_INTERVAL_MS) {
       this.lastLevelAt = now;
-      this.onLevel(Math.min(1, rms / Math.max(onset.threshold * 2.5, 0.02)));
+      // O medidor acompanha o limiar adaptativo. Preso a um valor absoluto, um
+      // aparelho que capta mais baixo mostrava uma barra mínima mesmo quando o
+      // som já era suficiente — parecia defeito e não era.
+      this.onLevel(Math.min(1, rms / Math.max(onset.threshold * 4, 0.005)));
     }
     this.onSamples(this.buffer, this.context.sampleRate, now);
     if (onset.isAttack) {
