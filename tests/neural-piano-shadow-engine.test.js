@@ -27,7 +27,20 @@ function fakeModelOutput({ frameCount = 172, active = [] } = {}) {
     frames[offset] = frame;
     onsets[offset] = onset;
   }
-  return { frames, onsets, frameCount, noteCount, tensors: 7 };
+  return { frames, onsets, frameCount, noteCount };
+}
+
+function rmsOf(samples) {
+  let squares = 0;
+  for (const sample of samples) squares += sample * sample;
+  return Math.sqrt(squares / samples.length);
+}
+
+function sineAt(frequency, sampleRate, length) {
+  return Float32Array.from(
+    { length },
+    (_, index) => Math.sin((2 * Math.PI * frequency * index) / sampleRate),
+  );
 }
 
 test("reamostragem contínua não cria emendas diferentes entre blocos", () => {
@@ -47,6 +60,20 @@ test("reamostragem contínua não cria emendas diferentes entre blocos", () => {
   for (let index = 0; index < whole.length; index += 1) {
     assert.ok(Math.abs(split[index] - whole[index]) < 1e-6);
   }
+});
+
+test("reamostragem barra o agudo que dobraria para dentro da banda", () => {
+  const sampleRate = 48_000;
+  // 15 kHz não existe como fundamental no piano e, sem filtro, a decimação o
+  // devolveria como um fantasma em 7 kHz — em cima da região que o modelo usa.
+  const alias = sineAt(15_000, sampleRate, 24_000);
+  const musical = sineAt(1_000, sampleRate, 24_000);
+
+  const aliasRms = rmsOf(new StreamingLinearResampler().process(alias, sampleRate));
+  const musicalRms = rmsOf(new StreamingLinearResampler().process(musical, sampleRate));
+
+  assert.ok(aliasRms < rmsOf(alias) * 0.2, `sobrou agudo demais: ${aliasRms}`);
+  assert.ok(musicalRms > rmsOf(musical) * 0.9, `o filtro comeu o sinal útil: ${musicalRms}`);
 });
 
 test("buffer circular preserva sempre as amostras mais recentes em ordem", () => {
@@ -92,6 +119,55 @@ test("portão neural aceita somente a nota esperada com presença e ataque forte
   assert.deepEqual(decision.expected, [57]);
   assert.ok(Math.abs(decision.confidence - 0.77) < 1e-6);
   assert.ok(Math.abs(decision.strongestUnexpected - 0.56) < 1e-6);
+});
+
+test("janela cobre todo o áudio desde que a nota foi armada", () => {
+  const armado = summarizeBasicPitchOutputs(
+    fakeModelOutput({ active: [{ midi: 57, frame: 0.9, onset: 0.8, at: 110 }] }),
+    [57],
+    { startFrame: 99 },
+  );
+  // Com a janela fixa de 12 quadros esse ataque cairia no vão entre duas
+  // inferências e o portão nunca o veria.
+  assert.equal(armado.analyzedFrames, 58);
+  assert.equal(evaluateNeuralFollowResult(armado, [57]).accepted, true);
+
+  const semJanelaFixa = summarizeBasicPitchOutputs(
+    fakeModelOutput({ active: [{ midi: 57, frame: 0.9, onset: 0.8, at: 110 }] }),
+    [57],
+  );
+  assert.equal(evaluateNeuralFollowResult(semJanelaFixa, [57]).reason, "below-threshold");
+});
+
+test("nota recém-armada não é julgada por áudio anterior a ela", () => {
+  const result = summarizeBasicPitchOutputs(
+    fakeModelOutput({ active: [{ midi: 57, frame: 0.95, onset: 0.9, at: 120 }] }),
+    [57],
+    { startFrame: 400 },
+  );
+
+  assert.equal(result.analyzedFrames, 0);
+  assert.equal(result.startFrame, result.endFrame);
+  assert.equal(evaluateNeuralFollowResult(result, [57]).reason, "below-threshold");
+});
+
+test("altura ainda soando não disputa dominância com a nota atual", () => {
+  const result = summarizeBasicPitchOutputs(
+    fakeModelOutput({
+      active: [
+        { midi: 60, frame: 0.72, onset: 0.61 },
+        // O Lá3 anterior continua vibrando e ainda traz o próprio ataque na
+        // janela, agora que ela cobre o trecho inteiro desde o armar.
+        { midi: 57, frame: 0.88, onset: 0.79 },
+      ],
+    }),
+    [60],
+  );
+
+  assert.equal(evaluateNeuralFollowResult(result, [60]).reason, "ambiguous");
+  const comRessonancia = evaluateNeuralFollowResult(result, [60], { ignoreMidis: [57] });
+  assert.equal(comRessonancia.accepted, true);
+  assert.equal(comRessonancia.reason, "match");
 });
 
 test("portão neural recusa nota fraca, ambígua ou calculada para cursor antigo", () => {
@@ -155,6 +231,96 @@ test("simulação integrada impede avanço duplo quando o motor atual chega prim
   assert.equal(stale.accepted, false);
   assert.equal(stale.reason, "stale-expected");
   assert.equal(follow.index, 1);
+});
+
+test("a janela analisada acompanha o instante em que o cursor armou a nota", async () => {
+  let now = 0;
+  const results = [];
+  const engine = new NeuralPianoShadowEngine({
+    clock: () => now,
+    inferenceIntervalMs: 0,
+    runtimeLoader: async () => ({
+      infer: async () => fakeModelOutput({ active: [{ midi: 69, frame: 0.9, onset: 0.8 }] }),
+      dispose() {},
+    }),
+    onResult: (result) => results.push(result),
+  });
+
+  assert.equal(await engine.setEnabled(true), true);
+  // A nota foi armada 600 ms atrás: tudo o que soou desde então precisa entrar
+  // na conta, e não apenas os últimos 139 ms do buffer.
+  engine.setExpected([69], -600);
+  engine.pushPcm(new Float32Array(50_000), 22_050);
+  await nextTurn();
+
+  assert.equal(results.length, 1);
+  assert.equal(results[0].endFrame, 157);
+  assert.equal(results[0].startFrame, 99);
+  assert.ok(results[0].analyzedFrames * (256 / 22.05) > 600);
+});
+
+test("parar e recomeçar durante o carregamento não deixa o modelo morto", async () => {
+  let releaseLoad;
+  const loadGate = new Promise((resolve) => { releaseLoad = resolve; });
+  let loads = 0;
+  const runtime = {
+    disposed: false,
+    infer: async () => fakeModelOutput({ active: [{ midi: 69, frame: 0.9, onset: 0.8 }] }),
+    dispose() { this.disposed = true; },
+  };
+  const engine = new NeuralPianoShadowEngine({
+    clock: () => 0,
+    runtimeLoader: async () => {
+      loads += 1;
+      await loadGate;
+      return runtime;
+    },
+  });
+
+  const primeiroInicio = engine.setEnabled(true);
+  await engine.setEnabled(false);          // o aluno pressionou Parar
+  const segundoInicio = engine.setEnabled(true); // e Iniciar outra vez
+  releaseLoad();
+
+  assert.equal(await primeiroInicio, false);
+  assert.equal(await segundoInicio, true);
+  assert.equal(loads, 1);
+  assert.equal(runtime.disposed, false);
+  assert.equal(engine.runtime, runtime);
+
+  // Descartar de vez continua liberando o modelo, e uma sessão nova revive a
+  // engine em vez de recusar tudo para sempre.
+  engine.dispose();
+  assert.equal(runtime.disposed, true);
+  assert.equal(await engine.setEnabled(true), true);
+  assert.equal(loads, 2);
+});
+
+test("modelo é descartado quando a inferência falha, para a sessão seguinte recarregar", async () => {
+  const statuses = [];
+  let loads = 0;
+  const engine = new NeuralPianoShadowEngine({
+    clock: () => 0,
+    inferenceIntervalMs: 0,
+    runtimeLoader: async () => {
+      loads += 1;
+      return {
+        infer: async () => { throw new Error("contexto WebGL perdido"); },
+        dispose() {},
+      };
+    },
+    onStatus: (status) => statuses.push(status),
+  });
+
+  assert.equal(await engine.setEnabled(true), true);
+  engine.setExpected([69]);
+  engine.pushPcm(new Float32Array(50_000), 22_050);
+  await nextTurn();
+
+  assert.equal(statuses.at(-1), "error");
+  assert.equal(engine.runtime, null);
+  assert.equal(await engine.setEnabled(true), true);
+  assert.equal(loads, 2);
 });
 
 test("modo sombra espera dois segundos e nunca sobrepõe inferências", async () => {

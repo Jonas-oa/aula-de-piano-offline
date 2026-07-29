@@ -16,8 +16,9 @@ Aplicativo web offline para estudar peças completas com a partitura aberta e re
   agrupamento automático por pulsação como reserva para arquivos incompletos;
 - reconhecimento de notas e acordes pelo microfone em **Aguardar notas** com MusicXML;
 - reconhecimento neural Basic Pitch oficial no modo **Aguardar notas**: é
-  ativado automaticamente, analisa as 88 teclas e só avança com presença,
-  novo ataque e dominância da nota esperada confirmados;
+  ativado automaticamente nos aparelhos com aceleração por GPU, analisa as 88
+  teclas e só avança com presença, novo ataque e dominância da nota esperada
+  confirmados;
 - estudo isolado por **duas mãos**, **mão direita** ou **mão esquerda**, quando a
   partitura traz claves, pautas ou partes identificáveis;
 - seleção de trechos encaixada automaticamente nos limites dos compassos, com
@@ -54,12 +55,28 @@ automaticamente. Ele precisa de cerca de dois segundos de áudio para a primeira
 janela e então compara a probabilidade das 88 teclas com a nota esperada. Nenhum
 áudio é enviado ou armazenado.
 
+Cada inferência analisa todo o áudio desde o instante em que o cursor armou a
+nota, e não um pedaço fixo no fim do buffer. Com a janela fixa, a maior parte do
+que o aluno tocava caía no vão entre duas inferências e o ataque nunca era
+visto. Em troca, o ataque da nota anterior passa a aparecer na mesma janela; as
+alturas que o motor acústico já aceitou e ainda podem estar soando são
+excluídas da comparação de dominância, exatamente como ele já faz.
+
+O modelo exige aceleração por GPU. Sem ela, o TensorFlow.js calcularia no mesmo
+thread que lê o microfone e o aplicativo perderia áudio de verdade — o motor
+acústico, que deveria ser a redundância, ficaria surdo durante cada inferência.
+Nesses aparelhos o neural é recusado de propósito e o acústico trabalha sozinho.
+
 O motor acústico permanece ativo em paralelo: responde durante o aquecimento e
 assume sozinho caso o aparelho não suporte a captura neural ou o modelo falhe.
 O neural só recebe autoridade para avançar quando presença, ataque e dominância
 da nota esperada ultrapassam os limiares seguros. Resultados calculados para uma
 nota anterior e inferências ambíguas são descartados para impedir avanço duplo
 ou falso.
+
+O sinal do microfone é reamostrado para 22,05 kHz com um filtro passa-baixas
+antes de decimar. Sem ele, tudo acima de 11 kHz voltaria dobrado para dentro da
+banda que o modelo usa, como um agudo que o piano não tocou.
 
 O microfone abre sem controle automático de ganho, então o nível entregue varia
 muito entre aparelhos. Os limiares do motor acompanham o que a sala e o aparelho

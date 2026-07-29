@@ -203,8 +203,12 @@ test("reconhecimento neural oficial é automático, seguro e mantém redundânci
   assert.match(app, /neuralUiState\.advanceEnabled[\s\S]*state\.practiceActive/);
   assert.match(app, /void startOfficialNeuralRecognition\(\)/);
   assert.match(app, /await setNeuralEnabled\(true\)/);
-  assert.match(app, /evaluateNeuralFollowResult\(result,\s*latestExpected\)/);
+  assert.match(app, /evaluateNeuralFollowResult\(result,\s*latestExpected,\s*gateOptions\)/);
   assert.match(app, /registerFollowChord\(state\.follow,\s*latestExpected\)/);
+  // Os dois motores compartilham a lista de cordas ainda soando, e o neural só
+  // julga o áudio posterior ao instante em que o cursor armou a nota.
+  assert.match(app, /ignoreMidis:\s*pianoRecognition\.ringingMidis\(/);
+  assert.match(app, /neuralShadowEngine\.setExpected\(expected,\s*timestamp\)/);
   assert.doesNotMatch(neural, /registerFollow|forceFollowAdvance|handleFollowResult/);
   assert.doesNotMatch(
     html,

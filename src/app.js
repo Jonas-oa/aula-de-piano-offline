@@ -137,7 +137,6 @@ const wakeLock = new ScreenWakeLockManager({
 
 const neuralUiState = {
   modelStatus: "disabled",
-  captureStatus: "disabled",
   advanceEnabled: false,
   lastAdvanceToken: null,
   activationPromise: null,
@@ -146,7 +145,7 @@ const neuralUiState = {
 
 const neuralShadowEngine = new NeuralPianoShadowEngine({
   onStatus: (status, detail) => reflectNeuralStatus(status, detail),
-  onResult: (result) => handleNeuralResult(result),
+  onResult: (result) => maybeAdvanceWithNeural(result),
 });
 
 const onsetEngine = new OnsetEngine({
@@ -1613,7 +1612,7 @@ function armCurrentMicrophoneEvent(timestamp = performance.now()) {
   ) return;
   const expected = currentFollowEvent(state.follow)?.midis || [];
   if (!expected.length) return;
-  neuralShadowEngine.setExpected(expected);
+  neuralShadowEngine.setExpected(expected, timestamp);
   pianoRecognition.armExpected(expected, timestamp);
 }
 
@@ -1921,8 +1920,10 @@ function showPracticeResult() {
 async function leavePractice() {
   setTempoExpanded(false);
   playbackEngine.stop({ preserveCursor: true });
+  // `stopPractice` já desligou a captura e a inferência. O modelo continua
+  // carregado de propósito: descartá-lo aqui obrigava cada peça seguinte a
+  // recompilar os mesmos shaders antes de o aluno poder tocar.
   await stopPractice({ showResult: false, keepInput: false });
-  neuralShadowEngine.dispose();
   await wakeLock.setEnabled(false);
   await leavePracticeFullscreen();
   midiInput.disconnect();
@@ -1949,7 +1950,6 @@ function reflectNeuralStatus(status, detail = {}) {
 }
 
 function reflectNeuralCaptureStatus(status, error) {
-  neuralUiState.captureStatus = status;
   if (status === "unsupported") {
     reflectNeuralStatus("error", new Error("Este navegador não oferece captura neural contínua."));
   } else if (status === "error") {
@@ -1958,9 +1958,6 @@ function reflectNeuralCaptureStatus(status, error) {
 }
 
 function maybeAdvanceWithNeural(result) {
-  const currentExpected = currentFollowEvent(state.follow)?.midis || [];
-  const eventIndex = state.follow?.index;
-  const decision = evaluateNeuralFollowResult(result, currentExpected);
   const eligible = (
     neuralUiState.advanceEnabled
     && state.practiceActive
@@ -1968,35 +1965,29 @@ function maybeAdvanceWithNeural(result) {
     && state.inputMode === "microphone"
     && state.follow
   );
-  result.followIndex = Number.isInteger(eventIndex) ? eventIndex : null;
-  result.followDecision = eligible
-    ? decision
-    : { accepted: false, reason: "advance-disabled" };
-  if (!eligible || !decision.accepted) return false;
+  if (!eligible) return false;
+
+  const currentExpected = currentFollowEvent(state.follow)?.midis || [];
+  const eventIndex = state.follow?.index;
+  // As alturas que o motor acústico já aceitou e ainda podem estar soando não
+  // competem com a nota atual. Uma única lista serve aos dois motores.
+  const gateOptions = {
+    ignoreMidis: pianoRecognition.ringingMidis(currentExpected, performance.now()),
+  };
+  if (!evaluateNeuralFollowResult(result, currentExpected, gateOptions).accepted) return false;
 
   const token = `${state.loop.count}:${eventIndex}`;
-  if (neuralUiState.lastAdvanceToken === token) {
-    result.followDecision = { ...decision, accepted: false, reason: "duplicate-event" };
-    return false;
-  }
+  if (neuralUiState.lastAdvanceToken === token) return false;
 
   // O motor acústico tradicional pode ter avançado durante a inferência.
   // Revalidar imediatamente antes do registro impede um avanço duplo.
   const latestExpected = currentFollowEvent(state.follow)?.midis || [];
-  const latestDecision = evaluateNeuralFollowResult(result, latestExpected);
-  if (!latestDecision.accepted || state.follow.index !== eventIndex) {
-    result.followDecision = { ...latestDecision, accepted: false, reason: "cursor-moved" };
-    return false;
-  }
+  const latestDecision = evaluateNeuralFollowResult(result, latestExpected, gateOptions);
+  if (!latestDecision.accepted || state.follow.index !== eventIndex) return false;
 
   neuralUiState.lastAdvanceToken = token;
   const followResult = registerFollowChord(state.follow, latestExpected);
   handleFollowResult(followResult);
-  result.followDecision = {
-    ...latestDecision,
-    source: "basic-pitch",
-    completedIndex: followResult.completedIndex ?? null,
-  };
   if (followResult.type === "advance") {
     setFeedback(
       "on-time",
@@ -2006,10 +1997,6 @@ function maybeAdvanceWithNeural(result) {
     );
   }
   return true;
-}
-
-function handleNeuralResult(result) {
-  maybeAdvanceWithNeural(result);
 }
 
 async function setNeuralEnabled(enabled) {
