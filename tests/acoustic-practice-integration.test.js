@@ -199,3 +199,74 @@ test("a tolerância à ressonância não aceita nota errada nem acorde incomplet
   ], 4);
   assert.equal(fatFinger.done, 0, "uma tecla vizinha tocada junto continua sendo erro");
 });
+
+// Captação discreta: o mesmo piano, o mesmo aluno, um aparelho que entrega
+// menos nível. É o caso que deixava a tela de estudo inteiramente parada.
+function quietSession(peak) {
+  const played = SCALE.map((midis, index) => ({ midis, atMs: 500 + index * 700 }));
+  return studySession(SCALE, played, 7, { peak, room: peak * 0.02 });
+}
+
+test("captação discreta continua reconhecendo as notas", () => {
+  // Com portões de amplitude absolutos, um sinal seis vezes mais fraco que o
+  // "normal" era classificado como silêncio em praticamente todos os quadros:
+  // nenhum ataque, nenhuma nota, nenhuma explicação na tela.
+  const quiet = quietSession(0.006);
+  assert.equal(quiet.done, quiet.total, "sinal fraco precisa avançar igual ao forte");
+
+  const loud = quietSession(0.3);
+  assert.equal(loud.done, loud.total, "sinal forte não pode ter regredido");
+});
+
+test("sala sem piano nenhum não faz o cursor andar", () => {
+  // Baixar os portões sozinho faria o ronco da sala e o zumbido da rede virarem
+  // nota — e eles moram na região grave, onde ficam as notas mais difíceis de
+  // captar. O que separa nota de ruído é a forma do espectro, não o nível.
+  const total = SAMPLE_RATE * 8;
+  const room = new Float32Array(total);
+  let seed = 99;
+  let lowpass = 0;
+  const noise = () => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return (seed / 0x7fffffff) * 2 - 1;
+  };
+  for (let index = 0; index < total; index += 1) {
+    lowpass = lowpass * 0.93 + noise() * 0.07;
+    room[index] = 0.006 * (lowpass * 6 + noise() * 0.3)
+      + 0.0024 * Math.sin((2 * Math.PI * 60 * index) / SAMPLE_RATE);
+  }
+
+  const follow = createFollowState(SCALE.map((midis) => ({ midis })));
+  const detector = new AdaptiveOnsetDetector();
+  const recognition = new PianoRecognitionEngine();
+  const frame = new Float32Array(SAMPLE_COUNT);
+  const arm = (timestamp) => {
+    const expected = currentEvent(follow)?.midis || [];
+    if (expected.length) recognition.armExpected(expected, timestamp);
+  };
+  arm(0);
+
+  for (let ms = 0; (ms * SAMPLE_RATE) / 1000 < room.length; ms += 12) {
+    const end = Math.round((ms * SAMPLE_RATE) / 1000);
+    const from = Math.max(0, end - SAMPLE_COUNT);
+    frame.fill(0);
+    frame.set(room.subarray(from, end), SAMPLE_COUNT - (end - from));
+    let squares = 0;
+    const tailFrom = Math.max(0, end - 2048);
+    for (let index = tailFrom; index < end; index += 1) {
+      squares += room[index] * room[index];
+    }
+    const onset = detector.process(Math.sqrt(squares / Math.max(1, end - tailFrom)), ms);
+    const analysis = recognition.process(frame, SAMPLE_RATE, ms);
+    if (analysis?.outcome === "match") {
+      const result = registerChord(follow, analysis.detected);
+      if (result.type === "advance" || result.type === "complete") arm(ms);
+    }
+    if (onset.isAttack) {
+      const expected = currentEvent(follow)?.midis || [];
+      if (expected.length) recognition.armForAttack(expected, ms);
+    }
+  }
+
+  assert.equal(progress(follow).done, 0, "ruído de sala não pode ser aceito como nota");
+});

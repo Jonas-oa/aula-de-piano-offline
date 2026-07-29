@@ -45,6 +45,12 @@ avulsas e acordes, incluindo notas ausentes e extras. Em PDF puro, onde as
 alturas não são conhecidas, o microfone continua avaliando somente os ataques
 rítmicos. MIDI permanece a opção de maior precisão em ambientes ruidosos.
 
+O microfone abre sem controle automático de ganho, então o nível entregue varia
+muito entre aparelhos. Os limiares do motor acompanham o que a sala e o aparelho
+entregam, em vez de exigir um valor fixo, e o medidor de nível na tela de estudo
+mostra a folga real. Se ele ficar quase vazio enquanto você toca, o aplicativo
+avisa que precisa de mais sinal: aproxime o aparelho do instrumento.
+
 Dois limites do microfone valem ser conhecidos, porque vêm da física e não de
 uma escolha do aplicativo:
 
