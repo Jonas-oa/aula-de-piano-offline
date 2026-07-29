@@ -7,6 +7,7 @@ const FRAME_SIZE = 8192;      // ~170 ms a 48 kHz
 const ONSET_TAIL = 2048;      // ~43 ms mais recentes
 const POLL_INTERVAL_MS = 12;  // cadência própria, independente da tela
 const LEVEL_INTERVAL_MS = 50; // o medidor não precisa de mais que isso
+const INITIAL_NOISE_FLOOR = 0.0025;
 
 function rmsOf(samples) {
   let squares = 0;
@@ -14,6 +15,78 @@ function rmsOf(samples) {
     squares += samples[index] * samples[index];
   }
   return Math.sqrt(squares / samples.length);
+}
+
+/**
+ * Separa a calibração do microfone da captura Web Audio para que a decisão de
+ * ataque possa ser simulada com sinais reais. O piso acompanha o ambiente
+ * quando ele está silencioso, mas não "aprende" como ruído uma nota sustentada.
+ */
+export class AdaptiveOnsetDetector {
+  constructor({
+    initialFloor = INITIAL_NOISE_FLOOR,
+    minAttackRms = 0.004,
+    minAttackRise = 0.0012,
+    floorMultiplier = 2.4,
+    minimumIntervalMs = 82,
+  } = {}) {
+    this.initialFloor = initialFloor;
+    this.minAttackRms = minAttackRms;
+    this.minAttackRise = minAttackRise;
+    this.floorMultiplier = floorMultiplier;
+    this.minimumIntervalMs = minimumIntervalMs;
+    this.reset();
+  }
+
+  reset() {
+    this.floor = this.initialFloor;
+    this.previousRms = 0;
+    this.lastOnsetAt = -Infinity;
+  }
+
+  process(rms, timestamp) {
+    const level = Math.max(0, Number(rms) || 0);
+    const now = Number(timestamp) || 0;
+    const quietCeiling = Math.max(this.minAttackRms * 1.25, this.floor * 1.8);
+
+    if (level <= quietCeiling) {
+      // Desce depressa quando o ambiente silencia e sobe devagar quando o
+      // ruído real aumenta. Assim uma sala diferente calibra sem demora.
+      const rate = level < this.floor ? 0.08 : 0.015;
+      this.floor = this.floor * (1 - rate) + level * rate;
+    } else {
+      // Um piano pode ressoar por segundos. Antes o piso perseguia essa
+      // ressonância e tornava cada ataque seguinte mais difícil de detectar.
+      this.floor = this.floor * 0.9998 + quietCeiling * 0.0002;
+    }
+
+    const rise = level - this.previousRms;
+    const threshold = Math.max(this.minAttackRms, this.floor * this.floorMultiplier);
+    const requiredRise = Math.max(this.minAttackRise, this.floor * 0.35);
+    const relativeRise = level / Math.max(this.previousRms, this.floor, 0.0001);
+    const isAttack = (
+      level > threshold
+      && rise > requiredRise
+      && relativeRise > 1.08
+      && now - this.lastOnsetAt > this.minimumIntervalMs
+    );
+    const nearAttack = !isAttack
+      && level >= threshold * 0.65
+      && rise > Math.max(0.0005, this.floor * 0.18)
+      && now - this.lastOnsetAt > this.minimumIntervalMs;
+
+    if (isAttack) this.lastOnsetAt = now;
+    this.previousRms = level;
+    return {
+      isAttack,
+      rms: level,
+      floor: this.floor,
+      threshold,
+      rise,
+      relativeRise,
+      nearAttack,
+    };
+  }
 }
 
 export class OnsetEngine {
@@ -37,9 +110,8 @@ export class OnsetEngine {
     this.buffer = null;
     this.onsetTail = null;
     this.timerId = null;
-    this.floor = 0.006;
-    this.previousRms = 0;
-    this.lastOnsetAt = -Infinity;
+    this.detector = new AdaptiveOnsetDetector();
+    this.lastDiagnostic = null;
     this.lastLevelAt = -Infinity;
     this.startPromise = null;
     this.startGeneration = 0;
@@ -104,6 +176,8 @@ export class OnsetEngine {
       this.analyser = analyser;
       this.buffer = new Float32Array(analyser.fftSize);
       this.onsetTail = this.buffer.subarray(this.buffer.length - ONSET_TAIL);
+      this.detector.reset();
+      this.lastDiagnostic = null;
       source.connect(analyser);
       this.running = true;
       this.onStatus("active");
@@ -143,8 +217,8 @@ export class OnsetEngine {
     this.analyser = null;
     this.buffer = null;
     this.onsetTail = null;
-    this.previousRms = 0;
-    this.lastOnsetAt = -Infinity;
+    this.detector.reset();
+    this.lastDiagnostic = null;
     this.onStatus("stopped");
   }
 
@@ -157,30 +231,18 @@ export class OnsetEngine {
     this.analyser.getFloatTimeDomainData(this.buffer);
     const now = performance.now();
     const rms = rmsOf(this.onsetTail);
-
-    if (rms < this.floor * 1.7) {
-      this.floor = this.floor * 0.985 + rms * 0.015;
-    } else {
-      this.floor = this.floor * 0.998 + rms * 0.002;
-    }
-
-    const rise = rms - this.previousRms;
-    const threshold = Math.max(0.014, this.floor * 2.7);
-    const isAttack = rms > threshold
-      && rise > Math.max(0.0045, this.floor * 0.65)
-      && now - this.lastOnsetAt > 75;
+    const onset = this.detector.process(rms, now);
+    this.lastDiagnostic = onset;
 
     if (now - this.lastLevelAt >= LEVEL_INTERVAL_MS) {
       this.lastLevelAt = now;
-      this.onLevel(Math.min(1, rms / Math.max(threshold * 2.5, 0.04)));
+      this.onLevel(Math.min(1, rms / Math.max(onset.threshold * 2.5, 0.02)));
     }
     this.onSamples(this.buffer, this.context.sampleRate, now);
-    if (isAttack) {
-      this.lastOnsetAt = now;
+    if (onset.isAttack) {
       this.onOnset(now);
     }
 
-    this.previousRms = rms;
     this.timerId = setTimeout(this.#tick, POLL_INTERVAL_MS);
   };
 }
