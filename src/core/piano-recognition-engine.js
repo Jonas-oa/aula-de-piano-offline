@@ -1,8 +1,24 @@
 import { midiToFrequency, sameMidis, uniqueMidis } from "./music.js";
 
 const DEFAULTS = {
-  minRms: 0.004,
-  minAmplitude: 0.0035,
+  // O microfone abre com `autoGainControl: false`, então o nível entregue
+  // depende do aparelho, do modelo do microfone e da distância até o piano.
+  // Um portão absoluto calibrado para sinal forte deixava o motor surdo em
+  // qualquer captação mais discreta: 100% dos quadros eram classificados como
+  // silêncio e nenhum ataque era reconhecido, sem nada explicando o porquê.
+  // Só a fronteira do silêncio real continua absoluta, e bem mais baixa; o
+  // resto passa a ser proporcional ao próprio sinal, que é a única forma de
+  // valer igual em todo aparelho.
+  minRms: 0.0006,
+  minAmplitudeFloor: 0.0004,
+  minAmplitudeRatio: 0.08,
+  // Baixar os portões absolutos sozinho faria o ronco da sala e o zumbido da
+  // rede virarem nota — e eles moram justamente na região grave, onde estão as
+  // notas mais difíceis de captar. O que separa nota de ruído não é o nível e
+  // sim a forma: ruído é largo e deixa todas as alturas vizinhas parecidas,
+  // enquanto uma corda produz um pico bem acima da vizinhança. A altura só é
+  // aceita se superar a mediana da faixa examinada por esta proporção.
+  tonalProminence: 3.2,
   expectedRelativeThreshold: 0.075,
   extraRelativeThreshold: 0.36,
   scanPaddingSemitones: 12,
@@ -134,18 +150,24 @@ function inferMissingFundamental(
   windowSum,
   rms,
   config,
+  tonalFloor = 0,
 ) {
   if (midi > config.missingFundamentalMaxMidi) return null;
   const fundamental = midiToFrequency(midi);
   const second = goertzelAmplitude(windowed, sampleRate, fundamental * 2, windowSum);
   const third = goertzelAmplitude(windowed, sampleRate, fundamental * 3, windowSum);
+  // Inferir a fundamental pelos harmônicos é o caminho mais frágil do motor, e
+  // o mais exposto ao ronco grave da sala. Os dois harmônicos precisam se
+  // destacar do fundo, e não apenas existir.
   const secondThreshold = Math.max(
     config.minAmplitude * config.missingFundamentalSecondRatio,
     rms * 0.025,
+    tonalFloor,
   );
   const thirdThreshold = Math.max(
     config.minAmplitude * config.missingFundamentalThirdRatio,
     second * config.missingFundamentalThirdToSecond,
+    tonalFloor * 0.6,
   );
 
   if (second < secondThreshold || third < thirdThreshold) return null;
@@ -153,6 +175,10 @@ function inferMissingFundamental(
     midi,
     second,
     third,
+    // Os harmônicos que serviram de prova da fundamental não podem, logo em
+    // seguida, ser cobrados como notas extras da mesma altura.
+    harmonicMidis: [fundamental * 2, fundamental * 3]
+      .map((frequency) => Math.round(69 + 12 * Math.log2(frequency / 440))),
     confidence: Math.min(1,
       (second / Math.max(secondThreshold, 0.0001)
         + third / Math.max(thirdThreshold, 0.0001)) / 6,
@@ -168,9 +194,19 @@ function inferMissingFundamental(
  * ainda permite informar notas ausentes e notas extras.
  */
 export function analyzeExpectedChord(samples, sampleRate, expectedMidis, options = {}) {
-  const config = { ...DEFAULTS, ...options };
+  const merged = { ...DEFAULTS, ...options };
   const expected = uniqueMidis(expectedMidis);
   const rms = rmsOf(samples);
+  // A amplitude mínima acompanha o próprio quadro. Assim o mesmo piano decide
+  // igual num aparelho que entrega o dobro do nível de outro, e a única medida
+  // absoluta que sobra é a do silêncio de verdade.
+  const config = {
+    ...merged,
+    minAmplitude: merged.minAmplitude ?? Math.max(
+      merged.minAmplitudeFloor,
+      rms * merged.minAmplitudeRatio,
+    ),
+  };
   const empty = {
     status: "silence",
     expected,
@@ -219,8 +255,15 @@ export function analyzeExpectedChord(samples, sampleRate, expectedMidis, options
 
   const strongest = Math.max(0, ...amplitudes.values());
   const expectedStrongest = Math.max(0, ...expected.map((midi) => amplitudes.get(midi) || 0));
+  // Mediana da faixa examinada: com ruído todas as alturas ficam parecidas e a
+  // mediana sobe junto: com notas de verdade ela permanece no vale entre os
+  // picos. Serve de medida do fundo sem precisar conhecer o ganho do aparelho.
+  const sortedAmplitudes = [...amplitudes.values()].sort((a, b) => a - b);
+  const medianAmplitude = sortedAmplitudes[Math.floor(sortedAmplitudes.length / 2)] || 0;
+  const tonalFloor = medianAmplitude * config.tonalProminence;
   const expectedThreshold = Math.max(
     config.minAmplitude,
+    tonalFloor,
     Math.min(
       strongest * config.expectedRelativeThreshold,
       expectedStrongest * 0.55,
@@ -243,6 +286,7 @@ export function analyzeExpectedChord(samples, sampleRate, expectedMidis, options
       windowSum,
       rms,
       config,
+      tonalFloor,
     );
     if (inferred) inferredDetails.push(inferred);
   }
@@ -273,6 +317,9 @@ export function analyzeExpectedChord(samples, sampleRate, expectedMidis, options
     (config.ignoreMidis || []).filter(Number.isFinite).map((midi) => Math.round(midi)),
   );
   for (const midi of ringing) harmonicallySupported.add(midi);
+  for (const detail of inferredDetails) {
+    for (const midi of detail.harmonicMidis || []) ringing.add(midi);
+  }
 
   const extras = [];
   for (const [midi, amplitude] of amplitudes) {

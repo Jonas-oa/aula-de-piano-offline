@@ -1577,14 +1577,17 @@ function handlePitchSamples(samples, sampleRate, timestamp) {
     );
   } else if (
     analysis.waitingForAttack
-    && !onsetEngine.lastDiagnostic?.isAttack
-    && onsetEngine.lastDiagnostic?.nearAttack
+    && analysis.waitingForAttackMs >= 1200
+    && !onsetEngine.hasRecentWorkableLevel()
   ) {
+    // Um nível insuficiente é indistinguível, na tela, de um aluno que não
+    // tocou. Dizer qual dos dois é evita procurar defeito na execução quando o
+    // problema é a distância até o piano.
     setFeedback(
       "early",
       "SOM MUITO BAIXO",
-      "Aproxime o celular",
-      "Toque novamente com um ataque um pouco mais definido.",
+      "Aproxime o celular do piano",
+      "O microfone está captando pouco sinal para reconhecer as notas.",
     );
   } else if (
     analysis.waitingForAttack

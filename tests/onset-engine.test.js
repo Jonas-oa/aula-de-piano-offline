@@ -122,9 +122,21 @@ test("detector sinaliza som quase suficiente para orientar o aluno", () => {
   const detector = new AdaptiveOnsetDetector();
   for (let index = 0; index < 20; index += 1) detector.process(0.0008, index * 12);
 
-  const quiet = detector.process(0.003, 250);
+  const quiet = detector.process(0.0015, 250);
   assert.equal(quiet.isAttack, false);
   assert.equal(quiet.nearAttack, true);
+});
+
+test("captação discreta ainda é ataque: o limiar acompanha a sala, não um valor fixo", () => {
+  // O microfone abre sem controle automático de ganho, então o nível entregue
+  // muda muito de aparelho para aparelho. Com o limiar preso em 0,004 um
+  // celular que capta mais baixo nunca produzia um ataque sequer, e a tela de
+  // estudo ficava parada sem explicar nada. O que decide é o salto sobre o piso
+  // medido na própria sala.
+  const detector = new AdaptiveOnsetDetector();
+  for (let index = 0; index < 40; index += 1) detector.process(0.0007, index * 12);
+
+  assert.equal(detector.process(0.003, 500).isAttack, true);
 });
 
 test("ressonância sustentada não eleva o piso até bloquear as próximas notas", () => {
