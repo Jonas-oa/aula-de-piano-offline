@@ -461,6 +461,9 @@ main { width: min(1160px, calc(100% - 28px)); margin: 0 auto; padding: 28px 0 48
 .practice-topbar .playback-controls { justify-content: center; width: 100%; }
 .practice-topbar .input-choice.small .choice-button { min-height: 30px; padding: 0 11px; font-size: .74rem; color: #aeb6d6; }
 .practice-topbar .input-choice.small .choice-button.active { background: var(--primary); color: #1a1400; box-shadow: none; }
+.practice-topbar .hand-choice { display: grid; grid-template-columns: 1.25fr 1fr 1fr; }
+.practice-topbar .hand-choice .choice-button { min-width: 0; padding-inline: 6px; }
+.practice-topbar .hand-choice .choice-button:disabled { opacity: .38; cursor: not-allowed; }
 
 .tempo-chip {
   position: relative; display: flex; justify-content: center;

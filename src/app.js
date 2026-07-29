@@ -34,6 +34,12 @@ import {
   tempoFromPercent,
   tempoPercent,
 } from "./core/tempo-control.js";
+import {
+  availablePracticeHands,
+  normalizeMeasureRange,
+  notesForPracticeHand,
+  selectedPracticeEvents,
+} from "./core/practice-selection.js";
 import { DocumentViewer } from "./ui/document-viewer.js";
 import { PianoKeyboard } from "./ui/piano-keyboard.js";
 import {
@@ -54,6 +60,7 @@ const state = {
   currentView: "libraryView",
   inputMode: "microphone",
   practiceMode: "teacher",
+  practiceHand: "both",
   practiceActive: false,
   countInActive: false,
   schedule: [],
@@ -105,7 +112,7 @@ const playbackEngine = new PianoPlaybackEngine({
   onEnded(region) {
     const restartIndex = region?.events?.[0]?.originalIndex ?? state.loop.a ?? 0;
     if (state.currentScore) renderStructured(restartIndex);
-    setFeedback("on-time", "FIM", "Audição concluída", "Toque novamente ou escolha outro trecho A–B.");
+    setFeedback("on-time", "FIM", "Audição concluída", "Ouça novamente ou selecione outro trecho.");
     void preparePracticeInput();
   },
 });
@@ -513,6 +520,26 @@ function activeLoop() {
   return { a: state.loop.a, b: state.loop.b, count: state.loop.count };
 }
 
+const PRACTICE_HAND_LABELS = {
+  both: "Duas mãos",
+  right: "Mão direita",
+  left: "Mão esquerda",
+};
+
+function currentPracticeEvents({ relative = false } = {}) {
+  const selected = selectedPracticeEvents(
+    state.currentEvents,
+    state.practiceHand,
+    state.loop,
+  );
+  if (!relative || !selected.length) return selected;
+  const originBeat = Number(selected[0].beat) || 0;
+  return selected.map((event) => ({
+    ...event,
+    beat: Math.max(0, (Number(event.beat) || 0) - originBeat),
+  }));
+}
+
 function renderStructured(index, { fresh = false, immediate = false } = {}) {
   if (!state.currentScore) return;
   state.viewIndex = index;
@@ -534,8 +561,12 @@ function renderStructured(index, { fresh = false, immediate = false } = {}) {
 
 function pianoGroupsFromScore(index = state.viewIndex, count = 4) {
   if (!state.currentScore?.notes?.length) return [];
-  return state.currentScore.notes.slice(index, index + count).map((event) =>
-    (event.pitches || [])
+  const groups = [];
+  for (let eventIndex = index;
+    eventIndex < state.currentScore.notes.length && groups.length < count;
+    eventIndex += 1) {
+    const event = state.currentScore.notes[eventIndex];
+    const midis = notesForPracticeHand(event.pitches, state.practiceHand)
       .map(({ pitch }) => {
         try {
           return noteToMidi(pitch);
@@ -543,7 +574,10 @@ function pianoGroupsFromScore(index = state.viewIndex, count = 4) {
           return null;
         }
       })
-      .filter(Number.isFinite));
+      .filter(Number.isFinite);
+    if (midis.length) groups.push(midis);
+  }
+  return groups;
 }
 
 function syncPianoKeyboard() {
@@ -611,22 +645,37 @@ function currentScoreSvg() {
 function setLoopFromGesture(anchor, focus) {
   const total = state.currentScore?.notes?.length || 0;
   if (!total) return;
-  const safeAnchor = Math.max(0, Math.min(total - 1, anchor));
-  const safeFocus = Math.max(0, Math.min(total - 1, focus));
-  state.loop.a = Math.min(safeAnchor, safeFocus);
-  state.loop.b = Math.max(safeAnchor, safeFocus);
+  const range = normalizeMeasureRange(state.currentScore.notes, anchor, focus);
+  state.loop.a = range.a;
+  state.loop.b = range.b;
   state.loop.count = 0;
   refreshLoop();
 }
 
 function updateLoopHandle(point, index) {
-  if (point === "a") {
-    state.loop.a = Math.min(index, state.loop.b ?? index);
-  } else {
-    state.loop.b = Math.max(index, state.loop.a ?? index);
-  }
+  const anchor = point === "a" ? index : state.loop.a ?? index;
+  const focus = point === "b" ? index : state.loop.b ?? index;
+  const range = normalizeMeasureRange(state.currentScore?.notes || [], anchor, focus);
+  state.loop.a = range.a;
+  state.loop.b = range.b;
   state.loop.count = 0;
   refreshLoop();
+}
+
+function selectedMeasureLabel() {
+  if (!state.currentScore || (state.loop.a == null && state.loop.b == null)) return "trecho";
+  const startIndex = state.loop.a ?? state.loop.b;
+  const endIndex = state.loop.b ?? state.loop.a;
+  const start = state.currentScore.notes[startIndex];
+  const end = state.currentScore.notes[endIndex];
+  const first = start?.measureNumber || (Number.isInteger(start?.measureIndex) ? start.measureIndex + 1 : null);
+  const last = end?.measureNumber || (Number.isInteger(end?.measureIndex) ? end.measureIndex + 1 : null);
+  if (!first || !last) return startIndex === endIndex
+    ? `nota ${startIndex + 1}`
+    : `notas ${startIndex + 1}–${endIndex + 1}`;
+  return String(first) === String(last)
+    ? `compasso ${first}`
+    : `compassos ${first}–${last}`;
 }
 
 function beginScoreGesture(event) {
@@ -664,7 +713,7 @@ function beginScoreGesture(event) {
     scoreGesture.mode = "loop-range";
     stage.classList.add("is-selecting-loop");
     setLoopFromGesture(scoreGesture.anchorIndex, scoreGesture.anchorIndex);
-    byId("scoreGestureHint").textContent = "Arraste e solte para definir o trecho A–B";
+    byId("scoreGestureHint").textContent = "Arraste e solte para selecionar o trecho";
     navigator.vibrate?.(25);
   }, SCORE_LONG_PRESS_MS);
 }
@@ -729,7 +778,7 @@ function endScoreGesture(event, { cancelled = false } = {}) {
   const stage = byId("documentStage");
   stage.classList.remove("is-dragging-score", "is-selecting-loop");
   stage.releasePointerCapture?.(gesture.pointerId);
-  byId("scoreGestureHint").textContent = "Arraste a pauta · segure para marcar A–B";
+  byId("scoreGestureHint").textContent = "Arraste a pauta · segure para selecionar um trecho";
 
   if (!cancelled && gesture.mode === "pending") {
     const svg = currentScoreSvg();
@@ -742,7 +791,7 @@ function endScoreGesture(event, { cancelled = false } = {}) {
   }
   if (!cancelled && (gesture.mode === "loop-range" || gesture.mode === "loop-handle")) {
     reflectLoopButtons();
-    toast(`Trecho A–B: notas ${(state.loop.a ?? 0) + 1} a ${(state.loop.b ?? 0) + 1}.`);
+    toast(`Trecho selecionado: ${selectedMeasureLabel()}.`);
   }
   scoreGesture = null;
 }
@@ -752,14 +801,26 @@ function markLoop(point) {
     toast("Disponível na partitura estruturada (MusicXML ou exercício).");
     return;
   }
-  state.loop[point] = state.viewIndex;
+  const singleMeasure = normalizeMeasureRange(
+    state.currentScore.notes,
+    state.viewIndex,
+    state.viewIndex,
+  );
+  state.loop[point] = point === "a" ? singleMeasure.a : singleMeasure.b;
   state.loop.count = 0;
   normalizeLoop();
+  if (state.loop.a != null && state.loop.b != null) {
+    const range = normalizeMeasureRange(state.currentScore.notes, state.loop.a, state.loop.b);
+    state.loop.a = range.a;
+    state.loop.b = range.b;
+  }
   if (playbackEngine.isActive) {
     playbackEngine.stop({ preserveCursor: true });
   }
   refreshLoop();
-  toast(point === "a" ? `Início A na nota ${state.viewIndex + 1}.` : `Fim B na nota ${state.viewIndex + 1}.`);
+  toast(point === "a"
+    ? `Início selecionado: ${selectedMeasureLabel()}.`
+    : `Fim selecionado: ${selectedMeasureLabel()}.`);
 }
 
 function clearLoop() {
@@ -772,16 +833,16 @@ function clearLoop() {
 
 function toggleLoop() {
   if (state.loop.a == null || state.loop.b == null) {
-    toast("Marque A e B primeiro.");
+    toast("Defina o início e o fim do trecho primeiro.");
     return;
   }
   state.loop.active = !state.loop.active;
   if (playbackEngine.isActive) {
     playbackEngine.stop({ preserveCursor: true });
-    setFeedback("neutral", "REPETIÇÃO ALTERADA", state.loop.active ? "A–B será repetido" : "A–B tocará uma vez", "Toque para iniciar com a nova configuração.");
+    setFeedback("neutral", "REPETIÇÃO ALTERADA", state.loop.active ? "O trecho será repetido" : "O trecho será tocado uma vez", "Inicie com a nova configuração.");
   }
   reflectLoopButtons();
-  toast(state.loop.active ? "Repetição A–B ligada." : "Repetição A–B desligada.");
+  toast(state.loop.active ? "Repetição do trecho ligada." : "Repetição do trecho desligada.");
 }
 
 function lockPracticeOrientation() {
@@ -834,6 +895,7 @@ async function openPractice(item) {
   state.currentMusicMetadata = null;
   state.currentScore = null;
   state.viewIndex = 0;
+  state.practiceHand = "both";
   state.loop = { a: null, b: null, active: false, count: 0 };
   reflectLoopButtons();
   state.practiceMode = "teacher"; // cada peça abre no modo professor; PDF cai para tempo abaixo
@@ -859,19 +921,19 @@ async function openPractice(item) {
 
     if (state.currentEvents?.length) {
       // Partitura interativa unificada (SVG próprio): mesma pauta para
-      // exercícios e MusicXML, com destaque, rolagem fina e laço A–B.
+      // exercícios e MusicXML, com destaque, rolagem fina e trecho repetível.
       state.currentScore = structuredScore(item, state.currentEvents, state.currentMusicMetadata);
       renderStructured(0, { fresh: true });
       setStructuredPageLabel();
       setAnalysisMode(
         item.type === "rhythm" ? "Exercício estruturado" : "Partitura estruturada",
-        "O app conhece cada nota. No modo professor o cursor espera a nota certa; marque A–B para repetir um trecho.",
+        "O app conhece cada nota. Em Aguardar notas, o cursor só avança após a nota certa; selecione um trecho para estudá-lo.",
       );
       byId("pdfOnlyOptions").hidden = true;
     } else if (item.pdfAsset) {
       await viewer.showPdf(item.pdfAsset);
       pianoKeyboard.setUnavailable("A partitura PDF não contém notas estruturadas");
-      setAnalysisMode("Tempo pelo PDF", "Esta é uma partitura PDF salva anteriormente. O microfone pode acompanhar o ritmo, mas não identificar as notas escritas.");
+      setAnalysisMode("Avaliar ritmo no PDF", "Esta é uma partitura PDF salva anteriormente. O microfone pode acompanhar o ritmo, mas não identificar as notas escritas.");
       byId("pdfOnlyOptions").hidden = false;
     } else {
       // Sem ataques e sem PDF não há nada para desenhar. Antes desta saída o
@@ -889,6 +951,7 @@ async function openPractice(item) {
       byId("pdfOnlyOptions").hidden = true;
     }
     applyPracticeModeAvailability();
+    applyPracticeHandAvailability();
     applyPieceControls();
   } catch (error) {
     byId("documentStage").innerHTML = `<div class="loading-state">${escapeHtml(readableError(error))}</div>`;
@@ -903,15 +966,77 @@ function reflectPracticeRunning(running) {
   byId("stopPracticeButton").hidden = !running;
   byId("stopPracticeButton").disabled = !running;
   byId("tempoChipButton").disabled = running;
+  for (const button of document.querySelectorAll("#handToggle .choice-button")) {
+    button.disabled = running || button.dataset.available === "false";
+  }
   if (running) setTempoExpanded(false);
 }
 
 function setAnalysisMode(label, explanation) {
-  byId("analysisModeBadge").textContent = label;
+  byId("analysisModeBadge").dataset.baseLabel = label;
   byId("analysisExplanation").textContent = explanation;
+  updateAnalysisModeBadge();
 }
 
-// O modo professor só faz sentido quando o app conhece as notas escritas
+function updateAnalysisModeBadge() {
+  const badge = byId("analysisModeBadge");
+  const base = badge.dataset.baseLabel || "Partitura";
+  badge.textContent = state.currentScore
+    ? `${base} · ${PRACTICE_HAND_LABELS[state.practiceHand]}`
+    : base;
+}
+
+function reflectPracticeHand() {
+  const buttons = {
+    both: byId("bothHandsButton"),
+    right: byId("rightHandButton"),
+    left: byId("leftHandButton"),
+  };
+  for (const [hand, button] of Object.entries(buttons)) {
+    const active = state.practiceHand === hand;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  }
+  updateAnalysisModeBadge();
+  syncPianoKeyboard();
+}
+
+function applyPracticeHandAvailability() {
+  const structured = Boolean(state.currentScore);
+  const available = availablePracticeHands(state.currentEvents);
+  byId("handToggle").hidden = !structured;
+  for (const [hand, id] of [["right", "rightHandButton"], ["left", "leftHandButton"]]) {
+    const button = byId(id);
+    button.dataset.available = String(available[hand]);
+    button.disabled = !available[hand];
+    button.title = available[hand]
+      ? `Estudar somente a mão ${hand === "right" ? "direita" : "esquerda"}.`
+      : `A partitura não possui uma mão ${hand === "right" ? "direita" : "esquerda"} identificável.`;
+  }
+  byId("bothHandsButton").dataset.available = String(structured);
+  byId("bothHandsButton").disabled = !structured;
+  if (!available[state.practiceHand] && state.practiceHand !== "both") {
+    state.practiceHand = "both";
+  }
+  reflectPracticeHand();
+}
+
+function selectPracticeHand(hand) {
+  if (state.practiceActive || state.countInActive || !state.currentScore) return;
+  const button = {
+    both: byId("bothHandsButton"),
+    right: byId("rightHandButton"),
+    left: byId("leftHandButton"),
+  }[hand];
+  if (!button || button.disabled) return;
+  if (playbackEngine.isActive) playbackEngine.stop({ preserveCursor: true });
+  state.practiceHand = hand;
+  reflectPracticeHand();
+  resetPracticeUi();
+  toast(`${PRACTICE_HAND_LABELS[hand]} selecionada para o estudo.`);
+}
+
+// Aguardar notas só faz sentido quando o app conhece as notas escritas
 // (MusicXML ou exercício). Com PDF puro não há altura para conferir, então
 // apenas o modo de tempo fica disponível.
 function applyPracticeModeAvailability() {
@@ -919,7 +1044,7 @@ function applyPracticeModeAvailability() {
   const teacherButton = byId("teacherModeButton");
   teacherButton.disabled = !hasEvents;
   teacherButton.title = hasEvents
-    ? "Espera você tocar a nota certa para avançar."
+    ? "Aguarda você tocar a nota certa para avançar."
     : "Disponível apenas com MusicXML ou exercícios (o PDF não traz as notas).";
   if (!hasEvents) state.practiceMode = "tempo";
   reflectPracticeMode();
@@ -930,13 +1055,14 @@ function applyPracticeModeAvailability() {
 function applyPieceControls() {
   const structured = Boolean(state.currentScore);
   const playable = Boolean(state.currentEvents?.length);
-  byId("loopControls").hidden = !structured;   // laço A–B só na partitura estruturada
+  byId("loopControls").hidden = !structured;   // seleção de trecho só na partitura estruturada
   byId("modeToggle").hidden = !structured;
+  byId("handToggle").hidden = !structured;
   byId("scoreGestureHint").hidden = !structured;
   byId("playbackControls").hidden = false;
   byId("playbackToggleButton").disabled = !playable;
   byId("playbackToggleButton").title = playable
-    ? "Ouvir a peça ou o trecho A–B (barra de espaço)."
+    ? "Ouvir a partitura ou o trecho selecionado (barra de espaço)."
     : "A audição precisa de uma partitura estruturada.";
   byId("inputToggle").hidden = false;
   byId("startPracticeButton").hidden = false;
@@ -997,7 +1123,7 @@ function reflectPlaybackState(status) {
     loading: "Carregando…",
     playing: "❚❚ Pausar",
     paused: "▶ Continuar",
-    stopped: "♫ Tocar",
+    stopped: "♫ Ouvir partitura",
   };
   button.textContent = labels[status] || labels.stopped;
   button.disabled = status === "loading" || !state.currentEvents?.length;
@@ -1145,7 +1271,7 @@ function selectTempoPercent(percent) {
 }
 
 const STAT_LABELS = {
-  // O modo professor conta acertos e erros de nota; o modo tempo mede desvio.
+  // Aguardar notas conta acertos e erros; Avaliar ritmo mede o desvio temporal.
   teacher: { first: "Acertos", second: "Notas", third: "Erros" },
   tempo: { first: "No tempo", second: "Adiantado", third: "Atrasado" },
 };
@@ -1166,7 +1292,7 @@ function reflectPracticeMode() {
 function selectPracticeMode(mode) {
   if (state.practiceActive || state.countInActive) return;
   if (mode === "teacher" && !state.currentEvents?.length) {
-    toast("Modo professor precisa de MusicXML ou exercício com notas.");
+    toast("Aguardar notas precisa de MusicXML ou exercício com notas.");
     return;
   }
   state.practiceMode = mode;
@@ -1244,11 +1370,16 @@ async function startInput() {
 }
 
 async function startTeacherPractice() {
+  const events = currentPracticeEvents();
+  if (!events.length) {
+    toast("O trecho selecionado não possui notas da mão escolhida.");
+    return;
+  }
   state.schedule = [];
   state.attempts = [];
   state.missed = 0;
   state.lastMidiAttempt = null;
-  state.follow = createFollowState(state.currentEvents);
+  state.follow = createFollowState(events);
   state.followStats = { correct: 0, wrong: 0 };
   pianoRecognition.reset();
   resetPracticeUi();
@@ -1274,6 +1405,13 @@ async function startTeacherPractice() {
 }
 
 async function startTempoPractice() {
+  const practiceEvents = state.currentEvents?.length
+    ? currentPracticeEvents({ relative: true })
+    : [];
+  if (state.currentEvents?.length && !practiceEvents.length) {
+    toast("O trecho selecionado não possui ataques da mão escolhida.");
+    return;
+  }
   const bpm = Number(byId("tempoSlider").value);
   const beatMs = 60_000 / bpm;
   const barBeats = currentBeatsPerBar();
@@ -1298,8 +1436,8 @@ async function startTempoPractice() {
   }
 
   const startAt = performance.now() + countBeats * beatMs + 120;
-  if (state.currentEvents?.length) {
-    state.schedule = eventsToSchedule(state.currentEvents, bpm, startAt);
+  if (practiceEvents.length) {
+    state.schedule = eventsToSchedule(practiceEvents, bpm, startAt);
   } else {
     state.schedule = createPulseGrid({
       bpm,
@@ -1384,7 +1522,7 @@ function handleOnset(timestamp, midi) {
   updateFeedbackForAttempt(attempt);
   updateStats();
   appendAttemptDot(attempt.grade);
-  advanceScore(attempt.event.index + 1);
+  advanceScheduledScore(attempt.event.index);
 }
 
 function expectedNoteLabel(midis = []) {
@@ -1458,15 +1596,20 @@ function handleFollowResult(result) {
   state.followStats.correct += 1;
   appendAttemptDot("on-time");
 
-  // Laço A–B: ao concluir a nota B, volta para A e conta a repetição.
-  if (state.loop.active && state.loop.a != null && state.loop.b != null
-    && result.completedIndex === state.loop.b) {
+  // A lista do acompanhamento já contém somente o trecho e a mão escolhidos.
+  // Quando a repetição está ligada, concluir essa lista volta ao seu início.
+  if (
+    state.loop.active
+    && state.loop.a != null
+    && state.loop.b != null
+    && result.type === "complete"
+  ) {
     state.loop.count += 1;
-    seekFollow(state.follow, state.loop.a);
-    renderStructured(state.loop.a);
+    seekFollow(state.follow, 0);
+    showFollowCursor();
     armCurrentMicrophoneEvent();
     const target = expectedNoteLabel(currentFollowEvent(state.follow)?.midis);
-    setFeedback("on-time", `↻ REPETINDO ${state.loop.count}×`, "Voltando ao A", `Toque: ${target}`);
+    setFeedback("on-time", `↻ REPETINDO ${state.loop.count}×`, "Voltando ao início do trecho", `Toque: ${target}`);
     updateFollowStats();
     return;
   }
@@ -1487,11 +1630,23 @@ function handleFollowResult(result) {
 }
 
 function showFollowCursor() {
-  renderStructured(0);
+  renderStructured(followScoreIndex(0));
 }
 
 function moveFollowCursorTo(index) {
-  renderStructured(index);
+  renderStructured(followScoreIndex(index));
+}
+
+function followScoreIndex(followIndex) {
+  const events = state.follow?.events || [];
+  if (!events.length) return 0;
+  const event = events[followIndex];
+  if (event) return event.originalIndex;
+  const last = events.at(-1);
+  return Math.min(
+    state.currentScore?.notes?.length || last.originalIndex + 1,
+    last.originalIndex + 1,
+  );
 }
 
 function updateFollowStats() {
@@ -1502,7 +1657,10 @@ function updateFollowStats() {
   const attempts = state.followStats.correct + state.followStats.wrong;
   const accuracy = attempts ? Math.round((state.followStats.correct / attempts) * 100) : 0;
   byId("accuracyStat").textContent = `${accuracy}%`;
-  byId("pageLabel").textContent = progressLabel(done, total);
+  byId("pageLabel").textContent = progressLabel(
+    followScoreIndex(done),
+    state.currentScore?.notes?.length || total,
+  );
 }
 
 function updateFeedbackForAttempt(attempt) {
@@ -1524,7 +1682,7 @@ function practiceTick() {
     state.missed += missed.length;
     for (const event of missed) {
       appendAttemptDot("missed");
-      advanceScore(event.index + 1);
+      advanceScheduledScore(event.index);
     }
     setFeedback("missed", "PASSOU", "Ataque não detectado", "Retome no próximo pulso.");
     updateStats();
@@ -1540,8 +1698,18 @@ function practiceTick() {
   state.animationFrame = requestAnimationFrame(practiceTick);
 }
 
-function advanceScore(index) {
-  if (state.currentScore) renderStructured(index);
+function advanceScheduledScore(scheduleIndex) {
+  if (!state.currentScore) return;
+  const next = state.schedule[scheduleIndex + 1];
+  if (next) {
+    renderStructured(next.originalIndex);
+    return;
+  }
+  const current = state.schedule[scheduleIndex];
+  renderStructured(Math.min(
+    state.currentScore.notes.length,
+    (current?.originalIndex ?? scheduleIndex) + 1,
+  ));
 }
 
 async function stopPractice({ showResult = true, keepInput = true } = {}) {
@@ -1738,6 +1906,9 @@ byId("microphoneModeButton").addEventListener("click", () => selectInputMode("mi
 byId("midiModeButton").addEventListener("click", () => selectInputMode("midi"));
 byId("teacherModeButton").addEventListener("click", () => selectPracticeMode("teacher"));
 byId("tempoModeButton").addEventListener("click", () => selectPracticeMode("tempo"));
+byId("bothHandsButton").addEventListener("click", () => selectPracticeHand("both"));
+byId("rightHandButton").addEventListener("click", () => selectPracticeHand("right"));
+byId("leftHandButton").addEventListener("click", () => selectPracticeHand("left"));
 byId("startPracticeButton").addEventListener("click", startPractice);
 byId("stopPracticeButton").addEventListener("click", () => stopPractice({ showResult: true }));
 byId("playbackToggleButton").addEventListener("click", togglePlayback);

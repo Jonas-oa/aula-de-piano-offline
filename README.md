@@ -14,7 +14,11 @@ Aplicativo web offline para estudar peças completas com a partitura aberta e re
   de união de colcheias, semicolcheias e figuras menores;
 - barras de união fiéis ao MusicXML quando o arquivo informa `beam`, com
   agrupamento automático por pulsação como reserva para arquivos incompletos;
-- reconhecimento de notas e acordes pelo microfone no modo professor com MusicXML;
+- reconhecimento de notas e acordes pelo microfone em **Aguardar notas** com MusicXML;
+- estudo isolado por **duas mãos**, **mão direita** ou **mão esquerda**, quando a
+  partitura traz claves, pautas ou partes identificáveis;
+- seleção de trechos encaixada automaticamente nos limites dos compassos, com
+  repetição opcional;
 - microfone preparado automaticamente ao abrir o estudo, com indicador visível
   e análise bloqueada até o aluno pressionar **Iniciar**;
 - audição de partituras MusicXML com piano acústico, cursor sincronizado, andamento

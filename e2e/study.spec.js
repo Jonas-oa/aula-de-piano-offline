@@ -20,6 +20,13 @@ test("modo de estudo permanece legível e utilizável em celular horizontal", as
   await expect(page.locator("#playbackToggleButton")).toBeVisible();
   await expect(page.locator(".bass-clef-symbol")).toHaveText("𝄢");
   await expect(page.locator("#inputStatus")).toHaveAttribute("data-status", "active");
+  await expect(page.locator("#teacherModeButton")).toHaveText("Aguardar notas");
+  await expect(page.locator("#tempoModeButton")).toHaveText("Avaliar ritmo");
+  await expect(page.locator("#playbackToggleButton")).toContainText("Ouvir partitura");
+  await expect(page.locator("#handToggle")).toBeVisible();
+  await page.locator("#rightHandButton").click();
+  await expect(page.locator("#rightHandButton")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("#analysisModeBadge")).toContainText("Mão direita");
   // Em paisagem o aviso de girar não pode aparecer sobre a partitura.
   await expect(page.locator("#rotateOverlay")).toBeHidden();
 
@@ -267,4 +274,27 @@ test("o estudo responde ao teclado e mostra o compasso atual", async ({ page }) 
   });
   await page.locator(".rhythm-card button").first().click();
   await expect(label).toContainText("Nota 1/");
+});
+
+test("seleção manual é encaixada do início ao fim dos compassos", async ({ page }) => {
+  await importTestPiece(page);
+  await page.locator("#rightsConfirmation").check();
+  await page.locator("#importForm button[type='submit']").click();
+  await page.locator(".piece-card .open-piece-button").first().click();
+  await page.locator("#bottombarToggleButton").click();
+
+  // A primeira marca é feita na segunda nota do compasso 1, mas deve voltar ao
+  // início do compasso. A segunda é feita no meio do compasso 2 e deve avançar
+  // até a última nota dele.
+  await page.keyboard.press("ArrowRight");
+  await page.locator("#markAButton").click();
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  await page.locator("#markBButton").click();
+
+  const region = page.locator("#documentStage .score-loop");
+  await expect(region).toHaveAttribute("data-start-index", "0");
+  await expect(region).toHaveAttribute("data-end-index", "5");
+  await expect(page.locator("#toast")).toContainText("compassos 1–2");
 });

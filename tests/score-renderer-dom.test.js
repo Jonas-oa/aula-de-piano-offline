@@ -94,6 +94,18 @@ class FakeElement {
   }
 }
 
+function withFakeDocument(run) {
+  const previousDocument = globalThis.document;
+  globalThis.document = {
+    createElementNS: (_namespace, tagName) => new FakeElement(tagName),
+  };
+  try {
+    return run();
+  } finally {
+    globalThis.document = previousDocument;
+  }
+}
+
 function explicitBeamScore() {
   const pitch = (name, duration, beams) => ({
     pitch: name,
@@ -370,4 +382,20 @@ test("simulação SVG preenche a cabeça pela figura escrita, não pela duraçã
   } finally {
     globalThis.document = previousDocument;
   }
+});
+
+test("faixa do trecho expõe limites e alças de início e fim", () => {
+  withFakeDocument(() => {
+    const container = new FakeElement("div");
+    const song = explicitBeamScore();
+    renderScore(container, song, 0, { a: 0, b: 3, count: 0 }, { immediate: true });
+
+    const region = container.querySelector(".score-loop");
+    assert.ok(region);
+    assert.equal(region.getAttribute("data-start-index"), "0");
+    assert.equal(region.getAttribute("data-end-index"), "3");
+    assert.match(region.getAttribute("aria-label"), /eventos 1 e 4/);
+    assert.equal(region.querySelector('[data-loop-point="a"]').getAttribute("aria-label"), "Mover início do trecho");
+    assert.equal(region.querySelector('[data-loop-point="b"]').getAttribute("aria-label"), "Mover fim do trecho");
+  });
 });
