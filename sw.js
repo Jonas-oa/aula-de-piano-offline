@@ -1,4 +1,4 @@
-const CACHE_NAME = "partitura-viva-v1-131";
+const CACHE_NAME = "partitura-viva-v1-132";
 const PIANO_SAMPLE_SHELL = [
   "A0v10.mp3", "A1v10.mp3", "A2v10.mp3", "A3v10.mp3", "A4v10.mp3",
   "A5v10.mp3", "A6v10.mp3", "A7v10.mp3",
@@ -16,11 +16,13 @@ const APP_SHELL = [
   "./styles.css",
   "./manifest.webmanifest",
   "./src/app.js",
+  "./src/audio/pcm-capture-processor.js",
   "./src/core/library-store.js",
   "./src/core/music.js",
   "./src/core/musicxml.js",
   "./src/core/musicxml-file.js",
   "./src/core/musicxml-export.js",
+  "./src/core/neural-piano-shadow-engine.js",
   "./src/core/onset-engine.js",
   "./src/core/piano-playback-engine.js",
   "./src/core/piano-recognition-engine.js",
@@ -35,6 +37,11 @@ const APP_SHELL = [
   "./src/ui/score-renderer.js",
   "./vendor/pdfjs/pdf.min.mjs",
   "./vendor/pdfjs/pdf.worker.min.mjs",
+  "./vendor/basic-pitch/basic-pitch-runtime.js",
+  "./vendor/basic-pitch/model/model.json",
+  "./vendor/basic-pitch/model/group1-shard1of1.bin",
+  "./vendor/basic-pitch/LICENSE.spotify-basic-pitch",
+  "./vendor/basic-pitch/NOTICE.md",
   "./assets/icons/icon-192.png",
   "./assets/icons/icon-512.png",
   ...PIANO_SAMPLE_SHELL,

@@ -51,6 +51,53 @@ function fakeAudio() {
   return { stream, track, AudioContext };
 }
 
+function fakeAudioWithWorklet() {
+  const audio = fakeAudio();
+  const modules = [];
+  const connections = [];
+  const messages = [];
+  class AudioWorkletNode {
+    constructor() {
+      this.port = {
+        onmessage: null,
+        postMessage(message) {
+          messages.push(message);
+        },
+      };
+    }
+
+    connect(target) {
+      connections.push(target);
+      return target;
+    }
+
+    disconnect() {}
+  }
+  class AudioContext extends audio.AudioContext {
+    constructor() {
+      super();
+      this.destination = {};
+      this.audioWorklet = {
+        async addModule(url) {
+          modules.push(String(url));
+        },
+      };
+    }
+
+    createGain() {
+      return {
+        gain: { value: 1 },
+        connect(target) {
+          connections.push(target);
+          return target;
+        },
+        disconnect() {},
+      };
+    }
+  }
+  return { ...audio, AudioContext, AudioWorkletNode, modules, messages };
+}
+
 test("preparo automático compartilha um único pedido de microfone", async () => {
   const request = deferred();
   const audio = fakeAudio();
@@ -99,6 +146,77 @@ test("sair durante a permissão cancela o preparo sem deixar o microfone aberto"
 
   assert.equal(engine.running, false);
   assert.equal(audio.track.stopped, true);
+
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: previousNavigator,
+  });
+  globalThis.window = previousWindow;
+});
+
+test("captura PCM é opcional, contínua e não interfere no motor principal", async () => {
+  const audio = fakeAudioWithWorklet();
+  const chunks = [];
+  const statuses = [];
+  const previousNavigator = globalThis.navigator;
+  const previousWindow = globalThis.window;
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: { mediaDevices: { getUserMedia: async () => audio.stream } },
+  });
+  globalThis.window = {
+    AudioContext: audio.AudioContext,
+    AudioWorkletNode: audio.AudioWorkletNode,
+  };
+
+  const engine = new OnsetEngine({
+    onPcmChunk: (...args) => chunks.push(args),
+    onPcmStatus: (status) => statuses.push(status),
+  });
+  await engine.start();
+  assert.equal(engine.running, true);
+  assert.equal(await engine.setPcmCaptureEnabled(true), true);
+  assert.match(audio.modules[0], /pcm-capture-processor\.js$/);
+  assert.deepEqual(audio.messages.at(-1), { type: "enabled", enabled: true });
+
+  const samples = new Float32Array([0.1, -0.1]);
+  engine.pcmCaptureNode.port.onmessage({
+    data: { type: "pcm", samples, frame: 2 },
+  });
+  assert.deepEqual(chunks[0], [samples, 48_000, 2]);
+
+  await engine.setPcmCaptureEnabled(false);
+  assert.deepEqual(audio.messages.at(-1), { type: "enabled", enabled: false });
+  assert.equal(statuses.at(-1), "disabled");
+  assert.equal(engine.running, true);
+  await engine.stop();
+
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: previousNavigator,
+  });
+  globalThis.window = previousWindow;
+});
+
+test("navegador sem AudioWorklet mantém o reconhecimento atual ativo", async () => {
+  const audio = fakeAudio();
+  const statuses = [];
+  const previousNavigator = globalThis.navigator;
+  const previousWindow = globalThis.window;
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: { mediaDevices: { getUserMedia: async () => audio.stream } },
+  });
+  globalThis.window = { AudioContext: audio.AudioContext };
+
+  const engine = new OnsetEngine({
+    onPcmStatus: (status) => statuses.push(status),
+  });
+  await engine.start();
+  assert.equal(await engine.setPcmCaptureEnabled(true), false);
+  assert.equal(statuses.at(-1), "unsupported");
+  assert.equal(engine.running, true);
+  await engine.stop();
 
   Object.defineProperty(globalThis, "navigator", {
     configurable: true,

@@ -304,6 +304,29 @@
             <div><span data-stat-label="third">Atrasado</span><strong id="lateStat">0</strong></div>
             <div><span>Precisão</span><strong id="accuracyStat">0%</strong></div>
           </div>
+          <details id="neuralDiagnostics" class="neural-diagnostics" hidden>
+            <summary>
+              <span>Motor neural experimental</span>
+              <strong id="neuralStatus" data-status="disabled">Desligado</strong>
+            </summary>
+            <label class="neural-toggle">
+              <input id="neuralEngineToggle" type="checkbox">
+              <span>Ouvir com Basic Pitch</span>
+            </label>
+            <p id="neuralAvailabilityHint">Analisa em paralelo e não move o cursor.</p>
+            <dl class="neural-readout">
+              <div><dt>Esperada</dt><dd id="neuralExpected">Sem nota armada</dd></div>
+              <div><dt>Detectadas</dt><dd id="neuralDetected">Aguardando áudio</dd></div>
+              <div><dt>Inferência</dt><dd id="neuralLatency">—</dd></div>
+            </dl>
+            <button
+              id="exportNeuralDiagnosticsButton"
+              class="chip-button ghost"
+              type="button"
+              disabled
+            >Exportar diagnóstico</button>
+            <small>O áudio permanece no aparelho e não é incluído no diagnóstico.</small>
+          </details>
           <div id="practiceBottomControls" class="bottombar-end">
             <span id="inputStatus" class="input-status" data-status="stopped">Microfone em espera</span>
             <span id="screenStatus" class="screen-status">Tela ativa</span>

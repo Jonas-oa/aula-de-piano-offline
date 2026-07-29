@@ -10,6 +10,7 @@ import { parseMusicXml } from "./core/musicxml.js";
 import { isMusicXmlFilename, readMusicXmlFile } from "./core/musicxml-file.js";
 import { musicXmlBlob, musicXmlFilename } from "./core/musicxml-export.js";
 import { MidiInput, OnsetEngine } from "./core/onset-engine.js";
+import { NeuralPianoShadowEngine } from "./core/neural-piano-shadow-engine.js";
 import { PianoPlaybackEngine } from "./core/piano-playback-engine.js";
 import { PianoRecognitionEngine } from "./core/piano-recognition-engine.js";
 import {
@@ -75,6 +76,7 @@ const state = {
   currentScore: null,
   viewIndex: 0,
   loop: { a: null, b: null, active: false, count: 0 },
+  neuralDiagnostics: [],
 };
 
 const viewer = new DocumentViewer(byId("documentStage"), {
@@ -130,10 +132,24 @@ const wakeLock = new ScreenWakeLockManager({
   },
 });
 
+const neuralUiState = {
+  modelStatus: "disabled",
+  captureStatus: "disabled",
+};
+
+const neuralShadowEngine = new NeuralPianoShadowEngine({
+  onStatus: (status, detail) => reflectNeuralStatus(status, detail),
+  onResult: (result) => reflectNeuralResult(result),
+  onDiagnostic: (result) => recordNeuralDiagnostic(result),
+});
+
 const onsetEngine = new OnsetEngine({
   onOnset: (timestamp) => handleOnset(timestamp, null),
   onSamples: (samples, sampleRate, timestamp) =>
     handlePitchSamples(samples, sampleRate, timestamp),
+  onPcmChunk: (samples, sampleRate) =>
+    neuralShadowEngine.pushPcm(samples, sampleRate),
+  onPcmStatus: (status, error) => reflectNeuralCaptureStatus(status, error),
   onLevel: (level) => {
     byId("levelBar").style.width = `${Math.round(level * 100)}%`;
   },
@@ -897,6 +913,8 @@ async function openPractice(item) {
   state.viewIndex = 0;
   state.practiceHand = "both";
   state.loop = { a: null, b: null, active: false, count: 0 };
+  state.neuralDiagnostics = [];
+  resetNeuralDiagnosticsUi();
   reflectLoopButtons();
   state.practiceMode = "teacher"; // cada peça abre no modo professor; PDF cai para tempo abaixo
   state.exactMode = item.type === "rhythm" || Boolean(item.musicXmlAsset);
@@ -1072,6 +1090,7 @@ function applyPieceControls() {
   byId("zoomOutButton").hidden = structured;    // zoom só no PDF
   byId("zoomInButton").hidden = structured;
   reflectPlaybackState("stopped");
+  reflectNeuralAvailability();
 }
 
 function selectedPlaybackBounds() {
@@ -1295,12 +1314,19 @@ function selectPracticeMode(mode) {
     toast("Aguardar notas precisa de MusicXML ou exercício com notas.");
     return;
   }
+  if (mode !== "teacher" && byId("neuralEngineToggle").checked) {
+    void setNeuralEnabled(false);
+  }
   state.practiceMode = mode;
   reflectPracticeMode();
+  reflectNeuralAvailability();
 }
 
 async function selectInputMode(mode) {
   if (state.practiceActive || state.countInActive) return;
+  if (mode !== "microphone" && byId("neuralEngineToggle").checked) {
+    await setNeuralEnabled(false);
+  }
   state.inputMode = mode;
   byId("microphoneModeButton").classList.toggle("active", mode === "microphone");
   byId("midiModeButton").classList.toggle("active", mode === "midi");
@@ -1323,6 +1349,7 @@ async function selectInputMode(mode) {
     midiInput.disconnect();
     void preparePracticeInput();
   }
+  reflectNeuralAvailability();
 }
 
 function reflectInputStatus(status) {
@@ -1544,6 +1571,7 @@ function armCurrentMicrophoneEvent(timestamp = performance.now()) {
   ) return;
   const expected = currentFollowEvent(state.follow)?.midis || [];
   if (!expected.length) return;
+  neuralShadowEngine.setExpected(expected);
   pianoRecognition.armExpected(expected, timestamp);
 }
 
@@ -1849,12 +1877,166 @@ function showPracticeResult() {
 async function leavePractice() {
   setTempoExpanded(false);
   playbackEngine.stop({ preserveCursor: true });
+  await setNeuralEnabled(false);
+  neuralShadowEngine.dispose();
   await stopPractice({ showResult: false, keepInput: false });
   await wakeLock.setEnabled(false);
   await leavePracticeFullscreen();
   midiInput.disconnect();
   viewer.clear();
   showView("libraryView");
+}
+
+function neuralNoteLabel(note) {
+  const percent = Math.round((note?.probability || 0) * 100);
+  return `${midiToPortuguese(note.midi)} ${percent}%`;
+}
+
+function resetNeuralDiagnosticsUi() {
+  byId("neuralExpected").textContent = "Sem nota armada";
+  byId("neuralDetected").textContent = "Aguardando áudio";
+  byId("neuralLatency").textContent = "—";
+  byId("exportNeuralDiagnosticsButton").disabled = true;
+}
+
+function reflectNeuralAvailability() {
+  const panel = byId("neuralDiagnostics");
+  const toggle = byId("neuralEngineToggle");
+  if (!panel || !toggle) return;
+  const structured = Boolean(state.currentEvents?.length);
+  panel.hidden = !structured;
+  toggle.disabled = (
+    !structured
+    || state.inputMode !== "microphone"
+    || state.practiceMode !== "teacher"
+  );
+  byId("neuralAvailabilityHint").textContent = toggle.disabled
+    ? "Disponível em Aguardar notas usando o microfone."
+    : "Analisa em paralelo e não move o cursor.";
+}
+
+function reflectNeuralStatus(status, detail = {}) {
+  neuralUiState.modelStatus = status;
+  const labels = {
+    disabled: "Desligado",
+    loading: "Carregando modelo…",
+    warming: `Aquecendo ${Math.round((detail?.progress || 0) * 100)}%`,
+    active: "Analisando",
+    error: "Falha no modelo",
+  };
+  const output = byId("neuralStatus");
+  if (!output) return;
+  output.dataset.status = status;
+  output.textContent = labels[status] || status;
+  if (status === "error") {
+    byId("neuralEngineToggle").checked = false;
+    void onsetEngine.setPcmCaptureEnabled(false);
+    toast(`Motor neural: ${readableError(detail)}`);
+  }
+}
+
+function reflectNeuralCaptureStatus(status, error) {
+  neuralUiState.captureStatus = status;
+  if (status === "unsupported") {
+    byId("neuralEngineToggle").checked = false;
+    reflectNeuralStatus("error", new Error("Este navegador não oferece captura neural contínua."));
+  } else if (status === "error") {
+    byId("neuralEngineToggle").checked = false;
+    reflectNeuralStatus("error", error);
+  }
+}
+
+function reflectNeuralResult(result) {
+  const detected = result.detected.length
+    ? result.detected.slice(0, 4).map(neuralNoteLabel).join(" · ")
+    : "Nenhuma acima de 15%";
+  const expected = result.expected.length
+    ? result.expected.map(neuralNoteLabel).join(" · ")
+    : "Sem nota armada";
+  byId("neuralDetected").textContent = detected;
+  byId("neuralExpected").textContent = expected;
+  byId("neuralLatency").textContent = `${result.latencyMs} ms`;
+}
+
+function recordNeuralDiagnostic(result) {
+  state.neuralDiagnostics.push({
+    timestamp: new Date(result.timestamp).toISOString(),
+    expected: result.expected.map(({ midi, frameProbability, onsetProbability }) => ({
+      midi,
+      frameProbability,
+      onsetProbability,
+    })),
+    detected: result.detected.map(({ midi, frameProbability, onsetProbability }) => ({
+      midi,
+      frameProbability,
+      onsetProbability,
+    })),
+    latencyMs: result.latencyMs,
+    tensorCount: result.tensorCount,
+  });
+  if (state.neuralDiagnostics.length > 600) state.neuralDiagnostics.shift();
+  byId("exportNeuralDiagnosticsButton").disabled = false;
+}
+
+async function setNeuralEnabled(enabled) {
+  const toggle = byId("neuralEngineToggle");
+  toggle.disabled = true;
+  if (!enabled) {
+    await onsetEngine.setPcmCaptureEnabled(false);
+    await neuralShadowEngine.setEnabled(false);
+    toggle.checked = false;
+    reflectNeuralAvailability();
+    return true;
+  }
+
+  if (
+    !state.currentEvents?.length
+    || state.inputMode !== "microphone"
+    || state.practiceMode !== "teacher"
+  ) {
+    toggle.checked = false;
+    reflectNeuralAvailability();
+    return false;
+  }
+
+  const captureReady = await onsetEngine.setPcmCaptureEnabled(true);
+  if (!captureReady) {
+    toggle.checked = false;
+    reflectNeuralAvailability();
+    return false;
+  }
+  const modelReady = await neuralShadowEngine.setEnabled(true);
+  if (!modelReady) {
+    await onsetEngine.setPcmCaptureEnabled(false);
+    toggle.checked = false;
+    reflectNeuralAvailability();
+    return false;
+  }
+  toggle.checked = true;
+  reflectNeuralAvailability();
+  return true;
+}
+
+function exportNeuralDiagnostics() {
+  if (!state.neuralDiagnostics.length) return;
+  const payload = {
+    schema: "partitura-viva-neural-shadow-v1",
+    exportedAt: new Date().toISOString(),
+    piece: state.currentItem?.title || null,
+    inputMode: state.inputMode,
+    engineStatus: { ...neuralUiState },
+    audioStored: false,
+    entries: state.neuralDiagnostics,
+  };
+  const url = URL.createObjectURL(new Blob(
+    [JSON.stringify(payload, null, 2)],
+    { type: "application/json" },
+  ));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `diagnostico-neural-${Date.now()}.json`;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 let countAudioContext = null;
@@ -1939,6 +2121,10 @@ byId("microphoneModeButton").addEventListener("click", () => selectInputMode("mi
 byId("midiModeButton").addEventListener("click", () => selectInputMode("midi"));
 byId("teacherModeButton").addEventListener("click", () => selectPracticeMode("teacher"));
 byId("tempoModeButton").addEventListener("click", () => selectPracticeMode("tempo"));
+byId("neuralEngineToggle").addEventListener("change", (event) => {
+  void setNeuralEnabled(event.target.checked);
+});
+byId("exportNeuralDiagnosticsButton").addEventListener("click", exportNeuralDiagnostics);
 byId("bothHandsButton").addEventListener("click", () => selectPracticeHand("both"));
 byId("rightHandButton").addEventListener("click", () => selectPracticeHand("right"));
 byId("leftHandButton").addEventListener("click", () => selectPracticeHand("left"));

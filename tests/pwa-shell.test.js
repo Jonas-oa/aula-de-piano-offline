@@ -192,6 +192,20 @@ test("falhas acústicas orientam o aluno em vez de deixar a pauta parada", () =>
   assert.match(app, /SOLTE A TECLA/);
 });
 
+test("motor neural permanece diagnóstico e não ganha autoridade sobre o cursor", () => {
+  const app = fs.readFileSync(path.join(root, "src/app.js"), "utf8");
+  const neural = fs.readFileSync(
+    path.join(root, "src/core/neural-piano-shadow-engine.js"),
+    "utf8",
+  );
+  const html = fs.readFileSync(path.join(root, "index.html"), "utf8");
+
+  assert.match(app, /onResult:\s*\(result\)\s*=>\s*reflectNeuralResult\(result\)/);
+  assert.doesNotMatch(neural, /registerFollow|forceFollowAdvance|handleFollowResult/);
+  assert.match(html, /Analisa em paralelo e não move o cursor/);
+  assert.match(html, /O áudio permanece no aparelho/);
+});
+
 test("o aviso de girar o aparelho não é apagado pelo `hidden` global", () => {
   // `[hidden] { display: none !important }` vence a media query de retrato. Com
   // o atributo no HTML, o aviso nunca aparecia e o aluno via apenas a tela de
