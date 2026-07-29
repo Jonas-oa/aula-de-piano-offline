@@ -15,6 +15,10 @@ const DEFAULTS = {
   // percussão ainda carrega silêncio dentro da janela de análise, e o espectro
   // borrado dessa transição acusa as teclas vizinhas como notas extras.
   wrongFrames: 2,
+  // A nota leva um tempo para preencher a janela de análise de 170 ms. Julgar
+  // erro antes disso acusava a própria subida da nota certa — três erros
+  // fantasma numa escala tocada sem falha nenhuma.
+  wrongGraceMs: 150,
   analysisIntervalMs: 36,
   attemptWindowMs: 460,
   // Uma corda de piano continua vibrando por segundos depois de solta a tecla.
@@ -381,6 +385,7 @@ export class PianoRecognitionEngine {
       stableMatches: 0,
       stableWrongFrames: 0,
       hasAttack: !continuous,
+      attackAt: continuous ? Number.POSITIVE_INFINITY : timestamp,
       wrongReported: false,
       best: null,
     } : null;
@@ -408,13 +413,20 @@ export class PianoRecognitionEngine {
   // cada chamador precise lembrar da ordem.
   armForAttack(expectedMidis, timestamp = performance.now()) {
     if (!this.isArmedFor(expectedMidis)) this.armExpected(expectedMidis, timestamp);
-    this.noteAttack();
+    this.noteAttack(timestamp);
     return this.attempt;
   }
 
-  noteAttack() {
-    if (!this.attempt) return;
+  // Um único golpe no teclado chega aqui várias vezes: o RMS leva dezenas de
+  // milissegundos para atingir o pico e depois ondula durante todo o
+  // decaimento, porque os parciais batem entre si. Enquanto a tentativa já tem
+  // um ataque válido, os disparos seguintes são o mesmo golpe e não podem zerar
+  // o progresso — zerando, um acorde nunca acumulava os dois quadros estáveis
+  // de que precisa, e um erro isolado era contabilizado dezenas de vezes.
+  noteAttack(timestamp = performance.now()) {
+    if (!this.attempt || this.attempt.hasAttack) return;
     this.attempt.hasAttack = true;
+    this.attempt.attackAt = timestamp;
     this.attempt.waitForRelease = false;
     this.attempt.stableMatches = 0;
     this.attempt.stableWrongFrames = 0;
@@ -493,6 +505,7 @@ export class PianoRecognitionEngine {
       attempt.continuous
       && !attempt.wrongReported
       && attempt.stableWrongFrames >= this.options.wrongFrames
+      && timestamp - attempt.attackAt >= this.options.wrongGraceMs
     ) {
       // O erro entra uma única vez na estatística, mas o ataque continua valendo:
       // limpar `hasAttack` aqui deixava a tentativa esperando um ataque que já

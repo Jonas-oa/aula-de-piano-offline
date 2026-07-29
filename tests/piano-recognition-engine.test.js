@@ -170,7 +170,7 @@ test("escuta contínua responde em um quadro para nota avulsa e não expira no s
     attemptWindowMs: 100,
   });
   engine.armExpected([52], 0);
-  engine.noteAttack();
+  engine.noteAttack(0);
   assert.equal(engine.process(lowPianoSignal(52), SAMPLE_RATE, 10).outcome, "match");
 
   engine.armExpected([52], 1000);
@@ -183,7 +183,7 @@ test("nota repetida exige soltura ou um novo ataque antes de avançar outra vez"
   const signal = lowPianoSignal(52);
 
   engine.armExpected([52], 0);
-  engine.noteAttack();
+  engine.noteAttack(0);
   assert.equal(engine.process(signal, SAMPLE_RATE, 10).outcome, "match");
   engine.armExpected([52], 20);
   const held = engine.process(signal, SAMPLE_RATE, 30);
@@ -191,7 +191,7 @@ test("nota repetida exige soltura ou um novo ataque antes de avançar outra vez"
   assert.equal(held.waitingForRelease, true);
 
   engine.process(new Float32Array(SAMPLE_COUNT), SAMPLE_RATE, 40);
-  engine.noteAttack();
+  engine.noteAttack(40);
   assert.equal(engine.process(signal, SAMPLE_RATE, 50).outcome, "match");
 });
 
@@ -213,22 +213,51 @@ test("escuta contínua exige ataque novo e contabiliza um erro por ataque", () =
   assert.equal(resonance.waitingForAttack, true);
   assert.equal(resonance.waitingForAttackMs, 10);
 
-  engine.noteAttack();
-  // Um quadro isolado não condena o ataque: o primeiro quadro depois da
-  // percussão ainda carrega silêncio dentro da janela de análise, e o espectro
-  // dessa transição acusa as teclas vizinhas.
+  engine.noteAttack(10);
+  // Nenhum quadro isolado condena o ataque, e nada é julgado antes de a nota
+  // preencher a janela de análise: o primeiro quadro depois da percussão ainda
+  // carrega silêncio, e o espectro dessa transição acusa as teclas vizinhas.
   assert.equal(engine.process(wrong, SAMPLE_RATE, 20).outcome, "pending");
-  const reported = engine.process(wrong, SAMPLE_RATE, 30);
+  assert.equal(engine.process(wrong, SAMPLE_RATE, 60).outcome, "pending");
+  const reported = engine.process(wrong, SAMPLE_RATE, 200);
   assert.equal(reported.outcome, "wrong");
   assert.equal(reported.status, "wrong");
   // O erro entra uma única vez na estatística.
-  assert.equal(engine.process(wrong, SAMPLE_RATE, 40).outcome, "pending");
+  assert.equal(engine.process(wrong, SAMPLE_RATE, 240).outcome, "pending");
 
   // O ataque continua valendo depois do erro. Corrigir a nota com a tecla ainda
   // pressionada avança sem exigir nova percussão — descartar o ataque aqui
   // deixava a tentativa esperando um ataque que já tinha acontecido, e a nota
   // certa, reconhecida em todos os quadros seguintes, nunca era aceita.
-  assert.equal(engine.process(correct, SAMPLE_RATE, 50).outcome, "match");
+  assert.equal(engine.process(correct, SAMPLE_RATE, 280).outcome, "match");
+});
+
+test("um mesmo golpe reportado várias vezes não zera o progresso nem o erro", () => {
+  // O detector acusa o mesmo ataque em vários quadros seguidos: o RMS leva
+  // dezenas de milissegundos para chegar ao pico e depois ondula durante todo o
+  // decaimento. Sem esta proteção, um acorde nunca acumulava os dois quadros
+  // estáveis de que precisa, e um erro isolado era contado dezenas de vezes.
+  const engine = new PianoRecognitionEngine({ analysisIntervalMs: 0 });
+  const chord = pianoSignal([60, 64, 67]);
+
+  engine.armForAttack([60, 64, 67], 0);
+  assert.equal(engine.process(chord, SAMPLE_RATE, 10).outcome, "pending");
+  engine.armForAttack([60, 64, 67], 20); // mesmo golpe, segundo disparo
+  assert.equal(
+    engine.process(chord, SAMPLE_RATE, 30).outcome,
+    "match",
+    "o segundo disparo do mesmo golpe não pode descartar o quadro já estável",
+  );
+
+  const wrongEngine = new PianoRecognitionEngine({ analysisIntervalMs: 0 });
+  const wrong = pianoSignal([62]);
+  wrongEngine.armForAttack([60], 0);
+  let reported = 0;
+  for (let ms = 20; ms <= 900; ms += 40) {
+    wrongEngine.armForAttack([60], ms); // disparos repetidos do mesmo golpe
+    if (wrongEngine.process(wrong, SAMPLE_RATE, ms).outcome === "wrong") reported += 1;
+  }
+  assert.equal(reported, 1, "uma nota errada só pode entrar uma vez na estatística");
 });
 
 test("o primeiro ataque depois de armar já vale, sem esperar a batida seguinte", () => {
