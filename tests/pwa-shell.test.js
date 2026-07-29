@@ -206,10 +206,22 @@ test("reconhecimento neural oficial é automático, seguro e mantém redundânci
   assert.match(app, /evaluateNeuralFollowResult\(result,\s*latestExpected\)/);
   assert.match(app, /registerFollowChord\(state\.follow,\s*latestExpected\)/);
   assert.doesNotMatch(neural, /registerFollow|forceFollowAdvance|handleFollowResult/);
-  assert.match(html, /Reconhecimento neural/);
-  assert.doesNotMatch(html, /Permitir avanço neural|teste real|Motor neural experimental/);
-  assert.doesNotMatch(html, /id="neuralEngineToggle"|id="neuralAdvanceToggle"/);
-  assert.match(html, /O áudio permanece no aparelho/);
+  assert.doesNotMatch(
+    html,
+    /Reconhecimento neural|id="neuralDiagnostics"|id="exportNeuralDiagnosticsButton"/,
+  );
+});
+
+test("teclado de apoio pode ser recolhido e mantém a preferência", () => {
+  const app = fs.readFileSync(path.join(root, "src/app.js"), "utf8");
+  const html = fs.readFileSync(path.join(root, "index.html"), "utf8");
+  const css = fs.readFileSync(path.join(root, "styles.css"), "utf8");
+
+  assert.match(html, /id="keyboardVisibilityButton"/);
+  assert.match(app, /partitura-viva-keyboard-visible/);
+  assert.match(app, /localStorage\.setItem\(KEYBOARD_PREF_KEY,\s*String\(expanded\)\)/);
+  assert.match(css, /\.practice-workspace\.keyboard-hidden/);
+  assert.match(css, /\.piano-panel\.is-collapsed[\s\S]*\.piano-keyboard/);
 });
 
 test("o aviso de girar o aparelho não é apagado pelo `hidden` global", () => {

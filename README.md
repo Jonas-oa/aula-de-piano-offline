@@ -48,12 +48,11 @@ avulsas e acordes, incluindo notas ausentes e extras. Em PDF puro, onde as
 alturas não são conhecidas, o microfone continua avaliando somente os ataques
 rítmicos. MIDI permanece a opção de maior precisão em ambientes ruidosos.
 
-O painel **Reconhecimento neural** usa o modelo Basic Pitch e TensorFlow.js
-localmente. Ao pressionar **Iniciar** em **Aguardar notas** com microfone, o
-modelo é ativado automaticamente. Ele precisa de cerca de dois segundos de áudio
-para a primeira janela e então compara a probabilidade das 88 teclas com a nota
-esperada. Nenhum áudio é enviado ou armazenado. A exportação de diagnóstico
-contém somente notas MIDI, probabilidades, latência e contagem de tensores.
+O reconhecimento neural usa o modelo Basic Pitch e TensorFlow.js localmente. Ao
+pressionar **Iniciar** em **Aguardar notas** com microfone, o modelo é ativado
+automaticamente. Ele precisa de cerca de dois segundos de áudio para a primeira
+janela e então compara a probabilidade das 88 teclas com a nota esperada. Nenhum
+áudio é enviado ou armazenado.
 
 O motor acústico permanece ativo em paralelo: responde durante o aquecimento e
 assume sozinho caso o aparelho não suporte a captura neural ou o modelo falhe.

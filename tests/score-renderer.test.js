@@ -42,7 +42,7 @@ test("enquadramento vertical abre espaço para notas muito agudas e graves", () 
   assert.ok(high.height > centered.height);
   assert.ok(low.maxY > centered.maxY);
   assert.ok(low.height > centered.height);
-  assert.match(scoreViewBox(grandScore(["C8"]), 0), /^35 -?\d+ 850 \d+$/);
+  assert.match(scoreViewBox(grandScore(["C8"]), 0), /^20 -?\d+ 900 \d+$/);
 });
 
 test("enquadramento considera somente a janela de notas que está sendo estudada", () => {

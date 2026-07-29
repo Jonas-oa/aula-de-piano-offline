@@ -7,8 +7,10 @@ const TREBLE_TOP = 80;
 const BASS_TOP = 180;
 const STEP = 6;
 const SCORE_WIDTH = 920;
-const SCORE_VIEW_X = 35;
-const SCORE_VIEW_WIDTH = 850;
+// Um enquadramento um pouco mais aberto mostra mais compassos sem comprimir a
+// malha musical: o espaçamento seguro entre ataques continua intacto.
+const SCORE_VIEW_X = 20;
+const SCORE_VIEW_WIDTH = 900;
 const NOTE_START_X = 180;
 const BEAT_SPACING = 88;
 // Colcheias e semicolcheias não podem herdar uma distância tão pequena que

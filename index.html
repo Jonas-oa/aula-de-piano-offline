@@ -272,10 +272,17 @@
             <div id="scoreGestureHint" class="score-gesture-hint">Arraste a pauta · segure para selecionar um trecho</div>
           </div>
 
-          <section class="piano-panel" aria-labelledby="pianoHint">
+          <section id="pianoPanel" class="piano-panel" aria-labelledby="pianoPanelLabel">
             <div class="piano-panel-status">
-              <span>Teclado de apoio</span>
+              <span id="pianoPanelLabel">Teclado de apoio</span>
               <strong id="pianoHint">Aguardando a partitura</strong>
+              <button
+                id="keyboardVisibilityButton"
+                class="keyboard-visibility-button"
+                type="button"
+                aria-controls="pianoKeyboard"
+                aria-expanded="true"
+              >Ocultar teclado</button>
             </div>
             <div id="pianoKeyboard" class="piano-keyboard" role="group" aria-label="Piano didático de 49 teclas"></div>
           </section>
@@ -304,25 +311,6 @@
             <div><span data-stat-label="third">Atrasado</span><strong id="lateStat">0</strong></div>
             <div><span>Precisão</span><strong id="accuracyStat">0%</strong></div>
           </div>
-          <details id="neuralDiagnostics" class="neural-diagnostics" hidden>
-            <summary>
-              <span>Reconhecimento neural</span>
-              <strong id="neuralStatus" data-status="disabled">Desligado</strong>
-            </summary>
-            <p id="neuralAvailabilityHint">Será ativado automaticamente ao pressionar Iniciar.</p>
-            <dl class="neural-readout">
-              <div><dt>Esperada</dt><dd id="neuralExpected">Sem nota armada</dd></div>
-              <div><dt>Detectadas</dt><dd id="neuralDetected">Aguardando áudio</dd></div>
-              <div><dt>Inferência</dt><dd id="neuralLatency">—</dd></div>
-            </dl>
-            <button
-              id="exportNeuralDiagnosticsButton"
-              class="chip-button ghost"
-              type="button"
-              disabled
-            >Exportar diagnóstico</button>
-            <small>O áudio permanece no aparelho e não é incluído no diagnóstico.</small>
-          </details>
           <div id="practiceBottomControls" class="bottombar-end">
             <span id="inputStatus" class="input-status" data-status="stopped">Microfone em espera</span>
             <span id="screenStatus" class="screen-status">Tela ativa</span>
