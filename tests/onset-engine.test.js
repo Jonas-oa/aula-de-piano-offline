@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { OnsetEngine } from "../src/core/onset-engine.js";
+import {
+  AdaptiveOnsetDetector,
+  OnsetEngine,
+} from "../src/core/onset-engine.js";
 
 function deferred() {
   let resolve;
@@ -102,4 +105,51 @@ test("sair durante a permissão cancela o preparo sem deixar o microfone aberto"
     value: previousNavigator,
   });
   globalThis.window = previousWindow;
+});
+
+test("detector adaptativo aceita ataque suave acima do ambiente", () => {
+  const detector = new AdaptiveOnsetDetector();
+  for (let index = 0; index < 20; index += 1) {
+    assert.equal(detector.process(0.0008, index * 12).isAttack, false);
+  }
+
+  const onset = detector.process(0.006, 250);
+  assert.equal(onset.isAttack, true);
+  assert.ok(onset.rms > onset.threshold);
+});
+
+test("detector sinaliza som quase suficiente para orientar o aluno", () => {
+  const detector = new AdaptiveOnsetDetector();
+  for (let index = 0; index < 20; index += 1) detector.process(0.0008, index * 12);
+
+  const quiet = detector.process(0.003, 250);
+  assert.equal(quiet.isAttack, false);
+  assert.equal(quiet.nearAttack, true);
+});
+
+test("ressonância sustentada não eleva o piso até bloquear as próximas notas", () => {
+  const detector = new AdaptiveOnsetDetector();
+  for (let index = 0; index < 30; index += 1) detector.process(0.001, index * 12);
+
+  assert.equal(detector.process(0.03, 400).isAttack, true);
+  for (let index = 0; index < 500; index += 1) {
+    detector.process(0.022, 412 + index * 12);
+  }
+
+  assert.ok(detector.floor < 0.004, `piso derivou para ${detector.floor}`);
+  detector.process(0.006, 6500);
+  assert.equal(detector.process(0.025, 6512).isAttack, true);
+});
+
+test("reiniciar o detector descarta a sensibilidade contaminada da sessão anterior", () => {
+  const detector = new AdaptiveOnsetDetector();
+  detector.floor = 0.08;
+  detector.previousRms = 0.04;
+  detector.lastOnsetAt = 500;
+
+  detector.reset();
+
+  assert.equal(detector.floor, detector.initialFloor);
+  assert.equal(detector.previousRms, 0);
+  assert.equal(detector.lastOnsetAt, -Infinity);
 });

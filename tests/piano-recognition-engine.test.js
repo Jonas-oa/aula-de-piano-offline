@@ -9,14 +9,19 @@ import { midiToFrequency } from "../src/core/music.js";
 const SAMPLE_RATE = 48_000;
 const SAMPLE_COUNT = 8192;
 
-function pianoSignal(midis, { amplitude = 0.17, noise = 0.0005 } = {}) {
+function pianoSignal(midis, {
+  amplitude = 0.17,
+  noise = 0.0005,
+  detuneCents = 0,
+  sampleRate = SAMPLE_RATE,
+} = {}) {
   const result = new Float32Array(SAMPLE_COUNT);
   let seed = 123456789;
   for (let index = 0; index < result.length; index += 1) {
     let value = 0;
     for (const midi of midis) {
-      const frequency = midiToFrequency(midi);
-      const phase = (2 * Math.PI * frequency * index) / SAMPLE_RATE;
+      const frequency = midiToFrequency(midi) * 2 ** (detuneCents / 1200);
+      const phase = (2 * Math.PI * frequency * index) / sampleRate;
       value += amplitude * Math.sin(phase);
       value += amplitude * 0.24 * Math.sin(phase * 2 + 0.3);
       value += amplitude * 0.09 * Math.sin(phase * 3 + 0.7);
@@ -36,6 +41,22 @@ function lowPianoSignal(midi) {
     result[index] = 0.014 * Math.sin(phase)
       + 0.055 * Math.sin(phase * 2 + 0.2)
       + 0.008 * Math.sin(phase * 3 + 0.6);
+  }
+  return result;
+}
+
+function missingFundamentalSignal(midi, {
+  fundamentalAmplitude = 0.002,
+  secondAmplitude = 0.05,
+  thirdAmplitude = 0.012,
+} = {}) {
+  const result = new Float32Array(SAMPLE_COUNT);
+  const frequency = midiToFrequency(midi);
+  for (let index = 0; index < result.length; index += 1) {
+    const phase = (2 * Math.PI * frequency * index) / SAMPLE_RATE;
+    result[index] = fundamentalAmplitude * Math.sin(phase)
+      + secondAmplitude * Math.sin(phase * 2 + 0.2)
+      + thirdAmplitude * Math.sin(phase * 3 + 0.6);
   }
   return result;
 }
@@ -92,6 +113,40 @@ test("reconhece Mi 3 grave mesmo quando o segundo harmônico é mais forte", () 
   assert.deepEqual(result.extra, []);
 });
 
+test("reconhece Lá 2 pela assinatura harmônica quando o celular atenua a fundamental", () => {
+  const result = analyzeExpectedChord(missingFundamentalSignal(45), SAMPLE_RATE, [45]);
+
+  assert.equal(result.status, "match");
+  assert.deepEqual(result.detected, [45]);
+  assert.deepEqual(result.inferred, [45]);
+  assert.deepEqual(result.extra, []);
+});
+
+test("assinatura harmônica grave cobre a região vulnerável sem aceitar a oitava errada", () => {
+  for (let midi = 33; midi <= 54; midi += 1) {
+    const result = analyzeExpectedChord(missingFundamentalSignal(midi), SAMPLE_RATE, [midi]);
+    assert.equal(result.status, "match", `MIDI ${midi} deveria ser inferido pelos harmônicos`);
+    assert.deepEqual(result.inferred, [midi]);
+  }
+
+  const octaveWrong = analyzeExpectedChord(pianoSignal([57]), SAMPLE_RATE, [45]);
+  assert.notEqual(octaveWrong.status, "match");
+  assert.deepEqual(octaveWrong.missing, [45]);
+  assert.ok(octaveWrong.extra.includes(57));
+});
+
+test("um único pico na oitava não inventa uma fundamental grave", () => {
+  const result = analyzeExpectedChord(
+    missingFundamentalSignal(45, { fundamentalAmplitude: 0, thirdAmplitude: 0 }),
+    SAMPLE_RATE,
+    [45],
+  );
+
+  assert.notEqual(result.status, "match");
+  assert.deepEqual(result.inferred, []);
+  assert.deepEqual(result.missing, [45]);
+});
+
 test("motor temporal exige estabilidade e encerra tentativas incorretas", () => {
   const engine = new PianoRecognitionEngine({
     stableFrames: 2,
@@ -131,7 +186,9 @@ test("nota repetida exige soltura ou um novo ataque antes de avançar outra vez"
   engine.noteAttack();
   assert.equal(engine.process(signal, SAMPLE_RATE, 10).outcome, "match");
   engine.armExpected([52], 20);
-  assert.equal(engine.process(signal, SAMPLE_RATE, 30).outcome, "pending");
+  const held = engine.process(signal, SAMPLE_RATE, 30);
+  assert.equal(held.outcome, "pending");
+  assert.equal(held.waitingForRelease, true);
 
   engine.process(new Float32Array(SAMPLE_COUNT), SAMPLE_RATE, 40);
   engine.noteAttack();
@@ -147,11 +204,14 @@ test("escuta contínua exige ataque novo e contabiliza um erro por ataque", () =
   const wrong = pianoSignal([62]);
 
   engine.armExpected([60], 0);
+  const resonance = engine.process(correct, SAMPLE_RATE, 10);
   assert.equal(
-    engine.process(correct, SAMPLE_RATE, 10).outcome,
+    resonance.outcome,
     "pending",
     "ressonância sem ataque não pode avançar",
   );
+  assert.equal(resonance.waitingForAttack, true);
+  assert.equal(resonance.waitingForAttackMs, 10);
 
   engine.noteAttack();
   const firstWrong = engine.process(wrong, SAMPLE_RATE, 20);
@@ -228,4 +288,46 @@ test("uma oitava acima não é confundida com a nota escrita", () => {
   const analysis = analyzeExpectedChord(pianoSignal([72]), SAMPLE_RATE, [60]);
   assert.deepEqual(analysis.missing, [60]);
   assert.ok(analysis.extra.includes(72));
+});
+
+test("afinação esticada nas notas agudas funciona em 44,1 e 48 kHz", () => {
+  for (const sampleRate of [44_100, 48_000]) {
+    for (const midi of [57, 81, 99, 105]) {
+      for (const detuneCents of [-40, -20, 20, 40]) {
+        const analysis = analyzeExpectedChord(
+          pianoSignal([midi], { detuneCents, sampleRate }),
+          sampleRate,
+          [midi],
+        );
+        assert.equal(
+          analysis.status,
+          "match",
+          `MIDI ${midi}, ${detuneCents} cents, ${sampleRate} Hz deveria ser aceito`,
+        );
+      }
+    }
+  }
+});
+
+test("tolerância de afinação aguda não alcança a tecla vizinha", () => {
+  const expected = 105;
+  const neighbour = analyzeExpectedChord(pianoSignal([expected + 1]), SAMPLE_RATE, [expected]);
+
+  assert.notEqual(neighbour.status, "match");
+  assert.deepEqual(neighbour.missing, [expected]);
+  assert.ok(neighbour.extra.includes(expected + 1));
+});
+
+test("Dó 8 aceita a afinação esticada do topo sem confundir Si 7", () => {
+  const top = 108;
+  const stretched = analyzeExpectedChord(
+    pianoSignal([top], { detuneCents: 90 }),
+    SAMPLE_RATE,
+    [top],
+  );
+  assert.equal(stretched.status, "match");
+
+  const below = analyzeExpectedChord(pianoSignal([top - 1]), SAMPLE_RATE, [top]);
+  assert.notEqual(below.status, "match");
+  assert.deepEqual(below.missing, [top]);
 });

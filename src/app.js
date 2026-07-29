@@ -1568,6 +1568,36 @@ function handlePitchSamples(samples, sampleRate, timestamp) {
     setFeedback("late", "NOTA EXTRA", "Confira o acorde", `Extra: ${expectedNoteLabel(analysis.extra)}`);
   } else if (analysis.status === "wrong" && analysis.detected.length) {
     setFeedback("late", "NOTA DIFERENTE", "O cursor vai esperar", `Ouvi: ${expectedNoteLabel(analysis.detected)}`);
+  } else if (analysis.waitingForRelease && analysis.status === "match") {
+    setFeedback(
+      "neutral",
+      "SOLTE A TECLA",
+      "A próxima nota é igual",
+      "Solte a nota anterior antes de tocar novamente.",
+    );
+  } else if (
+    analysis.waitingForAttack
+    && !onsetEngine.lastDiagnostic?.isAttack
+    && onsetEngine.lastDiagnostic?.nearAttack
+  ) {
+    setFeedback(
+      "early",
+      "SOM MUITO BAIXO",
+      "Aproxime o celular",
+      "Toque novamente com um ataque um pouco mais definido.",
+    );
+  } else if (
+    analysis.waitingForAttack
+    && analysis.waitingForAttackMs >= 300
+    && analysis.status === "match"
+    && !onsetEngine.lastDiagnostic?.isAttack
+  ) {
+    setFeedback(
+      "early",
+      "ATAQUE SUAVE",
+      "A nota foi ouvida",
+      "Toque novamente com um ataque mais definido para avançar.",
+    );
   }
 }
 

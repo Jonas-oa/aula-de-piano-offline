@@ -13,6 +13,14 @@ const DEFAULTS = {
   stableFrames: 2,
   analysisIntervalMs: 36,
   attemptWindowMs: 460,
+  missingFundamentalMaxMidi: 54,
+  missingFundamentalSecondRatio: 1.5,
+  missingFundamentalThirdRatio: 1.1,
+  missingFundamentalThirdToSecond: 0.12,
+  detuneScanMinMidi: 55,
+  detuneOffsetsCents: [-40, -20, 20, 40],
+  topPianoMidi: 108,
+  topNoteDetuneOffsetsCents: [60, 80, 90, 100],
 };
 
 function rmsOf(samples) {
@@ -76,7 +84,14 @@ function goertzelAmplitude(windowed, sampleRate, frequency, windowSum) {
   return (2 * Math.sqrt(Math.max(0, power))) / windowSum;
 }
 
-function isHarmonicAlias(midi, amplitude, amplitudes, expectedSet, minAmplitude) {
+function isHarmonicAlias(
+  midi,
+  amplitude,
+  amplitudes,
+  expectedSet,
+  minAmplitude,
+  harmonicallySupported = expectedSet,
+) {
   if (expectedSet.has(midi)) return false;
   const frequency = midiToFrequency(midi);
   for (const [lowerMidi, lowerAmplitude] of amplitudes) {
@@ -90,15 +105,47 @@ function isHarmonicAlias(midi, amplitude, amplitudes, expectedSet, minAmplitude)
     // Em notas graves de piano, o segundo harmônico pode superar a
     // fundamental no microfone do celular. Quando a fundamental esperada está
     // realmente presente, não trate esse harmônico natural como uma nota extra.
-    if (
-      expectedSet.has(lowerMidi)
-      && lowerAmplitude >= minAmplitude
-      && amplitude <= Math.max(lowerAmplitude * 6, minAmplitude * 16)
-    ) return true;
+    if (harmonicallySupported.has(lowerMidi)) {
+      const reference = Math.max(lowerAmplitude, minAmplitude);
+      if (amplitude <= Math.max(reference * 6, minAmplitude * 16)) return true;
+    }
 
     if (lowerAmplitude > amplitude && amplitude < lowerAmplitude * 0.72) return true;
   }
   return false;
+}
+
+function inferMissingFundamental(
+  windowed,
+  sampleRate,
+  midi,
+  windowSum,
+  rms,
+  config,
+) {
+  if (midi > config.missingFundamentalMaxMidi) return null;
+  const fundamental = midiToFrequency(midi);
+  const second = goertzelAmplitude(windowed, sampleRate, fundamental * 2, windowSum);
+  const third = goertzelAmplitude(windowed, sampleRate, fundamental * 3, windowSum);
+  const secondThreshold = Math.max(
+    config.minAmplitude * config.missingFundamentalSecondRatio,
+    rms * 0.025,
+  );
+  const thirdThreshold = Math.max(
+    config.minAmplitude * config.missingFundamentalThirdRatio,
+    second * config.missingFundamentalThirdToSecond,
+  );
+
+  if (second < secondThreshold || third < thirdThreshold) return null;
+  return {
+    midi,
+    second,
+    third,
+    confidence: Math.min(1,
+      (second / Math.max(secondThreshold, 0.0001)
+        + third / Math.max(thirdThreshold, 0.0001)) / 6,
+    ),
+  };
 }
 
 /**
@@ -134,6 +181,29 @@ export function analyzeExpectedChord(samples, sampleRate, expectedMidis, options
       goertzelAmplitude(windowed, sampleRate, midiToFrequency(midi), windowSum),
     );
   }
+  // Pianos acústicos usam afinação esticada e os parciais agudos são
+  // inarmônicos. Conferir pequenos desvios apenas na nota esperada recupera
+  // esse comportamento sem abrir a aceitação até a tecla vizinha.
+  for (const midi of expected) {
+    if (midi < config.detuneScanMinMidi) continue;
+    const frequency = midiToFrequency(midi);
+    let best = amplitudes.get(midi) || 0;
+    const offsets = midi === config.topPianoMidi
+      ? [...config.detuneOffsetsCents, ...config.topNoteDetuneOffsetsCents]
+      : config.detuneOffsetsCents;
+    for (const cents of offsets) {
+      best = Math.max(
+        best,
+        goertzelAmplitude(
+          windowed,
+          sampleRate,
+          frequency * 2 ** (cents / 1200),
+          windowSum,
+        ),
+      );
+    }
+    amplitudes.set(midi, best);
+  }
 
   const strongest = Math.max(0, ...amplitudes.values());
   const expectedStrongest = Math.max(0, ...expected.map((midi) => amplitudes.get(midi) || 0));
@@ -145,9 +215,28 @@ export function analyzeExpectedChord(samples, sampleRate, expectedMidis, options
     ),
   );
   const expectedSet = new Set(expected);
-  const presentExpected = expected.filter((midi) =>
+  const directlyPresent = expected.filter((midi) =>
     (amplitudes.get(midi) || 0) >= expectedThreshold,
   );
+  // Microfones de celular e a própria caixa do piano podem atenuar a
+  // fundamental grave e preservar seus harmônicos. Para nota avulsa grave,
+  // a combinação do segundo e do terceiro harmônicos diferencia uma
+  // fundamental ausente de uma simples nota tocada uma oitava acima.
+  const inferredDetails = [];
+  if (expected.length === 1 && !directlyPresent.length) {
+    const inferred = inferMissingFundamental(
+      windowed,
+      sampleRate,
+      expected[0],
+      windowSum,
+      rms,
+      config,
+    );
+    if (inferred) inferredDetails.push(inferred);
+  }
+  const inferred = inferredDetails.map(({ midi }) => midi);
+  const presentExpected = [...directlyPresent, ...inferred].sort((a, b) => a - b);
+  const harmonicallySupported = new Set(presentExpected);
 
   const extraThreshold = Math.max(
     config.minAmplitude * 1.6,
@@ -168,7 +257,14 @@ export function analyzeExpectedChord(samples, sampleRate, expectedMidis, options
   for (const [midi, amplitude] of amplitudes) {
     if (expectedSet.has(midi) || amplitude < extraThreshold) continue;
     if (!canResolveNeighbours(midi)) continue;
-    if (isHarmonicAlias(midi, amplitude, amplitudes, expectedSet, config.minAmplitude)) continue;
+    if (isHarmonicAlias(
+      midi,
+      amplitude,
+      amplitudes,
+      expectedSet,
+      config.minAmplitude,
+      harmonicallySupported,
+    )) continue;
     extras.push(midi);
   }
 
@@ -213,6 +309,8 @@ export function analyzeExpectedChord(samples, sampleRate, expectedMidis, options
     detected,
     missing,
     extra: compactExtras,
+    inferred,
+    inferredDetails,
     completeness,
     confidence,
     rms,
@@ -305,18 +403,27 @@ export class PianoRecognitionEngine {
       attempt.expected,
       this.options,
     );
-    // No modo contínuo, cada evento da partitura precisa de um novo ataque.
-    // Isso impede que a ressonância do acorde anterior avance automaticamente
-    // quando a próxima nota também pertence à harmonia que ainda está soando.
-    if (attempt.continuous && !attempt.hasAttack) {
-      return { outcome: "pending", ...analysis };
-    }
     if (attempt.waitForRelease) {
       if (analysis.status !== "match") {
         attempt.waitForRelease = false;
         attempt.stableMatches = 0;
       }
-      return { outcome: "pending", ...analysis };
+      return {
+        outcome: "pending",
+        waitingForRelease: true,
+        ...analysis,
+      };
+    }
+    // No modo contínuo, cada evento da partitura precisa de um novo ataque.
+    // Isso impede que a ressonância do acorde anterior avance automaticamente
+    // quando a próxima nota também pertence à harmonia que ainda está soando.
+    if (attempt.continuous && !attempt.hasAttack) {
+      return {
+        outcome: "pending",
+        waitingForAttack: true,
+        waitingForAttackMs: Math.max(0, timestamp - attempt.startedAt),
+        ...analysis,
+      };
     }
     const score = analysis.completeness
       + analysis.confidence * 0.25
