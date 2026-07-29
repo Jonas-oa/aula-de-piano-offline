@@ -192,7 +192,7 @@ test("falhas acústicas orientam o aluno em vez de deixar a pauta parada", () =>
   assert.match(app, /SOLTE A TECLA/);
 });
 
-test("avanço neural exige opção explícita, prática ativa e portão de confiança", () => {
+test("reconhecimento neural oficial é automático, seguro e mantém redundância acústica", () => {
   const app = fs.readFileSync(path.join(root, "src/app.js"), "utf8");
   const neural = fs.readFileSync(
     path.join(root, "src/core/neural-piano-shadow-engine.js"),
@@ -201,11 +201,14 @@ test("avanço neural exige opção explícita, prática ativa e portão de confi
   const html = fs.readFileSync(path.join(root, "index.html"), "utf8");
 
   assert.match(app, /neuralUiState\.advanceEnabled[\s\S]*state\.practiceActive/);
+  assert.match(app, /void startOfficialNeuralRecognition\(\)/);
+  assert.match(app, /await setNeuralEnabled\(true\)/);
   assert.match(app, /evaluateNeuralFollowResult\(result,\s*latestExpected\)/);
   assert.match(app, /registerFollowChord\(state\.follow,\s*latestExpected\)/);
   assert.doesNotMatch(neural, /registerFollow|forceFollowAdvance|handleFollowResult/);
-  assert.match(html, /Permitir avanço neural \(teste real\)/);
-  assert.match(html, /id="neuralAdvanceToggle"[^>]*disabled/);
+  assert.match(html, /Reconhecimento neural/);
+  assert.doesNotMatch(html, /Permitir avanço neural|teste real|Motor neural experimental/);
+  assert.doesNotMatch(html, /id="neuralEngineToggle"|id="neuralAdvanceToggle"/);
   assert.match(html, /O áudio permanece no aparelho/);
 });
 
