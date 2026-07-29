@@ -79,7 +79,7 @@ const state = {
   currentScore: null,
   viewIndex: 0,
   loop: { a: null, b: null, active: false, count: 0 },
-  neuralDiagnostics: [],
+  keyboardVisible: true,
 };
 
 const viewer = new DocumentViewer(byId("documentStage"), {
@@ -147,7 +147,6 @@ const neuralUiState = {
 const neuralShadowEngine = new NeuralPianoShadowEngine({
   onStatus: (status, detail) => reflectNeuralStatus(status, detail),
   onResult: (result) => handleNeuralResult(result),
-  onDiagnostic: (result) => recordNeuralDiagnostic(result),
 });
 
 const onsetEngine = new OnsetEngine({
@@ -920,8 +919,7 @@ async function openPractice(item) {
   state.viewIndex = 0;
   state.practiceHand = "both";
   state.loop = { a: null, b: null, active: false, count: 0 };
-  state.neuralDiagnostics = [];
-  resetNeuralDiagnosticsUi();
+  resetNeuralSession();
   reflectLoopButtons();
   state.practiceMode = "teacher"; // cada peça abre no modo professor; PDF cai para tempo abaixo
   state.exactMode = item.type === "rhythm" || Boolean(item.musicXmlAsset);
@@ -1097,7 +1095,6 @@ function applyPieceControls() {
   byId("zoomOutButton").hidden = structured;    // zoom só no PDF
   byId("zoomInButton").hidden = structured;
   reflectPlaybackState("stopped");
-  reflectNeuralAvailability();
 }
 
 function selectedPlaybackBounds() {
@@ -1159,6 +1156,7 @@ function reflectPlaybackState(status) {
 }
 
 const PANEL_PREFS_KEY = "partitura-viva-study-side-panels";
+const KEYBOARD_PREF_KEY = "partitura-viva-keyboard-visible";
 
 function hasSavedPanelPreferences() {
   try {
@@ -1235,6 +1233,41 @@ function restorePanelPreferences() {
 function togglePanel(panel) {
   const button = byId(panel === "top" ? "topbarToggleButton" : "bottombarToggleButton");
   setPanelExpanded(panel, button.getAttribute("aria-expanded") !== "true");
+}
+
+function loadKeyboardVisibility() {
+  try {
+    return localStorage.getItem(KEYBOARD_PREF_KEY) !== "false";
+  } catch {
+    return true;
+  }
+}
+
+function setKeyboardVisible(visible, { persist = true } = {}) {
+  const expanded = Boolean(visible);
+  const panel = byId("pianoPanel");
+  const button = byId("keyboardVisibilityButton");
+  const label = expanded ? "Ocultar teclado" : "Mostrar teclado";
+
+  state.keyboardVisible = expanded;
+  document.querySelector(".practice-workspace").classList.toggle("keyboard-hidden", !expanded);
+  panel.classList.toggle("is-collapsed", !expanded);
+  button.setAttribute("aria-expanded", String(expanded));
+  button.setAttribute("aria-label", label);
+  button.title = label;
+  button.textContent = label;
+
+  if (persist) {
+    try {
+      localStorage.setItem(KEYBOARD_PREF_KEY, String(expanded));
+    } catch {
+      // O recolhimento continua funcionando quando o armazenamento é bloqueado.
+    }
+  }
+}
+
+function toggleKeyboardVisibility() {
+  setKeyboardVisible(!state.keyboardVisible);
 }
 
 function setTempoExpanded(expanded) {
@@ -1326,7 +1359,6 @@ function selectPracticeMode(mode) {
   }
   state.practiceMode = mode;
   reflectPracticeMode();
-  reflectNeuralAvailability();
 }
 
 async function selectInputMode(mode) {
@@ -1356,7 +1388,6 @@ async function selectInputMode(mode) {
     midiInput.disconnect();
     void preparePracticeInput();
   }
-  reflectNeuralAvailability();
 }
 
 function reflectInputStatus(status) {
@@ -1432,7 +1463,6 @@ async function startTeacherPractice() {
   state.practiceActive = true;
   showFollowCursor();
   armCurrentMicrophoneEvent();
-  reflectNeuralAvailability();
   if (state.inputMode === "microphone") {
     void startOfficialNeuralRecognition();
   }
@@ -1900,64 +1930,15 @@ async function leavePractice() {
   showView("libraryView");
 }
 
-function neuralNoteLabel(note) {
-  const percent = Math.round((note?.probability || 0) * 100);
-  return `${midiToPortuguese(note.midi)} ${percent}%`;
-}
-
-function resetNeuralDiagnosticsUi() {
-  byId("neuralExpected").textContent = "Sem nota armada";
-  byId("neuralDetected").textContent = "Aguardando áudio";
-  byId("neuralLatency").textContent = "—";
-  byId("exportNeuralDiagnosticsButton").disabled = true;
+function resetNeuralSession() {
   neuralUiState.advanceEnabled = false;
   neuralUiState.lastAdvanceToken = null;
   neuralUiState.activationPromise = null;
   neuralUiState.activationGeneration += 1;
 }
 
-function reflectNeuralAvailability() {
-  const panel = byId("neuralDiagnostics");
-  if (!panel) return;
-  const structured = Boolean(state.currentEvents?.length);
-  panel.hidden = !structured;
-  if (!structured) return;
-
-  const eligible = (
-    state.inputMode === "microphone"
-    && state.practiceMode === "teacher"
-  );
-  let hint = "Disponível em Aguardar notas usando o microfone.";
-  if (eligible && neuralUiState.advanceEnabled) {
-    hint = "Ativo: o neural confirma a nota e o motor acústico permanece como redundância.";
-  } else if (
-    eligible
-    && (neuralUiState.modelStatus === "loading" || neuralUiState.modelStatus === "warming")
-  ) {
-    hint = "Preparando as 88 teclas; o motor acústico continua respondendo.";
-  } else if (eligible && neuralUiState.modelStatus === "error") {
-    hint = "Neural indisponível neste aparelho; o motor acústico continua ativo.";
-  } else if (eligible && state.practiceActive) {
-    hint = "Ativando automaticamente; o motor acústico já está ouvindo.";
-  } else if (eligible) {
-    hint = "Será ativado automaticamente ao pressionar Iniciar.";
-  }
-  byId("neuralAvailabilityHint").textContent = hint;
-}
-
 function reflectNeuralStatus(status, detail = {}) {
   neuralUiState.modelStatus = status;
-  const labels = {
-    disabled: "Desligado",
-    loading: "Carregando modelo…",
-    warming: `Aquecendo ${Math.round((detail?.progress || 0) * 100)}%`,
-    active: "Analisando",
-    error: "Falha no modelo",
-  };
-  const output = byId("neuralStatus");
-  if (!output) return;
-  output.dataset.status = status;
-  output.textContent = labels[status] || status;
   if (status === "error") {
     setNeuralAdvanceEnabled(false);
     void onsetEngine.setPcmCaptureEnabled(false);
@@ -1965,7 +1946,6 @@ function reflectNeuralStatus(status, detail = {}) {
       toast(`Motor neural indisponível; o acústico continua ativo. ${readableError(detail)}`);
     }
   }
-  reflectNeuralAvailability();
 }
 
 function reflectNeuralCaptureStatus(status, error) {
@@ -1975,18 +1955,6 @@ function reflectNeuralCaptureStatus(status, error) {
   } else if (status === "error") {
     reflectNeuralStatus("error", error);
   }
-}
-
-function reflectNeuralResult(result) {
-  const detected = result.detected.length
-    ? result.detected.slice(0, 4).map(neuralNoteLabel).join(" · ")
-    : "Nenhuma acima de 15%";
-  const expected = result.expected.length
-    ? result.expected.map(neuralNoteLabel).join(" · ")
-    : "Sem nota armada";
-  byId("neuralDetected").textContent = detected;
-  byId("neuralExpected").textContent = expected;
-  byId("neuralLatency").textContent = `${result.latencyMs} ms`;
 }
 
 function maybeAdvanceWithNeural(result) {
@@ -2041,30 +2009,7 @@ function maybeAdvanceWithNeural(result) {
 }
 
 function handleNeuralResult(result) {
-  reflectNeuralResult(result);
   maybeAdvanceWithNeural(result);
-}
-
-function recordNeuralDiagnostic(result) {
-  state.neuralDiagnostics.push({
-    timestamp: new Date(result.timestamp).toISOString(),
-    expected: result.expected.map(({ midi, frameProbability, onsetProbability }) => ({
-      midi,
-      frameProbability,
-      onsetProbability,
-    })),
-    detected: result.detected.map(({ midi, frameProbability, onsetProbability }) => ({
-      midi,
-      frameProbability,
-      onsetProbability,
-    })),
-    latencyMs: result.latencyMs,
-    tensorCount: result.tensorCount,
-    followIndex: result.followIndex ?? null,
-    followDecision: result.followDecision || null,
-  });
-  if (state.neuralDiagnostics.length > 600) state.neuralDiagnostics.shift();
-  byId("exportNeuralDiagnosticsButton").disabled = false;
 }
 
 async function setNeuralEnabled(enabled) {
@@ -2074,7 +2019,6 @@ async function setNeuralEnabled(enabled) {
     setNeuralAdvanceEnabled(false);
     await onsetEngine.setPcmCaptureEnabled(false);
     await neuralShadowEngine.setEnabled(false);
-    reflectNeuralAvailability();
     return true;
   }
 
@@ -2083,7 +2027,6 @@ async function setNeuralEnabled(enabled) {
     || state.inputMode !== "microphone"
     || state.practiceMode !== "teacher"
   ) {
-    reflectNeuralAvailability();
     return false;
   }
 
@@ -2093,17 +2036,14 @@ async function setNeuralEnabled(enabled) {
     const captureReady = await onsetEngine.setPcmCaptureEnabled(true);
     if (!captureReady || generation !== neuralUiState.activationGeneration) {
       if (captureReady) await onsetEngine.setPcmCaptureEnabled(false);
-      reflectNeuralAvailability();
       return false;
     }
     const modelReady = await neuralShadowEngine.setEnabled(true);
     if (!modelReady || generation !== neuralUiState.activationGeneration) {
       if (modelReady) await neuralShadowEngine.setEnabled(false);
       await onsetEngine.setPcmCaptureEnabled(false);
-      reflectNeuralAvailability();
       return false;
     }
-    reflectNeuralAvailability();
     return true;
   })();
   neuralUiState.activationPromise = activation;
@@ -2133,33 +2073,7 @@ function setNeuralAdvanceEnabled(enabled) {
   );
   neuralUiState.advanceEnabled = allowed;
   if (!allowed) neuralUiState.lastAdvanceToken = null;
-  reflectNeuralAvailability();
   return allowed;
-}
-
-function exportNeuralDiagnostics() {
-  if (!state.neuralDiagnostics.length) return;
-  const payload = {
-    schema: "partitura-viva-neural-hybrid-v2",
-    exportedAt: new Date().toISOString(),
-    piece: state.currentItem?.title || null,
-    practiceMode: state.practiceMode,
-    practiceActive: state.practiceActive,
-    inputMode: state.inputMode,
-    engineStatus: { ...neuralUiState },
-    neuralAdvanceEnabled: neuralUiState.advanceEnabled,
-    audioStored: false,
-    entries: state.neuralDiagnostics,
-  };
-  const url = URL.createObjectURL(new Blob(
-    [JSON.stringify(payload, null, 2)],
-    { type: "application/json" },
-  ));
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `diagnostico-neural-${Date.now()}.json`;
-  link.click();
-  URL.revokeObjectURL(url);
 }
 
 let countAudioContext = null;
@@ -2240,11 +2154,11 @@ byId("documentStage").addEventListener("pointercancel", (event) =>
   endScoreGesture(event, { cancelled: true }));
 byId("topbarToggleButton").addEventListener("click", () => togglePanel("top"));
 byId("bottombarToggleButton").addEventListener("click", () => togglePanel("bottom"));
+byId("keyboardVisibilityButton").addEventListener("click", toggleKeyboardVisibility);
 byId("microphoneModeButton").addEventListener("click", () => selectInputMode("microphone"));
 byId("midiModeButton").addEventListener("click", () => selectInputMode("midi"));
 byId("teacherModeButton").addEventListener("click", () => selectPracticeMode("teacher"));
 byId("tempoModeButton").addEventListener("click", () => selectPracticeMode("tempo"));
-byId("exportNeuralDiagnosticsButton").addEventListener("click", exportNeuralDiagnostics);
 byId("bothHandsButton").addEventListener("click", () => selectPracticeHand("both"));
 byId("rightHandButton").addEventListener("click", () => selectPracticeHand("right"));
 byId("leftHandButton").addEventListener("click", () => selectPracticeHand("left"));
@@ -2374,6 +2288,7 @@ window.addEventListener("offline", reflectConnection);
 reflectConnection();
 reflectLoopButtons();
 restorePanelPreferences();
+setKeyboardVisible(loadKeyboardVisibility(), { persist: false });
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && state.currentView === "practiceView") {
     wakeLock.setEnabled(true);
