@@ -148,6 +148,19 @@ test("a audição é controlada de dentro da tela de estudo", () => {
   assert.match(app, /addEventListener\("pointerdown", beginScoreGesture\)/);
 });
 
+test("os modos e ações usam nomes que explicam o resultado", () => {
+  const html = fs.readFileSync(path.join(root, "index.html"), "utf8");
+
+  assert.match(html, />Aguardar notas</);
+  assert.match(html, />Avaliar ritmo</);
+  assert.match(html, />♫ Ouvir partitura</);
+  assert.match(html, />↻ Repetir trecho</);
+  assert.doesNotMatch(html, />Professor</);
+  assert.doesNotMatch(html, />Tempo</);
+  assert.doesNotMatch(html, />Marcar A</);
+  assert.doesNotMatch(html, />Marcar B</);
+});
+
 test("estudo solicita tela cheia e o PWA prioriza modo imersivo", () => {
   const app = fs.readFileSync(path.join(root, "src/app.js"), "utf8");
   const manifest = JSON.parse(

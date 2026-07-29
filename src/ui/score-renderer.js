@@ -299,7 +299,7 @@ export function renderScore(
   updateScoreState(svg, song, currentIndex, { immediate });
 }
 
-// Faixa de repetição A–B, desenhada dentro do track para rolar junto das notas.
+// Faixa do trecho selecionado, desenhada dentro do track para rolar com as notas.
 function updateLoopRegion(svg, song, loop) {
   const track = svg.querySelector('.score-track');
   if (!track) return;
@@ -320,17 +320,26 @@ function updateLoopRegion(svg, song, loop) {
   const bottom = hasBass ? BASS_TOP + 60 : 150;
   const xA = scoreEventX(song, a) - 34;
   const xB = scoreEventX(song, b) + 34;
-  const group = create('g', { class: 'score-loop' });
+  const group = create('g', {
+    class: 'score-loop',
+    'data-start-index': a,
+    'data-end-index': b,
+    role: 'group',
+    'aria-label': `Trecho selecionado entre os eventos ${a + 1} e ${b + 1}`,
+  });
   group.append(create('rect', {
     x: xA, y: 60, width: Math.max(0, xB - xA), height: bottom - 60, rx: 8,
     fill: 'rgba(215,168,75,0.15)',
   }));
-  [[xA, 'A'], [xB, 'B']].forEach(([x, label]) => {
+  [
+    [xA, 'a', 'I', 'início'],
+    [xB, 'b', 'F', 'fim'],
+  ].forEach(([x, point, label, description]) => {
     const handle = create('g', {
       class: 'score-loop-handle',
-      'data-loop-point': label.toLowerCase(),
+      'data-loop-point': point,
       role: 'button',
-      'aria-label': `Mover ponto ${label}`,
+      'aria-label': `Mover ${description} do trecho`,
     });
     handle.append(create('rect', {
       x: x - 25, y: 30, width: 50, height: bottom - 24, rx: 12,

@@ -143,7 +143,7 @@
             <h2>Partitura pronta para estudar</h2>
             <article>
               <span class="file-badge precise">XML</span>
-              <div><strong>Leitura musical estruturada</strong><p>O aplicativo conhece ataques, pausas e alturas para acompanhar notas e acordes no modo professor.</p></div>
+              <div><strong>Leitura musical estruturada</strong><p>O aplicativo conhece ataques, pausas e alturas para aguardar as notas e os acordes corretos.</p></div>
             </article>
             <article>
               <span class="file-badge midi">MIDI</span>
@@ -173,8 +173,13 @@
 
           <div id="practiceTopbarControls" class="toolbar-controls">
             <div id="modeToggle" class="input-choice small" role="group" aria-label="Modo de prática">
-              <button id="teacherModeButton" class="choice-button active">Professor</button>
-              <button id="tempoModeButton" class="choice-button">Tempo</button>
+              <button id="teacherModeButton" class="choice-button active">Aguardar notas</button>
+              <button id="tempoModeButton" class="choice-button">Avaliar ritmo</button>
+            </div>
+            <div id="handToggle" class="input-choice small hand-choice" role="group" aria-label="Mão de estudo">
+              <button id="bothHandsButton" class="choice-button active" type="button" aria-pressed="true">Duas mãos</button>
+              <button id="rightHandButton" class="choice-button" type="button" aria-pressed="false">Direita</button>
+              <button id="leftHandButton" class="choice-button" type="button" aria-pressed="false">Esquerda</button>
             </div>
             <div id="inputToggle" class="input-choice small" role="group" aria-label="Entrada do instrumento">
               <button id="microphoneModeButton" class="choice-button active" aria-label="Microfone">🎤</button>
@@ -247,7 +252,7 @@
           <button id="startPracticeButton" class="primary-button small practice-start">▶ Iniciar</button>
           <button id="stopPracticeButton" class="icon-button stop" aria-label="Encerrar prática" disabled hidden>■</button>
           <div id="playbackControls" class="playback-controls">
-            <button id="playbackToggleButton" class="primary-button small playback-start" type="button" disabled>♫ Tocar</button>
+            <button id="playbackToggleButton" class="primary-button small playback-start" type="button" disabled>♫ Ouvir partitura</button>
             <button id="playbackStopButton" class="icon-button stop" type="button" aria-label="Parar reprodução" disabled hidden>■</button>
           </div>
         </div>
@@ -264,7 +269,7 @@
               <small>O aplicativo contará um compasso antes de começar.</small>
             </div>
             <div id="levelMeter" class="level-meter" aria-label="Nível do microfone"><span id="levelBar"></span></div>
-            <div id="scoreGestureHint" class="score-gesture-hint">Arraste a pauta · segure para marcar A–B</div>
+            <div id="scoreGestureHint" class="score-gesture-hint">Arraste a pauta · segure para selecionar um trecho</div>
           </div>
 
           <section class="piano-panel" aria-labelledby="pianoHint">
@@ -288,10 +293,10 @@
           >‹</button>
           <span id="analysisModeBadge" class="mode-badge">Partitura</span>
           <div id="loopControls" class="loop-controls">
-            <button id="markAButton" class="chip-button loop" title="Marcar início A (tecla A)">Marcar A</button>
-            <button id="markBButton" class="chip-button loop" title="Marcar fim B (tecla B)">Marcar B</button>
+            <button id="markAButton" class="chip-button loop" title="Definir início do trecho (tecla A)">Início</button>
+            <button id="markBButton" class="chip-button loop" title="Definir fim do trecho (tecla B)">Fim</button>
             <button id="clearLoopButton" class="chip-button ghost">Limpar</button>
-            <button id="loopToggleButton" class="chip-button loop" aria-pressed="false" title="Repetir o trecho A–B (tecla L)">↻ Repetir A–B</button>
+            <button id="loopToggleButton" class="chip-button loop" aria-pressed="false" title="Repetir o trecho selecionado (tecla L)">↻ Repetir trecho</button>
           </div>
           <div id="practiceStats" class="practice-stats compact">
             <div><span data-stat-label="first">No tempo</span><strong id="onTimeStat">0</strong></div>
@@ -304,7 +309,7 @@
             <span id="screenStatus" class="screen-status">Tela ativa</span>
             <details class="limitations">
               <summary aria-label="O que está sendo avaliado?">?</summary>
-              <p id="analysisExplanation">Com MusicXML, o microfone confere notas e acordes no modo professor. Com PDF puro, mede a proximidade de cada ataque à grade.</p>
+              <p id="analysisExplanation">Com MusicXML, Aguardar notas confere alturas e acordes. Com PDF puro, Avaliar ritmo mede a proximidade de cada ataque à grade.</p>
             </details>
           </div>
           <div id="attemptTimeline" class="attempt-timeline" role="img" aria-label="Últimos ataques"></div>
