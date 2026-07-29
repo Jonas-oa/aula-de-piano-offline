@@ -140,6 +140,8 @@ const neuralUiState = {
   captureStatus: "disabled",
   advanceEnabled: false,
   lastAdvanceToken: null,
+  activationPromise: null,
+  activationGeneration: 0,
 };
 
 const neuralShadowEngine = new NeuralPianoShadowEngine({
@@ -1319,7 +1321,7 @@ function selectPracticeMode(mode) {
     toast("Aguardar notas precisa de MusicXML ou exercício com notas.");
     return;
   }
-  if (mode !== "teacher" && byId("neuralEngineToggle").checked) {
+  if (mode !== "teacher" && neuralUiState.modelStatus !== "disabled") {
     void setNeuralEnabled(false);
   }
   state.practiceMode = mode;
@@ -1329,7 +1331,7 @@ function selectPracticeMode(mode) {
 
 async function selectInputMode(mode) {
   if (state.practiceActive || state.countInActive) return;
-  if (mode !== "microphone" && byId("neuralEngineToggle").checked) {
+  if (mode !== "microphone" && neuralUiState.modelStatus !== "disabled") {
     await setNeuralEnabled(false);
   }
   state.inputMode = mode;
@@ -1431,8 +1433,11 @@ async function startTeacherPractice() {
   showFollowCursor();
   armCurrentMicrophoneEvent();
   reflectNeuralAvailability();
+  if (state.inputMode === "microphone") {
+    void startOfficialNeuralRecognition();
+  }
   const micHint = state.inputMode === "microphone"
-    ? "O microfone já está ouvindo a nota ou o acorde escrito."
+    ? "O motor acústico já está ouvindo enquanto o neural é preparado."
     : "Toque a nota certa para avançar. Se errar, o cursor espera.";
   setFeedback("neutral", "SIGA A PARTITURA", "Toque a primeira nota", micHint);
   updateFollowStats();
@@ -1785,6 +1790,7 @@ async function stopPractice({ showResult = true, keepInput = true } = {}) {
   state.practiceActive = false;
   state.countInActive = false;
   setNeuralAdvanceEnabled(false);
+  await setNeuralEnabled(false);
   for (const timer of state.countTimers) window.clearTimeout(timer);
   state.countTimers = [];
   if (state.animationFrame) cancelAnimationFrame(state.animationFrame);
@@ -1885,9 +1891,8 @@ function showPracticeResult() {
 async function leavePractice() {
   setTempoExpanded(false);
   playbackEngine.stop({ preserveCursor: true });
-  await setNeuralEnabled(false);
-  neuralShadowEngine.dispose();
   await stopPractice({ showResult: false, keepInput: false });
+  neuralShadowEngine.dispose();
   await wakeLock.setEnabled(false);
   await leavePracticeFullscreen();
   midiInput.disconnect();
@@ -1905,42 +1910,39 @@ function resetNeuralDiagnosticsUi() {
   byId("neuralDetected").textContent = "Aguardando áudio";
   byId("neuralLatency").textContent = "—";
   byId("exportNeuralDiagnosticsButton").disabled = true;
-  byId("neuralAdvanceToggle").checked = false;
   neuralUiState.advanceEnabled = false;
   neuralUiState.lastAdvanceToken = null;
+  neuralUiState.activationPromise = null;
+  neuralUiState.activationGeneration += 1;
 }
 
 function reflectNeuralAvailability() {
   const panel = byId("neuralDiagnostics");
-  const toggle = byId("neuralEngineToggle");
-  const advanceToggle = byId("neuralAdvanceToggle");
-  if (!panel || !toggle || !advanceToggle) return;
+  if (!panel) return;
   const structured = Boolean(state.currentEvents?.length);
   panel.hidden = !structured;
-  toggle.disabled = (
-    !structured
-    || state.inputMode !== "microphone"
-    || state.practiceMode !== "teacher"
-  );
-  byId("neuralAvailabilityHint").textContent = toggle.disabled
-    ? "Disponível em Aguardar notas usando o microfone."
-    : "Analisa as 88 teclas em paralelo.";
+  if (!structured) return;
 
-  const neuralReady = (
-    toggle.checked
-    && (neuralUiState.modelStatus === "warming" || neuralUiState.modelStatus === "active")
+  const eligible = (
+    state.inputMode === "microphone"
+    && state.practiceMode === "teacher"
   );
-  advanceToggle.disabled = (
-    toggle.disabled
-    || !neuralReady
-    || !state.practiceActive
-    || !state.follow
-  );
-  byId("neuralAdvanceHint").textContent = neuralUiState.advanceEnabled
-    ? "Teste ativo: só avança com presença, ataque e dominância confirmados."
-    : state.practiceActive
-      ? "Opcional: o motor atual continua ativo como primeira opção."
-      : "Pressione Iniciar para liberar o teste de avanço.";
+  let hint = "Disponível em Aguardar notas usando o microfone.";
+  if (eligible && neuralUiState.advanceEnabled) {
+    hint = "Ativo: o neural confirma a nota e o motor acústico permanece como redundância.";
+  } else if (
+    eligible
+    && (neuralUiState.modelStatus === "loading" || neuralUiState.modelStatus === "warming")
+  ) {
+    hint = "Preparando as 88 teclas; o motor acústico continua respondendo.";
+  } else if (eligible && neuralUiState.modelStatus === "error") {
+    hint = "Neural indisponível neste aparelho; o motor acústico continua ativo.";
+  } else if (eligible && state.practiceActive) {
+    hint = "Ativando automaticamente; o motor acústico já está ouvindo.";
+  } else if (eligible) {
+    hint = "Será ativado automaticamente ao pressionar Iniciar.";
+  }
+  byId("neuralAvailabilityHint").textContent = hint;
 }
 
 function reflectNeuralStatus(status, detail = {}) {
@@ -1958,19 +1960,19 @@ function reflectNeuralStatus(status, detail = {}) {
   output.textContent = labels[status] || status;
   if (status === "error") {
     setNeuralAdvanceEnabled(false);
-    byId("neuralEngineToggle").checked = false;
     void onsetEngine.setPcmCaptureEnabled(false);
-    toast(`Motor neural: ${readableError(detail)}`);
+    if (state.practiceActive) {
+      toast(`Motor neural indisponível; o acústico continua ativo. ${readableError(detail)}`);
+    }
   }
+  reflectNeuralAvailability();
 }
 
 function reflectNeuralCaptureStatus(status, error) {
   neuralUiState.captureStatus = status;
   if (status === "unsupported") {
-    byId("neuralEngineToggle").checked = false;
     reflectNeuralStatus("error", new Error("Este navegador não oferece captura neural contínua."));
   } else if (status === "error") {
-    byId("neuralEngineToggle").checked = false;
     reflectNeuralStatus("error", error);
   }
 }
@@ -1993,7 +1995,6 @@ function maybeAdvanceWithNeural(result) {
   const decision = evaluateNeuralFollowResult(result, currentExpected);
   const eligible = (
     neuralUiState.advanceEnabled
-    && byId("neuralAdvanceToggle").checked
     && state.practiceActive
     && state.practiceMode === "teacher"
     && state.inputMode === "microphone"
@@ -2031,8 +2032,8 @@ function maybeAdvanceWithNeural(result) {
   if (followResult.type === "advance") {
     setFeedback(
       "on-time",
-      "BASIC PITCH",
-      "Nota reconhecida pelo teste neural",
+      "RECONHECIMENTO NEURAL",
+      "Nota confirmada pelo motor neural",
       `Próxima: ${expectedNoteLabel(currentFollowEvent(state.follow)?.midis)}`,
     );
   }
@@ -2067,13 +2068,12 @@ function recordNeuralDiagnostic(result) {
 }
 
 async function setNeuralEnabled(enabled) {
-  const toggle = byId("neuralEngineToggle");
-  toggle.disabled = true;
   if (!enabled) {
+    neuralUiState.activationGeneration += 1;
+    neuralUiState.activationPromise = null;
     setNeuralAdvanceEnabled(false);
     await onsetEngine.setPcmCaptureEnabled(false);
     await neuralShadowEngine.setEnabled(false);
-    toggle.checked = false;
     reflectNeuralAvailability();
     return true;
   }
@@ -2083,34 +2083,49 @@ async function setNeuralEnabled(enabled) {
     || state.inputMode !== "microphone"
     || state.practiceMode !== "teacher"
   ) {
-    toggle.checked = false;
     reflectNeuralAvailability();
     return false;
   }
 
-  const captureReady = await onsetEngine.setPcmCaptureEnabled(true);
-  if (!captureReady) {
-    toggle.checked = false;
+  if (neuralUiState.activationPromise) return neuralUiState.activationPromise;
+  const generation = ++neuralUiState.activationGeneration;
+  const activation = (async () => {
+    const captureReady = await onsetEngine.setPcmCaptureEnabled(true);
+    if (!captureReady || generation !== neuralUiState.activationGeneration) {
+      if (captureReady) await onsetEngine.setPcmCaptureEnabled(false);
+      reflectNeuralAvailability();
+      return false;
+    }
+    const modelReady = await neuralShadowEngine.setEnabled(true);
+    if (!modelReady || generation !== neuralUiState.activationGeneration) {
+      if (modelReady) await neuralShadowEngine.setEnabled(false);
+      await onsetEngine.setPcmCaptureEnabled(false);
+      reflectNeuralAvailability();
+      return false;
+    }
     reflectNeuralAvailability();
-    return false;
+    return true;
+  })();
+  neuralUiState.activationPromise = activation;
+  try {
+    return await activation;
+  } finally {
+    if (neuralUiState.activationPromise === activation) {
+      neuralUiState.activationPromise = null;
+    }
   }
-  const modelReady = await neuralShadowEngine.setEnabled(true);
-  if (!modelReady) {
-    await onsetEngine.setPcmCaptureEnabled(false);
-    toggle.checked = false;
-    reflectNeuralAvailability();
-    return false;
-  }
-  toggle.checked = true;
-  reflectNeuralAvailability();
-  return true;
+}
+
+async function startOfficialNeuralRecognition() {
+  const ready = await setNeuralEnabled(true);
+  if (!ready) return false;
+  return setNeuralAdvanceEnabled(true);
 }
 
 function setNeuralAdvanceEnabled(enabled) {
-  const toggle = byId("neuralAdvanceToggle");
   const allowed = Boolean(
     enabled
-    && byId("neuralEngineToggle").checked
+    && (neuralUiState.modelStatus === "warming" || neuralUiState.modelStatus === "active")
     && state.practiceActive
     && state.practiceMode === "teacher"
     && state.inputMode === "microphone"
@@ -2118,7 +2133,6 @@ function setNeuralAdvanceEnabled(enabled) {
   );
   neuralUiState.advanceEnabled = allowed;
   if (!allowed) neuralUiState.lastAdvanceToken = null;
-  toggle.checked = allowed;
   reflectNeuralAvailability();
   return allowed;
 }
@@ -2126,7 +2140,7 @@ function setNeuralAdvanceEnabled(enabled) {
 function exportNeuralDiagnostics() {
   if (!state.neuralDiagnostics.length) return;
   const payload = {
-    schema: "partitura-viva-neural-shadow-v1",
+    schema: "partitura-viva-neural-hybrid-v2",
     exportedAt: new Date().toISOString(),
     piece: state.currentItem?.title || null,
     practiceMode: state.practiceMode,
@@ -2230,12 +2244,6 @@ byId("microphoneModeButton").addEventListener("click", () => selectInputMode("mi
 byId("midiModeButton").addEventListener("click", () => selectInputMode("midi"));
 byId("teacherModeButton").addEventListener("click", () => selectPracticeMode("teacher"));
 byId("tempoModeButton").addEventListener("click", () => selectPracticeMode("tempo"));
-byId("neuralEngineToggle").addEventListener("change", (event) => {
-  void setNeuralEnabled(event.target.checked);
-});
-byId("neuralAdvanceToggle").addEventListener("change", (event) => {
-  setNeuralAdvanceEnabled(event.target.checked);
-});
 byId("exportNeuralDiagnosticsButton").addEventListener("click", exportNeuralDiagnostics);
 byId("bothHandsButton").addEventListener("click", () => selectPracticeHand("both"));
 byId("rightHandButton").addEventListener("click", () => selectPracticeHand("right"));
