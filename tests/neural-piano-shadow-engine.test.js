@@ -2,11 +2,17 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  evaluateNeuralFollowResult,
   FloatRingBuffer,
   NeuralPianoShadowEngine,
   StreamingLinearResampler,
   summarizeBasicPitchOutputs,
 } from "../src/core/neural-piano-shadow-engine.js";
+import {
+  createFollowState,
+  currentEvent,
+  registerChord,
+} from "../src/core/follow-evaluator.js";
 
 function nextTurn() {
   return new Promise((resolve) => setImmediate(resolve));
@@ -68,6 +74,72 @@ test("saída neural mapeia as 88 posições para MIDI e mantém o Lá", () => {
   assert.equal(summary.endFrame, 157);
 });
 
+test("portão neural aceita somente a nota esperada com presença e ataque fortes", () => {
+  const result = summarizeBasicPitchOutputs(
+    fakeModelOutput({
+      active: [
+        { midi: 57, frame: 0.87, onset: 0.77 },
+        { midi: 55, frame: 0.71, onset: 0.56 },
+        { midi: 69, frame: 0.25, onset: 0.76 },
+      ],
+    }),
+    [57],
+  );
+
+  const decision = evaluateNeuralFollowResult(result, [57]);
+  assert.equal(decision.accepted, true);
+  assert.equal(decision.reason, "match");
+  assert.deepEqual(decision.expected, [57]);
+  assert.ok(Math.abs(decision.confidence - 0.77) < 1e-6);
+  assert.ok(Math.abs(decision.strongestUnexpected - 0.56) < 1e-6);
+});
+
+test("portão neural recusa nota fraca, ambígua ou calculada para cursor antigo", () => {
+  const weak = summarizeBasicPitchOutputs(
+    fakeModelOutput({ active: [{ midi: 57, frame: 0.8, onset: 0.2 }] }),
+    [57],
+  );
+  assert.equal(evaluateNeuralFollowResult(weak, [57]).reason, "below-threshold");
+
+  const ambiguous = summarizeBasicPitchOutputs(
+    fakeModelOutput({
+      active: [
+        { midi: 57, frame: 0.7, onset: 0.6 },
+        { midi: 55, frame: 0.8, onset: 0.7 },
+      ],
+    }),
+    [57],
+  );
+  assert.equal(evaluateNeuralFollowResult(ambiguous, [57]).reason, "ambiguous");
+  assert.equal(evaluateNeuralFollowResult(ambiguous, [60]).reason, "stale-expected");
+});
+
+test("simulação integrada impede avanço duplo quando o motor atual chega primeiro", () => {
+  const follow = createFollowState([{ midis: [57] }, { midis: [60] }]);
+  const neuralForFirstNote = summarizeBasicPitchOutputs(
+    fakeModelOutput({ active: [{ midi: 57, frame: 0.87, onset: 0.77 }] }),
+    [57],
+  );
+  assert.equal(
+    evaluateNeuralFollowResult(neuralForFirstNote, currentEvent(follow).midis).accepted,
+    true,
+  );
+
+  // Enquanto o modelo calculava, o motor acústico atual reconheceu a nota.
+  assert.equal(registerChord(follow, [57]).type, "advance");
+  assert.deepEqual(currentEvent(follow).midis, [60]);
+
+  // O resultado neural atrasado pertence ao evento anterior e não pode avançar
+  // o Dó4 que agora está no cursor.
+  const stale = evaluateNeuralFollowResult(
+    neuralForFirstNote,
+    currentEvent(follow).midis,
+  );
+  assert.equal(stale.accepted, false);
+  assert.equal(stale.reason, "stale-expected");
+  assert.equal(follow.index, 1);
+});
+
 test("modo sombra espera dois segundos e nunca sobrepõe inferências", async () => {
   let now = 0;
   let inferCalls = 0;
@@ -106,9 +178,12 @@ test("modo sombra espera dois segundos e nunca sobrepõe inferências", async ()
   await nextTurn();
   assert.equal(inferCalls, 1);
 
+  engine.setExpected([60]);
   finishInference();
   await nextTurn();
   assert.equal(results.length, 1);
+  // A inferência iniciada para Lá4 não pode ser reatribuída ao Dó4 enquanto
+  // o modelo ainda está calculando.
   assert.equal(results[0].expected[0].midi, 69);
   assert.equal(results[0].latencyMs, 20);
 });

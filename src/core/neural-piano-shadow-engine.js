@@ -5,6 +5,10 @@ const FIRST_PIANO_MIDI = 21;
 const DEFAULT_INFERENCE_INTERVAL_MS = 400;
 const RELIABLE_END_PADDING = 15;
 const RECENT_FRAME_COUNT = 12;
+export const NEURAL_FOLLOW_THRESHOLDS = Object.freeze({
+  frame: 0.55,
+  onset: 0.35,
+});
 
 const defaultClock = () => performance.now();
 const defaultRuntimeLoader = async () => {
@@ -142,6 +146,75 @@ export function summarizeBasicPitchOutputs({
   return { detected, expected, startFrame, endFrame };
 }
 
+function normalizedMidis(midis = []) {
+  return [...new Set((midis || [])
+    .filter(Number.isFinite)
+    .map((midi) => Math.round(midi)))]
+    .sort((a, b) => a - b);
+}
+
+function sameMidis(left, right) {
+  return left.length === right.length
+    && left.every((midi, index) => midi === right[index]);
+}
+
+export function evaluateNeuralFollowResult(
+  result,
+  currentExpectedMidis,
+  thresholds = NEURAL_FOLLOW_THRESHOLDS,
+) {
+  const expected = normalizedMidis(currentExpectedMidis);
+  const inferredFor = normalizedMidis(result?.expected?.map(({ midi }) => midi));
+  if (!expected.length) {
+    return { accepted: false, reason: "no-expected", expected };
+  }
+  if (!sameMidis(expected, inferredFor)) {
+    return { accepted: false, reason: "stale-expected", expected, inferredFor };
+  }
+
+  const expectedNotes = expected.map((midi) =>
+    result.expected.find((note) => Math.round(note.midi) === midi));
+  const belowThreshold = expectedNotes.filter((note) =>
+    !note
+    || note.frameProbability < thresholds.frame
+    || note.onsetProbability < thresholds.onset);
+  if (belowThreshold.length) {
+    return {
+      accepted: false,
+      reason: "below-threshold",
+      expected,
+      belowThreshold: belowThreshold.map(({ midi } = {}) => midi).filter(Number.isFinite),
+    };
+  }
+
+  const confidence = Math.min(...expectedNotes.map((note) =>
+    Math.min(note.frameProbability, note.onsetProbability)));
+  const expectedSet = new Set(expected);
+  const strongestUnexpected = Math.max(
+    0,
+    ...(result.detected || [])
+      .filter(({ midi }) => !expectedSet.has(Math.round(midi)))
+      .map((note) => Math.min(note.frameProbability, note.onsetProbability)),
+  );
+  if (strongestUnexpected >= confidence) {
+    return {
+      accepted: false,
+      reason: "ambiguous",
+      expected,
+      confidence,
+      strongestUnexpected,
+    };
+  }
+
+  return {
+    accepted: true,
+    reason: "match",
+    expected,
+    confidence,
+    strongestUnexpected,
+  };
+}
+
 export class NeuralPianoShadowEngine {
   constructor({
     onStatus,
@@ -228,10 +301,14 @@ export class NeuralPianoShadowEngine {
 
   async #infer(generation, startedAt) {
     this.inferenceActive = true;
+    // O modelo pode demorar centenas de milissegundos no celular. A nota
+    // esperada precisa pertencer ao áudio que iniciou esta inferência, não ao
+    // cursor que talvez já tenha avançado enquanto o modelo calculava.
+    const expectedMidis = [...this.expectedMidis];
     try {
       const raw = await this.runtime.infer(this.buffer.snapshot());
       if (generation !== this.sequence || !this.enabled) return;
-      const summary = summarizeBasicPitchOutputs(raw, this.expectedMidis);
+      const summary = summarizeBasicPitchOutputs(raw, expectedMidis);
       const result = {
         ...summary,
         latencyMs: Math.round(this.clock() - startedAt),

@@ -46,7 +46,10 @@ test("modo de estudo permanece legível e utilizável em celular horizontal", as
   await page.locator("#bottombarToggleButton").click();
   await expect(page.locator("#neuralDiagnostics")).toBeVisible();
   await expect(page.locator("#neuralEngineToggle")).not.toBeChecked();
-  await expect(page.locator("#neuralAvailabilityHint")).toContainText("não move o cursor");
+  await expect(page.locator("#neuralAvailabilityHint")).toContainText("88 teclas");
+  await expect(page.locator("#neuralAdvanceToggle")).not.toBeChecked();
+  await expect(page.locator("#neuralAdvanceToggle")).toBeDisabled();
+  await expect(page.locator("#neuralAdvanceHint")).toContainText("Iniciar");
   const neuralPanelBox = await page.locator("#neuralDiagnostics").boundingBox();
   expect(neuralPanelBox).not.toBeNull();
   if (!neuralPanelBox) throw new Error("Diagnóstico neural ficou fora da tela.");

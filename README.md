@@ -15,9 +15,9 @@ Aplicativo web offline para estudar peças completas com a partitura aberta e re
 - barras de união fiéis ao MusicXML quando o arquivo informa `beam`, com
   agrupamento automático por pulsação como reserva para arquivos incompletos;
 - reconhecimento de notas e acordes pelo microfone em **Aguardar notas** com MusicXML;
-- motor neural Basic Pitch opcional em modo de diagnóstico: analisa as 88
-  teclas em paralelo, mostra probabilidades e latência, mas ainda não move o
-  cursor nem substitui o motor acústico validado;
+- motor neural Basic Pitch opcional: analisa as 88 teclas em paralelo, mostra
+  probabilidades e latência e oferece um avanço experimental, desligado por
+  padrão e condicionado a presença, novo ataque e dominância da nota esperada;
 - estudo isolado por **duas mãos**, **mão direita** ou **mão esquerda**, quando a
   partitura traz claves, pautas ou partes identificáveis;
 - seleção de trechos encaixada automaticamente nos limites dos compassos, com
@@ -53,8 +53,11 @@ localmente. Depois de ligado, ele precisa de cerca de dois segundos de áudio
 para a primeira janela e passa a comparar a probabilidade das 88 teclas com a
 nota esperada. Nenhum áudio é enviado ou armazenado. A exportação de diagnóstico
 contém somente notas MIDI, probabilidades, latência e contagem de tensores. Esse
-modo é deliberadamente observacional: os dados de aparelhos reais serão usados
-para definir limiares antes que o modelo possa controlar a partitura.
+O controle **Permitir avanço neural (teste real)** só aparece disponível durante
+uma prática iniciada, mantém o motor acústico atual funcionando e aceita apenas
+a nota esperada quando presença e ataque ultrapassam os limiares seguros. Os
+diagnósticos de aparelhos reais continuam sendo usados para calibrar esses
+limiares antes de qualquer promoção definitiva do modelo.
 
 O microfone abre sem controle automático de ganho, então o nível entregue varia
 muito entre aparelhos. Os limiares do motor acompanham o que a sala e o aparelho
