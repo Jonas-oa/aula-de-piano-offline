@@ -577,6 +577,7 @@ main { width: min(1160px, calc(100% - 28px)); margin: 0 auto; padding: 28px 0 48
   position: absolute; inset: 3px 34px; min-height: 0; display: grid;
   grid-template-rows: minmax(0, 1fr) clamp(102px, 23vh, 190px); gap: 4px;
 }
+.practice-workspace.keyboard-hidden { grid-template-rows: minmax(0, 1fr) 34px; }
 
 /* Palco: só o trecho atual, escala para caber sem rolar */
 .practice-stage {
@@ -626,11 +627,22 @@ main { width: min(1160px, calc(100% - 28px)); margin: 0 auto; padding: 28px 0 48
   border: 1px solid #222a44; background: #10162a; box-shadow: var(--shadow);
 }
 .piano-panel-status {
-  position: absolute; top: 5px; left: 10px; z-index: 8; display: flex; align-items: baseline; gap: 8px;
-  max-width: calc(100% - 20px); color: #f5f1e8; pointer-events: none;
+  position: absolute; top: 4px; right: 7px; left: 10px; z-index: 8;
+  display: flex; align-items: center; gap: 8px; color: #f5f1e8;
 }
 .piano-panel-status span { color: #aeb6d6; font-size: .58rem; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
-.piano-panel-status strong { overflow: hidden; font-size: .72rem; text-overflow: ellipsis; white-space: nowrap; }
+.piano-panel-status strong { min-width: 0; overflow: hidden; font-size: .72rem; text-overflow: ellipsis; white-space: nowrap; }
+.keyboard-visibility-button {
+  min-height: 24px; margin-left: auto; padding: 3px 9px;
+  border: 1px solid #59627f; border-radius: 999px; background: #252d47;
+  color: #f5f1e8; font: inherit; font-size: .62rem; font-weight: 850;
+  white-space: nowrap; cursor: pointer;
+}
+.keyboard-visibility-button:hover,
+.keyboard-visibility-button:focus-visible { border-color: #f4c542; color: #f4c542; }
+.piano-panel.is-collapsed .piano-panel-status { inset-block: 0; }
+.piano-panel.is-collapsed .piano-panel-status strong,
+.piano-panel.is-collapsed .piano-keyboard { display: none; }
 .piano-keyboard { position: absolute; inset: 28px 7px 7px; overflow: visible; border-radius: 8px; background: #0b1020; }
 .piano-key {
   position: absolute; top: 0; bottom: 0; display: block; border: 1px solid #9da3af;
@@ -692,24 +704,6 @@ main { width: min(1160px, calc(100% - 28px)); margin: 0 auto; padding: 28px 0 48
 .practice-stats.compact div { text-align: center; }
 .practice-stats.compact span { display: block; color: var(--muted); font-size: .66rem; }
 .practice-stats.compact strong { display: block; font-size: 1.15rem; }
-.neural-diagnostics {
-  padding: 9px; border: 1px solid #d8dbe5; border-radius: 12px;
-  background: #f7f7fb; color: var(--ink); font-size: .72rem;
-}
-.neural-diagnostics summary {
-  display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  cursor: pointer; font-weight: 850; list-style: none;
-}
-.neural-diagnostics summary::-webkit-details-marker { display: none; }
-.neural-diagnostics summary strong { color: #667085; font-size: .66rem; }
-.neural-diagnostics summary strong[data-status="active"] { color: var(--success); }
-.neural-diagnostics summary strong[data-status="error"] { color: var(--danger); }
-.neural-diagnostics p,
-.neural-diagnostics small { display: block; margin: 7px 0; color: var(--muted); line-height: 1.35; }
-.neural-readout { display: grid; gap: 5px; margin: 8px 0; }
-.neural-readout div { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 6px; }
-.neural-readout dt { color: var(--muted); }
-.neural-readout dd { min-width: 0; margin: 0; overflow-wrap: anywhere; font-weight: 800; }
 .bottombar-end { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 /* Histórico visual dos últimos ataques, do mais antigo ao mais recente. */
 .attempt-timeline {
