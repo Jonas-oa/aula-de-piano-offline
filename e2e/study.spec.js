@@ -53,6 +53,8 @@ test("modo de estudo permanece legível e utilizável em celular horizontal", as
   expect(neuralPanelBox.x).toBeGreaterThanOrEqual(0);
   expect(neuralPanelBox.x + neuralPanelBox.width).toBeLessThanOrEqual(915);
   await page.locator("#bottombarToggleButton").click();
+  await page.locator("#topbarToggleButton").click();
+  await expect(page.locator("#tempoChipButton")).toBeVisible();
 
   const noteXs = await page.locator(".score-event").evaluateAll((events) =>
     events.slice(0, 10).map((event) => {
