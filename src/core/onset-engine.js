@@ -8,6 +8,7 @@ const ONSET_TAIL = 2048;      // ~43 ms mais recentes
 const POLL_INTERVAL_MS = 12;  // cadência própria, independente da tela
 const LEVEL_INTERVAL_MS = 50; // o medidor não precisa de mais que isso
 const INITIAL_NOISE_FLOOR = 0.0008;
+const PCM_WORKLET_URL = new URL("../audio/pcm-capture-processor.js", import.meta.url);
 
 function rmsOf(samples) {
   let squares = 0;
@@ -104,12 +105,16 @@ export class OnsetEngine {
     onOnset,
     onLevel,
     onSamples,
+    onPcmChunk,
+    onPcmStatus,
     onError,
     onStatus,
   } = {}) {
     this.onOnset = onOnset || (() => {});
     this.onLevel = onLevel || (() => {});
     this.onSamples = onSamples || (() => {});
+    this.onPcmChunk = onPcmChunk || (() => {});
+    this.onPcmStatus = onPcmStatus || (() => {});
     this.onError = onError || (() => {});
     this.onStatus = onStatus || (() => {});
     this.running = false;
@@ -126,6 +131,10 @@ export class OnsetEngine {
     this.lastLevelAt = -Infinity;
     this.startPromise = null;
     this.startGeneration = 0;
+    this.pcmCaptureEnabled = false;
+    this.pcmCaptureNode = null;
+    this.pcmSilentGain = null;
+    this.pcmSetupPromise = null;
   }
 
   async start() {
@@ -193,6 +202,7 @@ export class OnsetEngine {
       source.connect(analyser);
       this.running = true;
       this.onStatus("active");
+      if (this.pcmCaptureEnabled) void this.#ensurePcmCapture(generation);
       this.#tick();
     } catch (error) {
       stream?.getTracks().forEach((track) => track.stop());
@@ -207,6 +217,7 @@ export class OnsetEngine {
       this.analyser = null;
       this.buffer = null;
       this.onsetTail = null;
+      this.#disconnectPcmCapture();
       this.onStatus("error");
       this.onError(error);
       throw error;
@@ -220,6 +231,7 @@ export class OnsetEngine {
     if (this.timerId !== null) clearTimeout(this.timerId);
     this.timerId = null;
     this.stream?.getTracks().forEach((track) => track.stop());
+    this.#disconnectPcmCapture();
     this.source?.disconnect();
     this.analyser?.disconnect();
     if (this.context && this.context.state !== "closed") await this.context.close();
@@ -233,6 +245,104 @@ export class OnsetEngine {
     this.lastDiagnostic = null;
     this.lastWorkableAt = -Infinity;
     this.onStatus("stopped");
+  }
+
+  /**
+   * Liga a cópia contínua do sinal para consumidores experimentais. O
+   * analisador abaixo entrega janelas sobrepostas; por isso ele não pode ser
+   * usado como um fluxo PCM sem duplicar áudio. O AudioWorklet recebe cada
+   * quadro uma única vez e envia blocos transferíveis sem alterar o motor
+   * responsável pela aula.
+   */
+  async setPcmCaptureEnabled(enabled) {
+    this.pcmCaptureEnabled = Boolean(enabled);
+    if (!this.pcmCaptureEnabled) {
+      if (this.pcmCaptureNode) {
+        this.pcmCaptureNode.port.postMessage({ type: "enabled", enabled: false });
+      }
+      this.onPcmStatus("disabled");
+      return true;
+    }
+
+    if (!this.running || !this.context || !this.source) {
+      this.onPcmStatus("waiting");
+      return true;
+    }
+    return this.#ensurePcmCapture(this.startGeneration);
+  }
+
+  async #ensurePcmCapture(generation) {
+    if (this.pcmCaptureNode) {
+      this.pcmCaptureNode.port.postMessage({ type: "enabled", enabled: true });
+      this.onPcmStatus("active");
+      return true;
+    }
+    if (this.pcmSetupPromise) return this.pcmSetupPromise;
+
+    const setup = (async () => {
+      const context = this.context;
+      const source = this.source;
+      const AudioWorkletNodeClass = window.AudioWorkletNode || globalThis.AudioWorkletNode;
+      if (!context?.audioWorklet?.addModule || !AudioWorkletNodeClass) {
+        this.onPcmStatus("unsupported");
+        return false;
+      }
+
+      try {
+        this.onPcmStatus("loading");
+        await context.audioWorklet.addModule(PCM_WORKLET_URL);
+        if (
+          generation !== this.startGeneration
+          || !this.running
+          || context !== this.context
+          || source !== this.source
+        ) return false;
+
+        const node = new AudioWorkletNodeClass(context, "pcm-capture-processor");
+        const silentGain = context.createGain();
+        silentGain.gain.value = 0;
+        node.port.onmessage = ({ data }) => {
+          if (
+            !this.pcmCaptureEnabled
+            || data?.type !== "pcm"
+            || !(data.samples instanceof Float32Array)
+          ) return;
+          this.onPcmChunk(data.samples, context.sampleRate, data.frame);
+        };
+        source.connect(node);
+        node.connect(silentGain);
+        silentGain.connect(context.destination);
+        this.pcmCaptureNode = node;
+        this.pcmSilentGain = silentGain;
+        node.port.postMessage({ type: "enabled", enabled: this.pcmCaptureEnabled });
+        this.onPcmStatus(this.pcmCaptureEnabled ? "active" : "disabled");
+        return true;
+      } catch (error) {
+        // O canal neural é opcional: uma falha aqui nunca derruba o microfone
+        // nem muda o motor que controla o cursor.
+        this.#disconnectPcmCapture();
+        this.onPcmStatus("error", error);
+        return false;
+      }
+    })();
+
+    this.pcmSetupPromise = setup;
+    try {
+      return await setup;
+    } finally {
+      if (this.pcmSetupPromise === setup) this.pcmSetupPromise = null;
+    }
+  }
+
+  #disconnectPcmCapture() {
+    if (this.pcmCaptureNode) {
+      this.pcmCaptureNode.port.onmessage = null;
+      this.pcmCaptureNode.disconnect();
+    }
+    this.pcmSilentGain?.disconnect();
+    this.pcmCaptureNode = null;
+    this.pcmSilentGain = null;
+    this.pcmSetupPromise = null;
   }
 
   // Houve sinal suficiente para reconhecer altura em algum momento recente?

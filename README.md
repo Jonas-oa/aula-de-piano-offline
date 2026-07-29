@@ -15,6 +15,9 @@ Aplicativo web offline para estudar peças completas com a partitura aberta e re
 - barras de união fiéis ao MusicXML quando o arquivo informa `beam`, com
   agrupamento automático por pulsação como reserva para arquivos incompletos;
 - reconhecimento de notas e acordes pelo microfone em **Aguardar notas** com MusicXML;
+- motor neural Basic Pitch opcional em modo de diagnóstico: analisa as 88
+  teclas em paralelo, mostra probabilidades e latência, mas ainda não move o
+  cursor nem substitui o motor acústico validado;
 - estudo isolado por **duas mãos**, **mão direita** ou **mão esquerda**, quando a
   partitura traz claves, pautas ou partes identificáveis;
 - seleção de trechos encaixada automaticamente nos limites dos compassos, com
@@ -44,6 +47,14 @@ Com MusicXML, o motor acústico usa o evento esperado para reconhecer notas
 avulsas e acordes, incluindo notas ausentes e extras. Em PDF puro, onde as
 alturas não são conhecidas, o microfone continua avaliando somente os ataques
 rítmicos. MIDI permanece a opção de maior precisão em ambientes ruidosos.
+
+O painel **Motor neural experimental** usa o modelo Basic Pitch e TensorFlow.js
+localmente. Depois de ligado, ele precisa de cerca de dois segundos de áudio
+para a primeira janela e passa a comparar a probabilidade das 88 teclas com a
+nota esperada. Nenhum áudio é enviado ou armazenado. A exportação de diagnóstico
+contém somente notas MIDI, probabilidades, latência e contagem de tensores. Esse
+modo é deliberadamente observacional: os dados de aparelhos reais serão usados
+para definir limiares antes que o modelo possa controlar a partitura.
 
 O microfone abre sem controle automático de ganho, então o nível entregue varia
 muito entre aparelhos. Os limiares do motor acompanham o que a sala e o aparelho
@@ -90,6 +101,7 @@ Abra `http://localhost:8080`. Microfone e MIDI exigem contexto seguro; `localhos
 
 ```bash
 npm test
+npm run check:neural
 npm run test:e2e
 ```
 

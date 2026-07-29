@@ -26,6 +26,9 @@ jobs:
       - name: Instalar dependências
         run: npm ci
 
+      - name: Conferir pacote neural offline
+        run: npm run check:neural
+
       - name: Testes unitários e de integração
         run: npm test
 

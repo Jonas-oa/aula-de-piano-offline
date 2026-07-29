@@ -692,6 +692,28 @@ main { width: min(1160px, calc(100% - 28px)); margin: 0 auto; padding: 28px 0 48
 .practice-stats.compact div { text-align: center; }
 .practice-stats.compact span { display: block; color: var(--muted); font-size: .66rem; }
 .practice-stats.compact strong { display: block; font-size: 1.15rem; }
+.neural-diagnostics {
+  padding: 9px; border: 1px solid #d8dbe5; border-radius: 12px;
+  background: #f7f7fb; color: var(--ink); font-size: .72rem;
+}
+.neural-diagnostics summary {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  cursor: pointer; font-weight: 850; list-style: none;
+}
+.neural-diagnostics summary::-webkit-details-marker { display: none; }
+.neural-diagnostics summary strong { color: #667085; font-size: .66rem; }
+.neural-diagnostics summary strong[data-status="active"] { color: var(--success); }
+.neural-diagnostics summary strong[data-status="error"] { color: var(--danger); }
+.neural-toggle {
+  display: flex; align-items: center; gap: 8px; margin-top: 10px; font-weight: 800;
+}
+.neural-toggle input { width: 18px; height: 18px; accent-color: var(--blue); }
+.neural-diagnostics p,
+.neural-diagnostics small { display: block; margin: 7px 0; color: var(--muted); line-height: 1.35; }
+.neural-readout { display: grid; gap: 5px; margin: 8px 0; }
+.neural-readout div { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 6px; }
+.neural-readout dt { color: var(--muted); }
+.neural-readout dd { min-width: 0; margin: 0; overflow-wrap: anywhere; font-weight: 800; }
 .bottombar-end { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 /* Histórico visual dos últimos ataques, do mais antigo ao mais recente. */
 .attempt-timeline {

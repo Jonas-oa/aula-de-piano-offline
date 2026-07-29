@@ -43,6 +43,17 @@ test("modo de estudo permanece legível e utilizável em celular horizontal", as
     expect(box.y + box.height).toBeLessThanOrEqual(412);
   }
 
+  await page.locator("#bottombarToggleButton").click();
+  await expect(page.locator("#neuralDiagnostics")).toBeVisible();
+  await expect(page.locator("#neuralEngineToggle")).not.toBeChecked();
+  await expect(page.locator("#neuralAvailabilityHint")).toContainText("não move o cursor");
+  const neuralPanelBox = await page.locator("#neuralDiagnostics").boundingBox();
+  expect(neuralPanelBox).not.toBeNull();
+  if (!neuralPanelBox) throw new Error("Diagnóstico neural ficou fora da tela.");
+  expect(neuralPanelBox.x).toBeGreaterThanOrEqual(0);
+  expect(neuralPanelBox.x + neuralPanelBox.width).toBeLessThanOrEqual(915);
+  await page.locator("#bottombarToggleButton").click();
+
   const noteXs = await page.locator(".score-event").evaluateAll((events) =>
     events.slice(0, 10).map((event) => {
       const head = event.querySelector("ellipse");

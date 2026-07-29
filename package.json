@@ -5,12 +5,18 @@
   "type": "module",
   "description": "PWA offline para estudar peças completas pela partitura, com avaliação rítmica por microfone ou MIDI.",
   "scripts": {
+    "build:neural": "node scripts/build-basic-pitch.mjs",
+    "check:neural": "node scripts/build-basic-pitch.mjs --check",
     "test": "node --test",
     "test:e2e": "playwright test",
     "serve": "python3 -m http.server 8080"
   },
   "devDependencies": {
-    "@playwright/test": "^1.62.0"
+    "@playwright/test": "^1.62.0",
+    "esbuild": "0.25.8"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "@spotify/basic-pitch": "1.0.1"
+  }
 }
