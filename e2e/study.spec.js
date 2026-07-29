@@ -24,6 +24,17 @@ test("modo de estudo permanece legível e utilizável em celular horizontal", as
   await expect(page.locator("#tempoModeButton")).toHaveText("Avaliar ritmo");
   await expect(page.locator("#playbackToggleButton")).toContainText("Ouvir partitura");
   await expect(page.locator("#handToggle")).toBeVisible();
+  await expect(page.locator("#pianoKeyboard")).toBeVisible();
+  await page.locator("#keyboardVisibilityButton").click();
+  await expect(page.locator("#pianoKeyboard")).toBeHidden();
+  await expect(page.locator(".practice-workspace")).toHaveClass(/keyboard-hidden/);
+  await expect(page.locator("#keyboardVisibilityButton")).toHaveText("Mostrar teclado");
+  await expect(page.locator("#keyboardVisibilityButton")).toBeVisible();
+  await expect.poll(() => page.evaluate(() =>
+    localStorage.getItem("partitura-viva-keyboard-visible"))).toBe("false");
+  await page.locator("#keyboardVisibilityButton").click();
+  await expect(page.locator("#pianoKeyboard")).toBeVisible();
+  await expect(page.locator("#keyboardVisibilityButton")).toHaveText("Ocultar teclado");
   await page.locator("#rightHandButton").click();
   await expect(page.locator("#rightHandButton")).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator("#analysisModeBadge")).toContainText("Mão direita");
@@ -44,18 +55,9 @@ test("modo de estudo permanece legível e utilizável em celular horizontal", as
   }
 
   await page.locator("#bottombarToggleButton").click();
-  await expect(page.locator("#neuralDiagnostics")).toBeVisible();
-  await expect(page.locator("#neuralDiagnostics summary")).toContainText("Reconhecimento neural");
-  await expect(page.locator("#neuralAvailabilityHint")).toContainText(
-    "ativado automaticamente",
-  );
+  await expect(page.locator("#neuralDiagnostics")).toHaveCount(0);
   await expect(page.locator("#neuralEngineToggle")).toHaveCount(0);
   await expect(page.locator("#neuralAdvanceToggle")).toHaveCount(0);
-  const neuralPanelBox = await page.locator("#neuralDiagnostics").boundingBox();
-  expect(neuralPanelBox).not.toBeNull();
-  if (!neuralPanelBox) throw new Error("Diagnóstico neural ficou fora da tela.");
-  expect(neuralPanelBox.x).toBeGreaterThanOrEqual(0);
-  expect(neuralPanelBox.x + neuralPanelBox.width).toBeLessThanOrEqual(915);
   await page.locator("#bottombarToggleButton").click();
   await page.locator("#topbarToggleButton").click();
   await expect(page.locator("#tempoChipButton")).toBeVisible();
