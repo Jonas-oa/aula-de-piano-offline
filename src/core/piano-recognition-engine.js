@@ -11,8 +11,16 @@ const DEFAULTS = {
   // Bins mínimos entre semitons para o quadro conseguir distingui-los.
   resolutionBins: 1.5,
   stableFrames: 2,
+  // Nenhum quadro isolado condena um ataque. O primeiro quadro depois da
+  // percussão ainda carrega silêncio dentro da janela de análise, e o espectro
+  // borrado dessa transição acusa as teclas vizinhas como notas extras.
+  wrongFrames: 2,
   analysisIntervalMs: 36,
   attemptWindowMs: 460,
+  // Uma corda de piano continua vibrando por segundos depois de solta a tecla.
+  // Enquanto a nota anterior soa, ela aparece no espectro da nota seguinte — e
+  // acusá-la como nota extra trava o cursor no meio de qualquer melodia ligada.
+  resonanceWindowMs: 2600,
   missingFundamentalMaxMidi: 54,
   missingFundamentalSecondRatio: 1.5,
   missingFundamentalThirdRatio: 1.1,
@@ -253,9 +261,19 @@ export function analyzeExpectedChord(samples, sampleRate, expectedMidis, options
   const canResolveNeighbours = (midi) =>
     midiToFrequency(midi) * semitoneRatio >= binHz * config.resolutionBins;
 
+  // Alturas que o motor já contabilizou há pouco e que continuam soando. Elas
+  // não podem virar "nota extra": nota extra só bloqueia o avanço, nunca o
+  // provoca, então ignorá-las não cria acerto falso — apenas deixa de exigir
+  // que o aluno abafe cada nota antes de tocar a próxima.
+  const ringing = new Set(
+    (config.ignoreMidis || []).filter(Number.isFinite).map((midi) => Math.round(midi)),
+  );
+  for (const midi of ringing) harmonicallySupported.add(midi);
+
   const extras = [];
   for (const [midi, amplitude] of amplitudes) {
     if (expectedSet.has(midi) || amplitude < extraThreshold) continue;
+    if (ringing.has(midi)) continue;
     if (!canResolveNeighbours(midi)) continue;
     if (isHarmonicAlias(
       midi,
@@ -328,6 +346,23 @@ export class PianoRecognitionEngine {
     this.options = { ...DEFAULTS, ...options };
     this.attempt = null;
     this.lastMatchedExpected = [];
+    // Altura → instante em que ela foi aceita. Enquanto a corda ainda soa, a
+    // altura não pode ser cobrada como nota extra da nota seguinte.
+    this.ringing = new Map();
+  }
+
+  // Alturas ainda soando de eventos já aceitos, sem as que a nota atual espera.
+  ringingMidis(expected = [], timestamp = performance.now()) {
+    const expectedSet = new Set(expected);
+    const ignored = [];
+    for (const [midi, matchedAt] of this.ringing) {
+      if (timestamp - matchedAt > this.options.resonanceWindowMs) {
+        this.ringing.delete(midi);
+        continue;
+      }
+      if (!expectedSet.has(midi)) ignored.push(midi);
+    }
+    return ignored;
   }
 
   startAttempt(
@@ -389,6 +424,7 @@ export class PianoRecognitionEngine {
   reset() {
     this.attempt = null;
     this.lastMatchedExpected = [];
+    this.ringing.clear();
   }
 
   process(samples, sampleRate, timestamp = performance.now()) {
@@ -401,7 +437,10 @@ export class PianoRecognitionEngine {
       samples,
       sampleRate,
       attempt.expected,
-      this.options,
+      {
+        ...this.options,
+        ignoreMidis: this.ringingMidis(attempt.expected, timestamp),
+      },
     );
     if (attempt.waitForRelease) {
       if (analysis.status !== "match") {
@@ -447,17 +486,19 @@ export class PianoRecognitionEngine {
     if (attempt.stableMatches >= requiredStableFrames) {
       this.attempt = null;
       this.lastMatchedExpected = [...attempt.expected];
+      for (const midi of attempt.expected) this.ringing.set(midi, timestamp);
       return { outcome: "match", ...analysis };
     }
     if (
       attempt.continuous
       && !attempt.wrongReported
-      && attempt.stableWrongFrames >= requiredStableFrames
+      && attempt.stableWrongFrames >= this.options.wrongFrames
     ) {
-      // Mantém a tentativa armada para a próxima tecla, mas cada ataque errado
-      // entra uma única vez na estatística.
+      // O erro entra uma única vez na estatística, mas o ataque continua valendo:
+      // limpar `hasAttack` aqui deixava a tentativa esperando um ataque que já
+      // tinha acontecido, e a nota certa — reconhecida em todos os quadros
+      // seguintes — nunca era aceita.
       attempt.wrongReported = true;
-      attempt.hasAttack = false;
       return { outcome: "wrong", ...analysis };
     }
     if (!attempt.continuous && timestamp >= attempt.deadline) {

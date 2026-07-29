@@ -214,13 +214,21 @@ test("escuta contínua exige ataque novo e contabiliza um erro por ataque", () =
   assert.equal(resonance.waitingForAttackMs, 10);
 
   engine.noteAttack();
-  const firstWrong = engine.process(wrong, SAMPLE_RATE, 20);
-  assert.equal(firstWrong.outcome, "wrong");
-  assert.equal(firstWrong.status, "wrong");
-  assert.equal(engine.process(wrong, SAMPLE_RATE, 30).outcome, "pending");
+  // Um quadro isolado não condena o ataque: o primeiro quadro depois da
+  // percussão ainda carrega silêncio dentro da janela de análise, e o espectro
+  // dessa transição acusa as teclas vizinhas.
+  assert.equal(engine.process(wrong, SAMPLE_RATE, 20).outcome, "pending");
+  const reported = engine.process(wrong, SAMPLE_RATE, 30);
+  assert.equal(reported.outcome, "wrong");
+  assert.equal(reported.status, "wrong");
+  // O erro entra uma única vez na estatística.
+  assert.equal(engine.process(wrong, SAMPLE_RATE, 40).outcome, "pending");
 
-  engine.noteAttack();
-  assert.equal(engine.process(correct, SAMPLE_RATE, 40).outcome, "match");
+  // O ataque continua valendo depois do erro. Corrigir a nota com a tecla ainda
+  // pressionada avança sem exigir nova percussão — descartar o ataque aqui
+  // deixava a tentativa esperando um ataque que já tinha acontecido, e a nota
+  // certa, reconhecida em todos os quadros seguintes, nunca era aceita.
+  assert.equal(engine.process(correct, SAMPLE_RATE, 50).outcome, "match");
 });
 
 test("o primeiro ataque depois de armar já vale, sem esperar a batida seguinte", () => {

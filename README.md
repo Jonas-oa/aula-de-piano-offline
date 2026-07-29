@@ -54,7 +54,13 @@ uma escolha do aplicativo:
   Ré3 — acusar ali seria inventar erro;
 - **uma nota dobrada na oitava pode passar despercebida.** Se a partitura pede
   Sol4 e Sol5 juntos, o harmônico natural do Sol4 já ocupa a região do Sol5, e
-  a falta do agudo não é detectável. Nesses trechos, o MIDI dá a resposta certa.
+  a falta do agudo não é detectável. Nesses trechos, o MIDI dá a resposta certa;
+- **a nota anterior continua soando.** Uma corda de piano vibra por segundos, e
+  exigir silêncio antes de cada nota travaria qualquer melodia ligada. Por isso
+  as alturas que o motor já aceitou não são cobradas como nota extra pelos
+  segundos seguintes. Isso não cria acerto falso — nota extra só impede o
+  avanço, nunca o provoca —, mas significa que repetir por engano a nota que
+  acabou de soar, junto com a nota certa, não é acusado.
 
 Na opção **TOCAR**, o app sintetiza a execução com 30 amostras reais do
 Salamander Grand Piano e transpõe apenas as notas intermediárias. As 30
