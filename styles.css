@@ -704,17 +704,6 @@ main { width: min(1160px, calc(100% - 28px)); margin: 0 auto; padding: 28px 0 48
 .neural-diagnostics summary strong { color: #667085; font-size: .66rem; }
 .neural-diagnostics summary strong[data-status="active"] { color: var(--success); }
 .neural-diagnostics summary strong[data-status="error"] { color: var(--danger); }
-.neural-toggle {
-  display: flex; align-items: center; gap: 8px; margin-top: 10px; font-weight: 800;
-}
-.neural-toggle input { width: 18px; height: 18px; accent-color: var(--blue); }
-.neural-toggle:has(input:disabled) { color: #98a2b3; }
-.neural-advance-toggle {
-  padding: 8px; border: 1px solid #d8dbe5; border-radius: 10px; background: white;
-}
-.neural-advance-toggle:has(input:checked) {
-  border-color: #d7a84b; background: #fff8e7; color: #72510b;
-}
 .neural-diagnostics p,
 .neural-diagnostics small { display: block; margin: 7px 0; color: var(--muted); line-height: 1.35; }
 .neural-readout { display: grid; gap: 5px; margin: 8px 0; }

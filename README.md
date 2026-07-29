@@ -15,9 +15,9 @@ Aplicativo web offline para estudar peças completas com a partitura aberta e re
 - barras de união fiéis ao MusicXML quando o arquivo informa `beam`, com
   agrupamento automático por pulsação como reserva para arquivos incompletos;
 - reconhecimento de notas e acordes pelo microfone em **Aguardar notas** com MusicXML;
-- motor neural Basic Pitch opcional: analisa as 88 teclas em paralelo, mostra
-  probabilidades e latência e oferece um avanço experimental, desligado por
-  padrão e condicionado a presença, novo ataque e dominância da nota esperada;
+- reconhecimento neural Basic Pitch oficial no modo **Aguardar notas**: é
+  ativado automaticamente, analisa as 88 teclas e só avança com presença,
+  novo ataque e dominância da nota esperada confirmados;
 - estudo isolado por **duas mãos**, **mão direita** ou **mão esquerda**, quando a
   partitura traz claves, pautas ou partes identificáveis;
 - seleção de trechos encaixada automaticamente nos limites dos compassos, com
@@ -48,16 +48,19 @@ avulsas e acordes, incluindo notas ausentes e extras. Em PDF puro, onde as
 alturas não são conhecidas, o microfone continua avaliando somente os ataques
 rítmicos. MIDI permanece a opção de maior precisão em ambientes ruidosos.
 
-O painel **Motor neural experimental** usa o modelo Basic Pitch e TensorFlow.js
-localmente. Depois de ligado, ele precisa de cerca de dois segundos de áudio
-para a primeira janela e passa a comparar a probabilidade das 88 teclas com a
-nota esperada. Nenhum áudio é enviado ou armazenado. A exportação de diagnóstico
-contém somente notas MIDI, probabilidades, latência e contagem de tensores. Esse
-O controle **Permitir avanço neural (teste real)** só aparece disponível durante
-uma prática iniciada, mantém o motor acústico atual funcionando e aceita apenas
-a nota esperada quando presença e ataque ultrapassam os limiares seguros. Os
-diagnósticos de aparelhos reais continuam sendo usados para calibrar esses
-limiares antes de qualquer promoção definitiva do modelo.
+O painel **Reconhecimento neural** usa o modelo Basic Pitch e TensorFlow.js
+localmente. Ao pressionar **Iniciar** em **Aguardar notas** com microfone, o
+modelo é ativado automaticamente. Ele precisa de cerca de dois segundos de áudio
+para a primeira janela e então compara a probabilidade das 88 teclas com a nota
+esperada. Nenhum áudio é enviado ou armazenado. A exportação de diagnóstico
+contém somente notas MIDI, probabilidades, latência e contagem de tensores.
+
+O motor acústico permanece ativo em paralelo: responde durante o aquecimento e
+assume sozinho caso o aparelho não suporte a captura neural ou o modelo falhe.
+O neural só recebe autoridade para avançar quando presença, ataque e dominância
+da nota esperada ultrapassam os limiares seguros. Resultados calculados para uma
+nota anterior e inferências ambíguas são descartados para impedir avanço duplo
+ou falso.
 
 O microfone abre sem controle automático de ganho, então o nível entregue varia
 muito entre aparelhos. Os limiares do motor acompanham o que a sala e o aparelho

@@ -114,6 +114,23 @@ test("portão neural recusa nota fraca, ambígua ou calculada para cursor antigo
   assert.equal(evaluateNeuralFollowResult(ambiguous, [60]).reason, "stale-expected");
 });
 
+test("portão neural bloqueia o falso positivo observado no diagnóstico do celular", () => {
+  const result = summarizeBasicPitchOutputs(
+    fakeModelOutput({
+      active: [
+        { midi: 60, frame: 0.104, onset: 0.12 },
+        { midi: 81, frame: 0.709, onset: 0.718 },
+      ],
+    }),
+    [60],
+  );
+
+  const decision = evaluateNeuralFollowResult(result, [60]);
+  assert.equal(decision.accepted, false);
+  assert.equal(decision.reason, "below-threshold");
+  assert.deepEqual(decision.belowThreshold, [60]);
+});
+
 test("simulação integrada impede avanço duplo quando o motor atual chega primeiro", () => {
   const follow = createFollowState([{ midis: [57] }, { midis: [60] }]);
   const neuralForFirstNote = summarizeBasicPitchOutputs(
