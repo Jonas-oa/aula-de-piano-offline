@@ -184,6 +184,14 @@ test("microfone é preparado ao abrir o estudo e informa seu estado", () => {
   assert.match(html, /Microfone em espera/);
 });
 
+test("falhas acústicas orientam o aluno em vez de deixar a pauta parada", () => {
+  const app = fs.readFileSync(path.join(root, "src/app.js"), "utf8");
+
+  assert.match(app, /SOM MUITO BAIXO/);
+  assert.match(app, /ATAQUE SUAVE/);
+  assert.match(app, /SOLTE A TECLA/);
+});
+
 test("o aviso de girar o aparelho não é apagado pelo `hidden` global", () => {
   // `[hidden] { display: none !important }` vence a media query de retrato. Com
   // o atributo no HTML, o aviso nunca aparecia e o aluno via apenas a tela de
