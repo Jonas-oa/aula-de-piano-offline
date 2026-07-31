@@ -84,7 +84,12 @@ test("dezesseis ataques continuam detectáveis sobre ressonância acumulada", ()
 // Piano acústico realista: série harmônica com inarmonicidade, ataque
 // percussivo e cauda longa. As duas falhas abaixo só aparecem no encadeamento
 // completo — cada peça isolada passava.
-function renderSession(played, seconds, { peak = 0.3, decayMs = 1200, room = 0.0015 } = {}) {
+function renderSession(played, seconds, {
+  peak = 0.3,
+  decayMs = 1200,
+  room = 0.0015,
+  ambient = [],
+} = {}) {
   const total = Math.round(SAMPLE_RATE * seconds);
   const buffer = new Float32Array(total);
   let seed = 11;
@@ -112,7 +117,70 @@ function renderSession(played, seconds, { peak = 0.3, decayMs = 1200, room = 0.0
     }
   }
   for (let index = 0; index < total; index += 1) buffer[index] += room * noise();
+  return mixAmbient(buffer, ambient);
+}
+
+// Sons que qualquer sala tem e que não são o piano. Todos entram como ataque no
+// detector — é exatamente esse o ponto: o portão que separa nota de ruído não
+// pode ser o do nível, e sim o da forma do espectro.
+function mixAmbient(buffer, events) {
+  for (const event of events) {
+    const start = Math.round((SAMPLE_RATE * event.atMs) / 1000);
+    let seed = event.seed;
+    const local = () => {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      return (seed / 0x7fffffff) * 2 - 1;
+    };
+    let band = 0;
+    for (let index = start; index < buffer.length; index += 1) {
+      const t = (index - start) / SAMPLE_RATE;
+      const envelope = Math.exp((-t * 1000) / event.decayMs);
+      if (envelope < 1e-4) break;
+      let value = 0;
+      if (event.kind === "palma") {
+        band = band * 0.55 + local() * 0.45;
+        value = band * 2;
+      } else if (event.kind === "batida") {
+        band = band * 0.985 + local() * 0.015;
+        value = band * 8 + Math.sin(2 * Math.PI * 140 * t) * 0.5;
+      } else if (event.kind === "cadeira") {
+        band = band * 0.8 + local() * 0.2;
+        value = band * 3 * (1 + 0.6 * Math.sin(2 * Math.PI * 23 * t));
+      } else {
+        // Fala: fundamental que desliza e uma série harmônica com formantes.
+        const f0 = event.f0 * (1 + 0.06 * Math.sin(2 * Math.PI * 4.5 * t));
+        for (let partial = 1; partial <= 22; partial += 1) {
+          const frequency = f0 * partial;
+          if (frequency > SAMPLE_RATE / 2) break;
+          const formant = Math.exp(-((frequency - 700) ** 2) / (2 * 420 ** 2))
+            + 0.8 * Math.exp(-((frequency - 1220) ** 2) / (2 * 380 ** 2))
+            + 0.5 * Math.exp(-((frequency - 2600) ** 2) / (2 * 700 ** 2));
+          value += (Math.sin(2 * Math.PI * frequency * t + partial) * formant)
+            / partial ** 0.4;
+        }
+        value *= 0.5;
+      }
+      buffer[index] += event.peak * envelope * value;
+    }
+  }
   return buffer;
+}
+
+function ambientEvents(loudness = 1) {
+  const kinds = [
+    { kind: "palma", peak: 0.22, decayMs: 90 },
+    { kind: "batida", peak: 0.3, decayMs: 220 },
+    { kind: "voz", peak: 0.05, decayMs: 700, f0: 140 },
+    { kind: "cadeira", peak: 0.12, decayMs: 520 },
+    { kind: "voz", peak: 0.06, decayMs: 900, f0: 196 },
+    { kind: "palma", peak: 0.18, decayMs: 70 },
+  ];
+  return Array.from({ length: 14 }, (unused, index) => ({
+    ...kinds[index % kinds.length],
+    peak: kinds[index % kinds.length].peak * loudness,
+    atMs: 900 + index * 950,
+    seed: 13 + index * 7,
+  }));
 }
 
 // Réplica do laço de `app.js`: a cada 12 ms analisa o quadro e, quando o
@@ -269,4 +337,33 @@ test("sala sem piano nenhum não faz o cursor andar", () => {
   }
 
   assert.equal(progress(follow).done, 0, "ruído de sala não pode ser aceito como nota");
+});
+
+test("palma, batida e conversa não fazem o cursor andar", () => {
+  // O ronco estacionário do teste acima nunca foi o problema real: ele não
+  // dispara ataque. O que movia o cursor sozinho era o transiente — uma palma,
+  // uma batida na mesa, alguém falando. Cada um deles é um ataque legítimo para
+  // o detector, e o espectro largo que vem junto punha um pico no lugar da nota
+  // esperada por puro acaso. Com o portão antigo, a altura esperada precisava
+  // superar a mediana da faixa por 3,2 vezes; nesta sala ela chegava a 4,4 —
+  // e o cursor andava dois eventos sem ninguém tocar no piano.
+  const silent = studySession(SCALE, [], 9, {
+    room: 0.004,
+    ambient: ambientEvents(),
+  });
+  assert.equal(silent.done, 0, "sala barulhenta sem piano não pode avançar nada");
+});
+
+test("o aluno continua sendo reconhecido na mesma sala barulhenta", () => {
+  // A contrapartida do teste acima: apertar o portão não pode custar o
+  // reconhecimento de quem está tocando de verdade. Uma corda supera a mediana
+  // da faixa por dezenas a milhares de vezes, mesmo captada de longe, então há
+  // folga larga entre o ruído recusado e a nota aceita.
+  const played = SCALE.map((midis, index) => ({ midis, atMs: 700 + index * 800 }));
+  const noisy = studySession(SCALE, played, 9, {
+    peak: 0.05,
+    room: 0.004,
+    ambient: ambientEvents(0.4),
+  });
+  assert.equal(noisy.done, noisy.total, "o piano precisa vencer o barulho da sala");
 });
