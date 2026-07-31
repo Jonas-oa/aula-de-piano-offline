@@ -174,6 +174,20 @@ export class FloatRingBuffer {
  * no cursor, nenhum trecho fica de fora. Quando a nota acabou de ser armada a
  * janela fica vazia de propósito — não há áudio novo a julgar ainda.
  */
+/**
+ * Qual quadro do buffer corresponde ao instante em que a nota foi armada.
+ * O áudio mais recente do buffer é aproximadamente o relógio de agora; a
+ * folga do `ARMING_LOOKBACK_MS` cobre a latência da placa e o aluno que já
+ * atacou a nota antes de o cursor chegar nela.
+ */
+export function analysisStartFrame(armedAt, snapshotAt) {
+  if (!Number.isFinite(armedAt)) return undefined;
+  const bufferStartsAt = snapshotAt - BUFFER_DURATION_MS;
+  return Math.ceil(
+    (armedAt - ARMING_LOOKBACK_MS - bufferStartsAt) / FRAME_DURATION_MS,
+  );
+}
+
 export function summarizeBasicPitchOutputs({
   frames,
   onsets,
@@ -407,25 +421,13 @@ export class NeuralPianoShadowEngine {
     void this.#infer(this.sequence, now);
   }
 
-  // Qual quadro do buffer corresponde ao instante em que a nota foi armada.
-  // O áudio mais recente do buffer é aproximadamente o relógio de agora; a
-  // folga do `ARMING_LOOKBACK_MS` cobre a latência da placa e o aluno que já
-  // atacou a nota antes de o cursor chegar nela.
-  #analysisStartFrame(armedAt, snapshotAt) {
-    if (!Number.isFinite(armedAt)) return undefined;
-    const bufferStartsAt = snapshotAt - BUFFER_DURATION_MS;
-    return Math.ceil(
-      (armedAt - ARMING_LOOKBACK_MS - bufferStartsAt) / FRAME_DURATION_MS,
-    );
-  }
-
   async #infer(generation, startedAt) {
     this.inferenceActive = true;
     // O modelo pode demorar centenas de milissegundos no celular. A nota
     // esperada precisa pertencer ao áudio que iniciou esta inferência, não ao
     // cursor que talvez já tenha avançado enquanto o modelo calculava.
     const expectedMidis = [...this.expectedMidis];
-    const startFrame = this.#analysisStartFrame(this.expectedArmedAt, startedAt);
+    const startFrame = analysisStartFrame(this.expectedArmedAt, startedAt);
     try {
       const raw = await this.runtime.infer(this.buffer.snapshot());
       if (generation !== this.sequence || !this.enabled) return;
