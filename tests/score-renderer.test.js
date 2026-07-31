@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   MIN_EVENT_SPACING,
+  SCORE_VIEW_WIDTH,
   automaticBeamPlan,
   bassClefGeometry,
   scoreAccessibleLabel,
@@ -42,7 +43,9 @@ test("enquadramento vertical abre espaço para notas muito agudas e graves", () 
   assert.ok(high.height > centered.height);
   assert.ok(low.maxY > centered.maxY);
   assert.ok(low.height > centered.height);
-  assert.match(scoreViewBox(grandScore(["C8"]), 0), /^20 -?\d+ 900 \d+$/);
+  assert.equal(SCORE_VIEW_WIDTH, 1280);
+  assert.match(scoreViewBox(grandScore(["C8"]), 0), /^20 -?\d+ 1280 \d+$/);
+  assert.ok(900 / SCORE_VIEW_WIDTH <= 0.71, "a notação deve ficar ao menos 29% menor");
 });
 
 test("enquadramento considera somente a janela de notas que está sendo estudada", () => {
@@ -117,8 +120,8 @@ test("cabeçalho não exibe separador solto quando falta a tonalidade", () => {
 });
 
 test("arrastar a pauta converte o deslocamento em avanço e retorno de notas", () => {
-  assert.equal(scoreIndexForDrag(10, -88, 850, 660), 11);
-  assert.equal(scoreIndexForDrag(10, 88, 850, 660), 9);
+  assert.equal(scoreIndexForDrag(10, -88, 850, 660), 12);
+  assert.equal(scoreIndexForDrag(10, 88, 850, 660), 8);
   assert.equal(scoreIndexForDrag(0, 880, 850, 660), 0);
   assert.equal(scoreIndexForDrag(659, -880, 850, 660), 659);
 });
