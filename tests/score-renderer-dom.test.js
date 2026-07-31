@@ -246,6 +246,21 @@ test("simulação SVG desenha beams explícitos sem bandeirolas individuais", ()
   }
 });
 
+test("partitura abre uma janela mais ampla sem cortar pauta nem eventos", () => {
+  withFakeDocument(() => {
+    const container = new FakeElement("div");
+    renderScore(container, explicitBeamScore(), 0, null, { immediate: true });
+
+    const svg = container.querySelector("svg[data-score-key]");
+    assert.match(svg.getAttribute("viewBox"), /^20 -?\d+ 1280 \d+$/);
+    assert.equal(svg.querySelector(".score-clip-window").getAttribute("width"), "1115");
+
+    const staffLines = svg.querySelectorAll("line")
+      .filter((line) => line.getAttribute("x1") === "55" && line.getAttribute("x2") === "1255");
+    assert.ok(staffLines.length >= 10, "as duas pautas devem atravessar a janela ampliada");
+  });
+});
+
 test("simulação SVG agrupa automaticamente 6/8 em dois pulsos de três colcheias", () => {
   const previousDocument = globalThis.document;
   globalThis.document = {
