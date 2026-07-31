@@ -40,24 +40,31 @@
           </div>
         </div>
 
-        <section class="section-block" aria-labelledby="piecesTitle">
-          <div class="section-heading">
-            <div>
-              <p class="eyebrow">MINHAS MÚSICAS</p>
-              <h2 id="piecesTitle">Seu repertório</h2>
+        <details id="repertoirePanel" class="section-block library-folder">
+          <summary>
+            <span class="library-folder-icon" aria-hidden="true"></span>
+            <span class="library-folder-summary">
+              <span class="eyebrow">MINHAS MÚSICAS</span>
+              <strong id="piecesTitle">Seu repertório</strong>
+              <small id="repertoireCount" aria-live="polite">Carregando músicas…</small>
+            </span>
+            <span class="library-folder-chevron" aria-hidden="true">⌄</span>
+          </summary>
+          <div class="library-folder-content" aria-labelledby="piecesTitle">
+            <div class="library-folder-toolbar">
+              <p>Suas partituras ficam organizadas aqui e continuam disponíveis offline.</p>
+              <label class="search-box">
+                <span aria-hidden="true">⌕</span>
+                <input id="librarySearch" type="search" placeholder="Buscar por título ou compositor" />
+              </label>
             </div>
-            <label class="search-box">
-              <span aria-hidden="true">⌕</span>
-              <input id="librarySearch" type="search" placeholder="Buscar por título ou compositor" />
-            </label>
+            <div id="pieceGrid" class="piece-grid"></div>
+            <button class="primary-button add-piece-button" data-view-target="importView">
+              <span aria-hidden="true">＋</span>
+              Adicionar partitura
+            </button>
           </div>
-          <div id="pieceGrid" class="piece-grid"></div>
-        </section>
-
-        <button class="primary-button add-piece-button" data-view-target="importView">
-          <span aria-hidden="true">＋</span>
-          Adicionar partitura
-        </button>
+        </details>
 
         <details id="rhythmPanel" class="section-block rhythm-section">
           <summary>
