@@ -6,11 +6,19 @@ const NS = 'http://www.w3.org/2000/svg';
 const TREBLE_TOP = 80;
 const BASS_TOP = 180;
 const STEP = 6;
-const SCORE_WIDTH = 920;
-// Um enquadramento um pouco mais aberto mostra mais compassos sem comprimir a
-// malha musical: o espaçamento seguro entre ataques continua intacto.
 const SCORE_VIEW_X = 20;
-const SCORE_VIEW_WIDTH = 900;
+// A janela anterior tinha 900 unidades. Com 1.280, a notação aparece com
+// aproximadamente 70% do tamanho anterior e revela cerca de 40% mais pauta,
+// sem reduzir a distância musical segura entre ataques.
+export const SCORE_VIEW_WIDTH = 1280;
+const SCORE_RIGHT_X = SCORE_VIEW_X + SCORE_VIEW_WIDTH;
+const SCORE_WIDTH = SCORE_RIGHT_X;
+const STAFF_START_X = 55;
+const STAFF_RIGHT_GUTTER = 45;
+const STAFF_WIDTH = SCORE_RIGHT_X - STAFF_START_X - STAFF_RIGHT_GUTTER;
+const SCORE_CLIP_X = 145;
+const SCORE_CLIP_RIGHT_GUTTER = 40;
+const SCORE_CLIP_WIDTH = SCORE_RIGHT_X - SCORE_CLIP_X - SCORE_CLIP_RIGHT_GUTTER;
 const NOTE_START_X = 180;
 const BEAT_SPACING = 88;
 // Colcheias e semicolcheias não podem herdar uma distância tão pequena que
@@ -18,7 +26,7 @@ const BEAT_SPACING = 88;
 // proporcional ao tempo, mas cada novo ataque recebe esta largura mínima.
 export const MIN_EVENT_SPACING = 62;
 const PLAYHEAD_X = 310;
-const VISIBLE_NOTE_COUNT = 10;
+const VISIBLE_NOTE_COUNT = 15;
 const SCROLL_DURATION_MS = 280;
 const TRACK_ANIMATIONS = new WeakMap();
 const SCORE_EVENT_GROUPS = new WeakMap();
@@ -395,15 +403,16 @@ function buildScore(song) {
   const defs = create('defs');
   const clipPath = create('clipPath', { id: clipId, clipPathUnits: 'userSpaceOnUse' });
   clipPath.append(create('rect', {
-    x: 145,
+    class: 'score-clip-window',
+    x: SCORE_CLIP_X,
     y: -400,
-    width: 735,
+    width: SCORE_CLIP_WIDTH,
     height: 1000,
   }));
   defs.append(clipPath);
   svg.append(defs);
 
-  drawStaff(svg, 55, TREBLE_TOP, 820);
+  drawStaff(svg, STAFF_START_X, TREBLE_TOP, STAFF_WIDTH);
   svg.append(create('text', {
     x: 63,
     y: 135,
@@ -413,7 +422,7 @@ function buildScore(song) {
   }, '𝄞'));
 
   if (hasBass) {
-    drawStaff(svg, 55, BASS_TOP, 820);
+    drawStaff(svg, STAFF_START_X, BASS_TOP, STAFF_WIDTH);
     drawBassClef(svg);
     svg.append(create('line', {
       x1: 55,
