@@ -32,6 +32,8 @@ Aplicativo web offline para estudar peças completas com a partitura aberta e re
 - avaliação do tempo pelo microfone em partituras PDF, diretamente no navegador;
 - entrada Web MIDI para captar notas e acordes com maior precisão;
 - 24 exercícios rítmicos originais para duas mãos, sem fases ou bloqueios;
+- diário de cada sessão gravado no aparelho, para baixar ou compartilhar e
+  anexar a um relato de erro;
 - armazenamento local com IndexedDB e proteção de tela durante a prática;
 - modo de estudo imersivo e horizontal, com partitura de espaçamento adaptativo
   para que ataques rápidos não sobreponham cabeças, hastes e acidentes;
@@ -130,6 +132,35 @@ adequada para estudo; dinâmica e
 articulação mais detalhadas poderão ser adicionadas em um motor posterior.
 
 O projeto não distribui partituras protegidas. O usuário deve importar arquivos que adquiriu legalmente ou que estejam em domínio público.
+
+## Diário da sessão
+
+Um problema de reconhecimento é quase impossível de relatar: quando o cursor
+anda sozinho ou fica parado, não sobra nada na tela para mostrar depois. Cada
+sessão de estudo passa a gravar um diário no próprio aparelho, e a tela de
+resultado oferece **baixar** ou **compartilhar** — no celular, pelo menu nativo,
+o que leva o arquivo direto para o WhatsApp, o e-mail ou o Drive. Ele pode então
+ser anexado a uma issue.
+
+O diário registra o que o aparelho é, o que os motores ouviram e o que
+decidiram: nível do sinal, piso de ruído e limiar a cada ataque; altura
+esperada, alturas ouvidas, proeminência e confiança a cada decisão do motor
+acústico; o motivo de cada recusa do motor neural; cada movimento do cursor; e
+os erros que hoje somem sem deixar rastro, inclusive os de fora do estudo, como
+uma importação que falhou.
+
+**Nenhum áudio entra no arquivo.** A promessa de que o som não sai do aparelho
+continua valendo: o diário guarda as medidas extraídas do som, nunca as
+amostras, e o gravador descarta qualquer buffer que chegue até ele por descuido.
+
+O arquivo sai com extensão `.log` porque o GitHub aceita `.log` e `.txt` como
+anexo de issue e recusa `.json`, que é o formato do conteúdo. As vinte sessões
+mais recentes ficam guardadas; as anteriores saem sozinhas.
+
+Não há envio automático. Fazer o aplicativo publicar sozinho exigiria um token
+embutido no código, e como o repositório é público esse token daria escrita nele
+a qualquer pessoa — além de ser revogado pelo próprio GitHub assim que fosse
+detectado. O envio continua sendo um gesto de quem estuda.
 
 ## Executar localmente
 

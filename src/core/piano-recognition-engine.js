@@ -233,6 +233,7 @@ export function analyzeExpectedChord(samples, sampleRate, expectedMidis, options
     extra: [],
     completeness: 0,
     confidence: 0,
+    prominence: 0,
     rms,
   };
   if (!expected.length || !samples?.length || !sampleRate || rms < config.minRms) return empty;
@@ -279,6 +280,12 @@ export function analyzeExpectedChord(samples, sampleRate, expectedMidis, options
   const sortedAmplitudes = [...amplitudes.values()].sort((a, b) => a - b);
   const medianAmplitude = sortedAmplitudes[Math.floor(sortedAmplitudes.length / 2)] || 0;
   const tonalFloor = medianAmplitude * config.tonalProminence;
+  // Quantas vezes a altura esperada mais fraca supera o fundo. É a medida que
+  // separa nota de ruído, e a que o diário da sessão registra: sem ela, um
+  // avanço indevido no aparelho do aluno vira palpite.
+  const prominence = medianAmplitude > 0
+    ? Math.min(...expected.map((midi) => amplitudes.get(midi) || 0)) / medianAmplitude
+    : 0;
   const expectedThreshold = Math.max(
     config.minAmplitude,
     tonalFloor,
@@ -400,6 +407,7 @@ export function analyzeExpectedChord(samples, sampleRate, expectedMidis, options
     inferredDetails,
     completeness,
     confidence,
+    prominence,
     rms,
     amplitudes,
   };

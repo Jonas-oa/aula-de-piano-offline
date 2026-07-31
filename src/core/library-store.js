@@ -1,6 +1,10 @@
 const DB_NAME = "partitura-viva";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_NAME = "pieces";
+const LOG_STORE_NAME = "logs";
+// O log serve para investigar o que acabou de acontecer. Guardar sessão sem fim
+// encheria o aparelho do aluno para nada.
+const MAX_STORED_LOGS = 20;
 
 function openDatabase() {
   return new Promise((resolve, reject) => {
@@ -9,6 +13,9 @@ function openDatabase() {
       const database = request.result;
       if (!database.objectStoreNames.contains(STORE_NAME)) {
         database.createObjectStore(STORE_NAME, { keyPath: "id" });
+      }
+      if (!database.objectStoreNames.contains(LOG_STORE_NAME)) {
+        database.createObjectStore(LOG_STORE_NAME, { keyPath: "id" });
       }
     };
     request.onsuccess = () => resolve(request.result);
@@ -49,6 +56,47 @@ export async function deletePiece(id) {
   try {
     const transaction = database.transaction(STORE_NAME, "readwrite");
     await requestResult(transaction.objectStore(STORE_NAME).delete(id));
+  } finally {
+    database.close();
+  }
+}
+
+export async function saveSessionLog(record) {
+  const database = await openDatabase();
+  try {
+    const transaction = database.transaction(LOG_STORE_NAME, "readwrite");
+    const store = transaction.objectStore(LOG_STORE_NAME);
+    await requestResult(store.put(record));
+    const stored = await requestResult(store.getAll());
+    // O `id` é o instante de início em ISO, então a ordem alfabética é a
+    // cronológica e as sessões mais antigas saem primeiro.
+    const excess = stored
+      .map(({ id }) => id)
+      .sort()
+      .slice(0, Math.max(0, stored.length - MAX_STORED_LOGS));
+    for (const id of excess) await requestResult(store.delete(id));
+    return record;
+  } finally {
+    database.close();
+  }
+}
+
+export async function listSessionLogs() {
+  const database = await openDatabase();
+  try {
+    const transaction = database.transaction(LOG_STORE_NAME, "readonly");
+    const stored = await requestResult(transaction.objectStore(LOG_STORE_NAME).getAll());
+    return stored.sort((left, right) => String(right.id).localeCompare(String(left.id)));
+  } finally {
+    database.close();
+  }
+}
+
+export async function clearSessionLogs() {
+  const database = await openDatabase();
+  try {
+    const transaction = database.transaction(LOG_STORE_NAME, "readwrite");
+    await requestResult(transaction.objectStore(LOG_STORE_NAME).clear());
   } finally {
     database.close();
   }
