@@ -45,12 +45,25 @@ test("números longos são arredondados e vazios não entram", () => {
     extra: null,
   });
 
-  assert.equal(entry.rms, 0.0314);
-  assert.equal(entry.prominence, 12.3457);
+  assert.equal(entry.rms, 0.03142);
+  assert.equal(entry.prominence, 12.35);
   assert.deepEqual(entry.detected, [60.4, 64]);
   assert.equal(entry.status, "match");
   assert.equal("missing" in entry, false, "campo ausente não pode virar linha do log");
   assert.equal("extra" in entry, false);
+});
+
+test("o piso de ruído sobrevive ao arredondamento", () => {
+  // Piso e limiar vivem na casa de 1e-4 e existem no arquivo para serem
+  // comparados entre si. Arredondados a quatro casas decimais, viravam 0,0009
+  // e 0,0022 — perto demais para dizer qualquer coisa.
+  const log = new SessionLog({ clock: fakeClock() });
+  log.start();
+  const entry = log.add("ataque", { piso: 0.000_912_37, limiar: 0.002_184_9, rms: 0 });
+
+  assert.equal(entry.piso, 0.0009124);
+  assert.equal(entry.limiar, 0.002185);
+  assert.equal(entry.rms, 0, "zero é uma medida, não um campo vazio");
 });
 
 test("nada é registrado antes de começar nem depois de terminar", () => {

@@ -14,12 +14,15 @@
 const MAX_ENTRIES = 4000;
 const DEFAULT_THROTTLE_MS = 500;
 
-// Casas suficientes para comparar limiares e níveis, sem encher o arquivo com
-// os quinze dígitos que um float traz de brinde.
+// Dígitos significativos, e não casas decimais. O piso de ruído e o limiar de
+// ataque vivem na casa de 1e-4: arredondados a quatro casas, 0,00091 e 0,00218
+// viram 0,0009 e 0,0022 e a comparação entre eles — que é o motivo de estarem
+// no arquivo — perde a resolução. Quatro dígitos servem igualmente a um nível
+// de 0,04 e a uma proeminência de 187.
 function round(value, digits = 4) {
   if (!Number.isFinite(value)) return null;
-  const factor = 10 ** digits;
-  return Math.round(value * factor) / factor;
+  if (value === 0) return 0;
+  return Number(value.toPrecision(digits));
 }
 
 // Números viram medidas arredondadas, listas de alturas continuam listas, e o
