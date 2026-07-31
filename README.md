@@ -175,11 +175,46 @@ Abra `http://localhost:8080`. Microfone e MIDI exigem contexto seguro; `localhos
 ```bash
 npm test
 npm run check:neural
+npm run check:neural:audio
 npm run test:e2e
 ```
 
-O segundo comando usa Playwright para simular a tela de estudo em um celular
-horizontal. No GitHub, os dois conjuntos rodam automaticamente antes da mesclagem.
+`npm test` cobre a lógica; nos testes do módulo neural as saídas do modelo são
+fabricadas, então eles verificam o portão de decisão, não o reconhecimento.
+`check:neural` confere que o pacote vendorizado do Basic Pitch corresponde a um
+build novo. `check:neural:audio` é o único que executa o modelo: ele sintetiza
+trechos com as amostras do Salamander e mede o que o Basic Pitch reconhece. Fica
+fora do `npm test` porque cada inferência custa alguns segundos na CPU.
+`test:e2e` usa Playwright para simular a tela de estudo em um celular
+horizontal. No GitHub, `npm test` e `check:neural` rodam automaticamente antes
+da mesclagem.
+
+### O que o modelo entrega, medido
+
+Números de `npm run check:neural:audio`, sobre piano sintetizado com as amostras
+reais do projeto. Vale como limite superior: é timbre de piano verdadeiro, mas
+sem sala, ruído nem resposta de microfone.
+
+| Trecho | Reconhecidas | Presença / ataque da nota esperada |
+| --- | --- | --- |
+| Escala em Dó2 | 5 de 5 | 0,74–0,83 / 0,68–0,90 |
+| Escala em Dó5 | 5 de 5 | 0,88–0,92 / 0,91–0,96 |
+| Melodia ligada, 450 ms por nota | 5 de 5 | 0,87–0,89 / 0,96–0,98 |
+| Sol4 e Sol5 juntos | 1 de 1 | Sol5 a 0,60 / 0,79 |
+| Acordes de quatro vozes | 0 de 3 | uma voz interna a 0,23–0,51 |
+
+Duas conclusões que só o áudio real podia dar:
+
+- **o neural cobre os dois pontos cegos declarados do motor acústico.** No grave
+  em torno de Dó2, onde a resolução do quadro acústico não separa semitons, o
+  modelo acerta as cinco notas; e ele distingue o Sol5 dobrado sobre o harmônico
+  do Sol4, exatamente o caso que a seção anterior descreve como indetectável
+  pelo microfone sozinho;
+- **acorde cheio não avança.** Com quatro vozes o modelo entrega ataque forte
+  para todas, mas a probabilidade de presença de uma voz interna cai para a
+  faixa de 0,23 a 0,51, abaixo do limiar de 0,55 exigido de toda nota esperada.
+  Uma voz fraca recusa o acorde inteiro. Em trecho de acorde, portanto, quem
+  trabalha é o motor acústico — o neural não contribui.
 
 ## Formatos
 
