@@ -1,8 +1,10 @@
 import { rhythmExercises } from "./data/rhythm-exercises.js";
 import {
+  clearSessionLogs,
   deletePiece,
   fileToStoredAsset,
   listPieces,
+  listSessionLogs,
   savePiece,
   saveSessionLog,
 } from "./core/library-store.js";
@@ -88,6 +90,7 @@ const state = {
   loop: { a: null, b: null, active: false, count: 0 },
   keyboardVisible: true,
   lastSessionLog: null,
+  sessionLogs: [],
 };
 
 const viewer = new DocumentViewer(byId("documentStage"), {
@@ -525,6 +528,61 @@ async function downloadPieceMusicXml(piece = state.currentItem) {
   toast(`MusicXML salvo como “${filename}”.`);
 }
 
+// Lista as sessões gravadas no repertório. O diálogo de resultado sozinho não
+// bastava: quem sai da tela de estudo pela seta nunca chega a vê-lo, e o aluno
+// que quer relatar um problema costuma procurar o arquivo depois, com a cabeça
+// fria, e não no instante em que fechou a prática.
+async function renderSessionLogs() {
+  const list = byId("sessionLogList");
+  let stored = [];
+  try {
+    stored = await listSessionLogs();
+  } catch (error) {
+    list.replaceChildren();
+    list.append(Object.assign(document.createElement("p"), {
+      className: "session-log-empty",
+      textContent: `Diários indisponíveis: ${readableError(error)}`,
+    }));
+    return;
+  }
+
+  state.sessionLogs = stored;
+  list.replaceChildren();
+  byId("clearSessionLogsButton").disabled = !stored.length;
+  if (!stored.length) {
+    list.append(Object.assign(document.createElement("p"), {
+      className: "session-log-empty",
+      textContent: "Nenhuma sessão gravada ainda. Estude uma vez e o diário aparece aqui.",
+    }));
+    return;
+  }
+
+  for (const record of stored) {
+    const started = new Date(record.inicio);
+    const minutes = record.duracaoMs ? Math.max(1, Math.round(record.duracaoMs / 60_000)) : null;
+    const item = document.createElement("article");
+    item.className = "session-log-item";
+    item.innerHTML = `
+      <div class="session-log-info">
+        <strong>${escapeHtml(record.contexto?.peca || "Exercício de ritmo")}</strong>
+        <small>${escapeHtml(started.toLocaleString("pt-BR"))}${minutes ? ` · ${minutes} min` : ""}${
+      record.resumo?.notasSeguidas ? ` · ${escapeHtml(record.resumo.notasSeguidas)} notas` : ""
+    }</small>
+      </div>
+      <div class="session-log-buttons">
+        <button class="ghost-button share" type="button" hidden>Compartilhar</button>
+        <button class="ghost-button download" type="button">Baixar</button>
+      </div>
+    `;
+    const file = sessionLogFile(record);
+    const shareButton = item.querySelector(".share");
+    shareButton.hidden = !navigator.canShare?.({ files: [file] });
+    shareButton.addEventListener("click", () => void shareSessionLog(record));
+    item.querySelector(".download").addEventListener("click", () => downloadSessionLog(record));
+    list.append(item);
+  }
+}
+
 function sessionLogFile(record = state.lastSessionLog) {
   if (!record) return null;
   // `text/plain` e extensão `.log`: é o que o GitHub aceita como anexo de
@@ -535,8 +593,8 @@ function sessionLogFile(record = state.lastSessionLog) {
   });
 }
 
-function downloadSessionLog() {
-  const file = sessionLogFile();
+function downloadSessionLog(record = state.lastSessionLog) {
+  const file = sessionLogFile(record);
   if (!file) {
     toast("Nenhuma sessão gravada ainda.");
     return;
@@ -552,8 +610,8 @@ function downloadSessionLog() {
   toast(`Diário salvo como “${file.name}”.`);
 }
 
-async function shareSessionLog() {
-  const file = sessionLogFile();
+async function shareSessionLog(record = state.lastSessionLog) {
+  const file = sessionLogFile(record);
   if (!file) {
     toast("Nenhuma sessão gravada ainda.");
     return;
@@ -562,14 +620,14 @@ async function shareSessionLog() {
     await navigator.share({
       files: [file],
       title: "Diário de estudo — Partitura Viva",
-      text: `Sessão de ${state.lastSessionLog?.contexto?.peca || "estudo"}.`,
+      text: `Sessão de ${record?.contexto?.peca || "estudo"}.`,
     });
   } catch (error) {
     // Cancelar o menu de compartilhamento é uma escolha do usuário, não uma
     // falha que mereça aviso na tela.
     if (error?.name === "AbortError") return;
     sessionLog.addError(error, { origem: "compartilhamento" });
-    downloadSessionLog();
+    downloadSessionLog(record);
   }
 }
 
@@ -2015,6 +2073,7 @@ async function closeSessionLog() {
     // que acabou continua em memória e pode ser baixado na tela de resultado.
     console.warn("Não foi possível guardar o diário da sessão.", error);
   }
+  void renderSessionLogs();
   return record;
 }
 
@@ -2484,7 +2543,13 @@ function reflectConnection() {
   badge.dataset.connection = offline ? "offline" : "online";
 }
 
-byId("downloadSessionLogButton").addEventListener("click", downloadSessionLog);
+byId("downloadSessionLogButton").addEventListener("click", () => downloadSessionLog());
+byId("clearSessionLogsButton").addEventListener("click", async () => {
+  await clearSessionLogs();
+  state.lastSessionLog = null;
+  await renderSessionLogs();
+  toast("Diários apagados.");
+});
 byId("shareSessionLogButton").addEventListener("click", () => void shareSessionLog());
 
 // Uma exceção que ninguém tratou some sem deixar rastro: o aluno vê a tela
@@ -2523,3 +2588,4 @@ try {
 }
 renderLibrary();
 renderRhythms();
+void renderSessionLogs();
