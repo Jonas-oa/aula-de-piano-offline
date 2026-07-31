@@ -90,6 +90,24 @@
             <div id="rhythmGrid" class="rhythm-grid"></div>
           </div>
         </details>
+
+        <details id="sessionLogPanel" class="section-block rhythm-section">
+          <summary>
+            <span class="rhythm-summary-icon" aria-hidden="true">✱</span>
+            <span class="rhythm-summary-copy">
+              <strong id="sessionLogTitle">Diários de estudo</strong>
+              <small>Registro do que o motor ouviu, para relatar um erro</small>
+            </span>
+            <span class="rhythm-summary-chevron" aria-hidden="true">⌄</span>
+          </summary>
+          <div class="rhythm-content" aria-labelledby="sessionLogTitle">
+            <div class="rhythm-toolbar">
+              <p>Cada sessão fica gravada no aparelho. São medidas do reconhecimento, nunca o áudio. Anexe o arquivo a uma issue para rastrear um erro.</p>
+              <button id="clearSessionLogsButton" class="ghost-button" type="button">Apagar todos</button>
+            </div>
+            <div id="sessionLogList" class="session-log-list"></div>
+          </div>
+        </details>
       </section>
 
       <section id="importView" class="view" aria-labelledby="importTitle">

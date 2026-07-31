@@ -762,6 +762,14 @@ main { width: min(1160px, calc(100% - 28px)); margin: 0 auto; padding: 28px 0 48
 .result-grid div { padding: 12px; border-radius: 12px; background: var(--soft); }
 .result-grid span { display: block; color: var(--muted); font-size: .7rem; }
 .result-grid strong { font-size: 1.25rem; }
+.session-log-list { display: grid; gap: 8px; }
+.session-log-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px 14px; border-radius: 12px; background: var(--soft); }
+.session-log-info { display: grid; gap: 2px; min-width: 0; }
+.session-log-info strong { font-size: .95rem; }
+.session-log-info small { color: var(--muted); font-size: .74rem; }
+.session-log-buttons { display: flex; gap: 8px; }
+.session-log-buttons .ghost-button { padding: 8px 14px; font-size: .78rem; }
+.session-log-empty { color: var(--muted); }
 .result-log { margin: 16px 0; padding: 14px; border-radius: 12px; background: var(--soft); }
 .result-log p { margin: 0 0 11px; font-size: .78rem; }
 .result-log-actions { display: flex; flex-wrap: wrap; gap: 8px; }

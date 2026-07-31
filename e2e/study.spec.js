@@ -374,3 +374,40 @@ test("a sessão deixa um diário que pode ser baixado e anexado", async ({ page 
   expect(stored.names).toContain("pieces");
   expect(stored.logs).toBe(1);
 });
+
+test("o diário é encontrável no repertório, sem passar pela tela de resultado", async ({ page }) => {
+  // Quem sai do estudo pela seta nunca vê o diálogo de resultado. Se o diário
+  // só morasse lá, o aluno que quer relatar um problema não teria onde achá-lo.
+  await page.goto("/");
+  await page.locator("#sessionLogPanel").evaluate((panel) => {
+    panel.open = true;
+  });
+  await expect(page.locator(".session-log-empty")).toContainText("Nenhuma sessão gravada");
+  await expect(page.locator("#clearSessionLogsButton")).toBeDisabled();
+
+  await page.locator("#rhythmPanel").evaluate((panel) => {
+    panel.open = true;
+  });
+  await page.locator(".rhythm-card button").first().click();
+  await page.locator("#startPracticeButton").click();
+  await expect(page.locator("#stopPracticeButton")).toBeEnabled();
+  // Sai pela seta: nenhum diálogo de resultado aparece neste caminho.
+  await page.locator("#leavePracticeButton").click();
+  await expect(page.locator("#libraryView")).toHaveClass(/active/);
+  await expect(page.locator("#resultDialog")).toBeHidden();
+
+  await page.locator("#sessionLogPanel").evaluate((panel) => {
+    panel.open = true;
+  });
+  const item = page.locator(".session-log-item");
+  await expect(item).toHaveCount(1);
+
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    item.locator("button.download").click(),
+  ]);
+  expect(download.suggestedFilename()).toMatch(/\.log$/);
+
+  await page.locator("#clearSessionLogsButton").click();
+  await expect(page.locator(".session-log-empty")).toBeVisible();
+});
