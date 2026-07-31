@@ -18,7 +18,15 @@ const DEFAULTS = {
   // sim a forma: ruído é largo e deixa todas as alturas vizinhas parecidas,
   // enquanto uma corda produz um pico bem acima da vizinhança. A altura só é
   // aceita se superar a mediana da faixa examinada por esta proporção.
-  tonalProminence: 3.2,
+  //
+  // O valor vem de medida, não de estimativa. Numa sala com palmas, batidas,
+  // cadeira e conversa, os quadros que passavam pelo portão antigo tinham a
+  // altura esperada entre 3,3 e 4,4 vezes a mediana — a "nota" era o pico que
+  // o acaso pôs ali, com os vizinhos a 80% dela. Uma corda de verdade fica
+  // entre 19 e 4000 vezes a mediana; mesmo tocando fraco num aparelho que capta
+  // pouco, não desce de 19. Abaixo disso o próprio aplicativo já avisa que o
+  // sinal não dá para reconhecer altura nenhuma.
+  tonalProminence: 10,
   expectedRelativeThreshold: 0.075,
   extraRelativeThreshold: 0.36,
   scanPaddingSemitones: 12,
@@ -37,6 +45,16 @@ const DEFAULTS = {
   wrongGraceMs: 150,
   analysisIntervalMs: 36,
   attemptWindowMs: 460,
+  // Por quanto tempo um ataque continua explicando o que se ouve. A nota leva
+  // ~170 ms para preencher a janela de análise e é confirmada em um ou dois
+  // quadros depois disso, então tudo o que interessa acontece antes de 300 ms.
+  //
+  // Sem prazo nenhum, qualquer ruído que o detector tomasse por ataque deixava
+  // o portão aberto para o resto do evento: o motor voltava a tentar a cada
+  // 36 ms, indefinidamente, e bastava um único quadro parecido com a nota
+  // esperada para o cursor andar. Meio minuto de espera dava centenas de
+  // chances a uma sala barulhenta.
+  attackValidityMs: 700,
   // Uma corda de piano continua vibrando por segundos depois de solta a tecla.
   // Enquanto a nota anterior soa, ela aparece no espectro da nota seguinte — e
   // acusá-la como nota extra trava o cursor no meio de qualquer melodia ligada.
@@ -511,6 +529,18 @@ export class PianoRecognitionEngine {
         waitingForRelease: true,
         ...analysis,
       };
+    }
+    // Um ataque vale pelo tempo em que ele ainda explica o que se ouve. Passado
+    // o prazo, a tentativa volta a exigir uma nova percussão em vez de seguir
+    // testando quadro após quadro contra o que quer que a sala esteja fazendo.
+    if (
+      attempt.continuous
+      && attempt.hasAttack
+      && timestamp - attempt.attackAt > this.options.attackValidityMs
+    ) {
+      attempt.hasAttack = false;
+      attempt.stableMatches = 0;
+      attempt.stableWrongFrames = 0;
     }
     // No modo contínuo, cada evento da partitura precisa de um novo ataque.
     // Isso impede que a ressonância do acorde anterior avance automaticamente

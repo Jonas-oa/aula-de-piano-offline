@@ -232,6 +232,45 @@ test("escuta contínua exige ataque novo e contabiliza um erro por ataque", () =
   assert.equal(engine.process(correct, SAMPLE_RATE, 280).outcome, "match");
 });
 
+test("um ataque não autoriza o avanço para sempre", () => {
+  // Sem prazo, um ruído qualquer tomado por ataque deixava o portão aberto pelo
+  // resto do evento: o motor voltava a tentar a cada quadro e bastava um único
+  // acerto tardio — meia hora depois, se fosse o caso — para o cursor andar.
+  const engine = new PianoRecognitionEngine({ analysisIntervalMs: 0 });
+  const signal = pianoSignal([60]);
+  const silence = new Float32Array(SAMPLE_COUNT);
+
+  engine.armExpected([60], 0);
+  engine.noteAttack(0);
+  engine.process(silence, SAMPLE_RATE, 100);
+
+  const stale = engine.process(signal, SAMPLE_RATE, 20_000);
+  assert.equal(stale.outcome, "pending", "o ataque de vinte segundos atrás não vale mais");
+  assert.equal(stale.waitingForAttack, true);
+  assert.equal(engine.isArmedFor([60]), true, "o evento continua armado, só o ataque expirou");
+
+  // Uma percussão nova reabre o portão na hora.
+  engine.noteAttack(20_010);
+  assert.equal(engine.process(signal, SAMPLE_RATE, 20_020).outcome, "match");
+});
+
+test("o prazo do ataque é largo o bastante para a nota preencher a janela", () => {
+  // A janela de análise leva ~170 ms para encher e a nota é confirmada em um ou
+  // dois quadros depois disso. Encurtar o prazo até perto disso cortaria notas
+  // legítimas — o aluno que ataca e o motor que confirma precisam caber com
+  // folga dentro dele.
+  const engine = new PianoRecognitionEngine({ analysisIntervalMs: 0 });
+  const signal = pianoSignal([60]);
+
+  engine.armExpected([60], 0);
+  engine.noteAttack(0);
+  assert.equal(
+    engine.process(signal, SAMPLE_RATE, 500).outcome,
+    "match",
+    "meio segundo depois do ataque a nota ainda precisa ser aceita",
+  );
+});
+
 test("um mesmo golpe reportado várias vezes não zera o progresso nem o erro", () => {
   // O detector acusa o mesmo ataque em vários quadros seguidos: o RMS leva
   // dezenas de milissegundos para chegar ao pico e depois ondula durante todo o

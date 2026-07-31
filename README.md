@@ -84,6 +84,26 @@ entregam, em vez de exigir um valor fixo, e o medidor de nível na tela de estud
 mostra a folga real. Se ele ficar quase vazio enquanto você toca, o aplicativo
 avisa que precisa de mais sinal: aproxime o aparelho do instrumento.
 
+O que separa uma nota de um ruído não é o nível, e sim a forma do espectro. Uma
+palma, uma batida na mesa ou uma conversa espalham energia por todas as alturas
+de uma vez; uma corda produz um pico muito acima da vizinhança. O motor mede
+essa diferença comparando a altura esperada com a mediana da faixa que examina:
+numa sala com palmas e conversa, os quadros que chegavam perto da nota ficavam
+entre 3 e 4 vezes a mediana, enquanto o piano fica entre 19 e 4000 vezes, mesmo
+tocado fraco num aparelho que capta pouco. O portão está no meio dessa distância.
+
+A troca é conhecida: se o barulho for muito mais alto que o piano — palmas a
+poucos centímetros do aparelho enquanto o aluno toca de leve —, a nota deixa de
+se destacar dentro do mesmo quadro e o cursor espera em vez de andar. Preferimos
+esperar: um avanço falso tira o cursor do lugar onde o aluno está e estraga o
+resto do estudo, enquanto uma nota não reconhecida apenas pede que ele repita.
+
+Um ataque também tem prazo. Ele explica o áudio dos 700 ms seguintes, tempo de
+sobra para a nota preencher a janela de análise e ser confirmada. Sem esse
+prazo, qualquer ruído tomado por ataque deixava o portão aberto pelo resto do
+evento, e o motor seguia tentando a cada quadro até que alguma coisa se
+parecesse com a nota esperada.
+
 Dois limites do microfone valem ser conhecidos, porque vêm da física e não de
 uma escolha do aplicativo:
 
