@@ -317,3 +317,60 @@ test("seleção manual é encaixada do início ao fim dos compassos", async ({ p
   await expect(region).toHaveAttribute("data-end-index", "5");
   await expect(page.locator("#toast")).toContainText("compassos 1–2");
 });
+
+test("a sessão deixa um diário que pode ser baixado e anexado", async ({ page }) => {
+  await page.goto("/");
+  await page.locator("#rhythmPanel").evaluate((panel) => {
+    panel.open = true;
+  });
+  await page.locator(".rhythm-card button").first().click();
+  await expect(page.locator("#practiceView")).toHaveClass(/active/);
+
+  await page.locator("#startPracticeButton").click();
+  await expect(page.locator("#stopPracticeButton")).toBeEnabled();
+  await page.locator("#stopPracticeButton").click();
+
+  const dialog = page.locator("#resultDialog");
+  await expect(dialog).toBeVisible();
+  await expect(page.locator("#downloadSessionLogButton")).toBeEnabled();
+
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    page.locator("#downloadSessionLogButton").click(),
+  ]);
+  // O GitHub aceita `.log` como anexo de issue e recusa `.json`, que é o que o
+  // conteúdo é por dentro.
+  expect(download.suggestedFilename()).toMatch(/^partitura-viva_.+\.log$/);
+
+  const stream = await download.createReadStream();
+  const chunks = [];
+  for await (const chunk of stream) chunks.push(chunk);
+  const diary = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+
+  expect(diary.aplicativo).toBe("Partitura Viva");
+  expect(diary.contexto.modo).toBeTruthy();
+  expect(diary.contexto.aparelho.userAgent).toContain("Chrome");
+  expect(diary.resumo).not.toBeNull();
+  // O microfone abrindo já é um acontecimento registrado, mesmo sem ninguém tocar.
+  expect(diary.entradas.length).toBeGreaterThan(0);
+  // A promessa do aplicativo: medidas saem, áudio não.
+  expect(JSON.stringify(diary)).not.toContain("samples");
+
+  // O banco subiu de versão sem levar o repertório junto, e a sessão ficou
+  // guardada para ser enviada depois — não só na tela que está aberta agora.
+  const stored = await page.evaluate(() => new Promise((resolve, reject) => {
+    const request = indexedDB.open("partitura-viva");
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const database = request.result;
+      const names = [...database.objectStoreNames];
+      const transaction = database.transaction("logs", "readonly");
+      const all = transaction.objectStore("logs").getAll();
+      all.onsuccess = () => resolve({ names, versao: database.version, logs: all.result.length });
+      all.onerror = () => reject(all.error);
+    };
+  }));
+  expect(stored.versao).toBe(2);
+  expect(stored.names).toContain("pieces");
+  expect(stored.logs).toBe(1);
+});

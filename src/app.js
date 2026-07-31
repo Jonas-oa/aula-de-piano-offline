@@ -4,7 +4,14 @@ import {
   fileToStoredAsset,
   listPieces,
   savePiece,
+  saveSessionLog,
 } from "./core/library-store.js";
+import {
+  describeDevice,
+  serializeSessionLog,
+  SessionLog,
+  sessionLogFilename,
+} from "./core/session-log.js";
 import { beatsPerBarFromSignature, midiToPortuguese, noteToMidi } from "./core/music.js";
 import { parseMusicXml } from "./core/musicxml.js";
 import { isMusicXmlFilename, readMusicXmlFile } from "./core/musicxml-file.js";
@@ -80,6 +87,7 @@ const state = {
   viewIndex: 0,
   loop: { a: null, b: null, active: false, count: 0 },
   keyboardVisible: true,
+  lastSessionLog: null,
 };
 
 const viewer = new DocumentViewer(byId("documentStage"), {
@@ -158,11 +166,33 @@ const onsetEngine = new OnsetEngine({
   onLevel: (level) => {
     byId("levelBar").style.width = `${Math.round(level * 100)}%`;
   },
-  onError: (error) => toast(readableError(error)),
-  onStatus: (status) => reflectInputStatus(status),
+  onError: (error) => {
+    sessionLog.addError(error, { origem: "microfone" });
+    toast(readableError(error));
+  },
+  onStatus: (status) => {
+    sessionLog.add("microfone", { estado: status });
+    reflectInputStatus(status);
+  },
 });
 
 const pianoRecognition = new PianoRecognitionEngine();
+
+// Diário da sessão. Só números e rótulos — nunca áudio. Serve para investigar
+// depois o que não dá para ver na hora: por que o cursor andou ou por que ficou
+// parado enquanto o aluno tocava.
+const sessionLog = new SessionLog();
+// Qual build o aparelho está realmente executando. Vem do nome do cache do
+// service worker em vez de uma constante repetida no código, porque o problema
+// pode ser justamente um service worker antigo servindo a versão de ontem.
+async function runningBuild() {
+  try {
+    const names = await caches?.keys?.();
+    return names?.find((name) => name.startsWith("partitura-viva")) || "sem cache";
+  } catch {
+    return "indisponível";
+  }
+}
 
 const midiInput = new MidiInput({
   onNote: ({ midi, timestamp }) => handleOnset(timestamp, midi),
@@ -493,6 +523,54 @@ async function downloadPieceMusicXml(piece = state.currentItem) {
   link.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
   toast(`MusicXML salvo como “${filename}”.`);
+}
+
+function sessionLogFile(record = state.lastSessionLog) {
+  if (!record) return null;
+  // `text/plain` e extensão `.log`: é o que o GitHub aceita como anexo de
+  // issue. O conteúdo é JSON, que o navegador salvaria como `.json` — e essa
+  // seria justamente a extensão recusada na hora de anexar.
+  return new File([serializeSessionLog(record)], sessionLogFilename(record), {
+    type: "text/plain",
+  });
+}
+
+function downloadSessionLog() {
+  const file = sessionLogFile();
+  if (!file) {
+    toast("Nenhuma sessão gravada ainda.");
+    return;
+  }
+  const url = URL.createObjectURL(file);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = file.name;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  toast(`Diário salvo como “${file.name}”.`);
+}
+
+async function shareSessionLog() {
+  const file = sessionLogFile();
+  if (!file) {
+    toast("Nenhuma sessão gravada ainda.");
+    return;
+  }
+  try {
+    await navigator.share({
+      files: [file],
+      title: "Diário de estudo — Partitura Viva",
+      text: `Sessão de ${state.lastSessionLog?.contexto?.peca || "estudo"}.`,
+    });
+  } catch (error) {
+    // Cancelar o menu de compartilhamento é uma escolha do usuário, não uma
+    // falha que mereça aviso na tela.
+    if (error?.name === "AbortError") return;
+    sessionLog.addError(error, { origem: "compartilhamento" });
+    downloadSessionLog();
+  }
 }
 
 // Converte uma peça estruturada (exercício ou MusicXML) no formato do
@@ -1433,12 +1511,37 @@ async function startInput() {
   else if (!midiInput.access) await midiInput.connect();
 }
 
+// Tudo o que é preciso saber para reproduzir a sessão sem ter estado nela: a
+// peça, o trecho, como o aluno estava ouvindo e o que o aparelho oferece.
+function beginSessionLog(events = []) {
+  sessionLog.start({
+    build: "apurando",
+    peca: state.currentItem?.title,
+    compositor: state.currentItem?.composer,
+    formato: state.currentItem?.musicXmlAsset ? "musicxml" : "pdf",
+    formula: state.currentItem?.timeSignature,
+    modo: state.practiceMode,
+    mao: state.practiceHand,
+    entrada: state.inputMode,
+    eventos: events.length,
+    trecho: state.loop.active && state.loop.a !== null
+      ? `notas ${state.loop.a}–${state.loop.b}`
+      : "peça inteira",
+    repeticoes: state.loop.count || 0,
+    bpm: Number(byId("tempoSlider")?.value) || null,
+    taxaDeAmostragem: onsetEngine.context?.sampleRate || null,
+    aparelho: describeDevice(),
+  });
+  void runningBuild().then((build) => { sessionLog.context.build = build; });
+}
+
 async function startTeacherPractice() {
   const events = currentPracticeEvents();
   if (!events.length) {
     toast("O trecho selecionado não possui notas da mão escolhida.");
     return;
   }
+  beginSessionLog(events);
   state.schedule = [];
   state.attempts = [];
   state.missed = 0;
@@ -1485,6 +1588,7 @@ async function startTempoPractice() {
   const barBeats = currentBeatsPerBar();
   const countBeats = Math.max(2, Math.round(barBeats));
 
+  beginSessionLog(practiceEvents);
   state.schedule = [];
   state.attempts = [];
   state.missed = 0;
@@ -1538,6 +1642,19 @@ async function startTempoPractice() {
 
 function handleOnset(timestamp, midi) {
   if (!state.practiceActive) return;
+
+  const diagnostic = onsetEngine.lastDiagnostic;
+  sessionLog.add("ataque", {
+    origem: midi === null ? "microfone" : "midi",
+    midi,
+    esperado: currentFollowEvent(state.follow)?.midis,
+    rms: diagnostic?.rms,
+    piso: diagnostic?.floor,
+    limiar: diagnostic?.threshold,
+    subida: diagnostic?.rise,
+    subidaRelativa: diagnostic?.relativeRise,
+    suficiente: diagnostic?.workable,
+  });
 
   if (state.practiceMode === "teacher" && state.follow) {
     if (midi === null) {
@@ -1603,6 +1720,28 @@ function handleFollowOnset(midi) {
   handleFollowResult(registerFollowNote(state.follow, midi));
 }
 
+// O retrato de um quadro do motor acústico. `analysis` traz as amostras e o
+// mapa de amplitudes junto com as medidas; nada disso entra — o log leva a
+// conclusão e os números que a sustentam.
+function logAcousticFrame(type, analysis, { throttleMs = 0 } = {}) {
+  const data = {
+    desfecho: analysis.outcome,
+    status: analysis.status,
+    esperado: analysis.expected,
+    ouvido: analysis.detected,
+    faltando: analysis.missing?.length ? analysis.missing : undefined,
+    extra: analysis.extra?.length ? analysis.extra : undefined,
+    proeminencia: analysis.prominence,
+    confianca: analysis.confidence,
+    rms: analysis.rms,
+    esperandoAtaque: analysis.waitingForAttack || undefined,
+    esperandoSoltura: analysis.waitingForRelease || undefined,
+  };
+  return throttleMs
+    ? sessionLog.addThrottled(type, data, throttleMs)
+    : sessionLog.add(type, data);
+}
+
 function armCurrentMicrophoneEvent(timestamp = performance.now()) {
   if (
     !state.practiceActive
@@ -1627,9 +1766,14 @@ function handlePitchSamples(samples, sampleRate, timestamp) {
   const analysis = pianoRecognition.process(samples, sampleRate, timestamp);
   if (!analysis) return;
   if (analysis.outcome === "match" || analysis.outcome === "wrong") {
+    logAcousticFrame("acustico", analysis);
     handleFollowResult(registerFollowChord(state.follow, analysis.detected));
     return;
   }
+  // Os quadros pendentes chegam a 28 por segundo. Registrar todos afogaria o
+  // arquivo; registrar nenhum esconderia justamente o caso de quem toca e não
+  // é reconhecido — é aqui que se vê a nota chegando perto e não passando.
+  logAcousticFrame("espera", analysis, { throttleMs: 500 });
 
   if (analysis.status === "incomplete") {
     setFeedback("early", "QUASE", "Complete o acorde", `Falta: ${expectedNoteLabel(analysis.missing)}`);
@@ -1676,6 +1820,17 @@ function handlePitchSamples(samples, sampleRate, timestamp) {
 function handleFollowResult(result) {
 
   if (result.type === "idle") return;
+
+  // Uma linha por movimento do cursor. Lida junto com o ataque e a decisão que
+  // vieram antes, é ela que conta a história de um avanço que não devia ter
+  // acontecido — ou de um que devia e não aconteceu.
+  sessionLog.add("cursor", {
+    resultado: result.type,
+    indice: result.index,
+    esperado: result.expected,
+    faltando: result.remaining?.length ? result.remaining : undefined,
+    extra: result.extra?.length ? result.extra : undefined,
+  });
 
   if (result.type === "wrong") {
     state.followStats.wrong += 1;
@@ -1830,7 +1985,37 @@ async function stopPractice({ showResult = true, keepInput = true } = {}) {
   if (!keepInput) await onsetEngine.stop();
   else void preparePracticeInput();
 
+  await closeSessionLog();
   if (showResult && hadActivity) showPracticeResult();
+}
+
+// Fecha o diário e o guarda no aparelho. Uma sessão que não foi salva não pode
+// ser enviada depois, e o aluno só percebe que precisava dela quando o problema
+// já aconteceu — por isso salva sempre, sem perguntar.
+async function closeSessionLog() {
+  if (!sessionLog.active) return null;
+  const { done, total } = state.follow ? followProgress(state.follow) : { done: 0, total: 0 };
+  const rhythm = summarizeAttempts(state.attempts, state.exactMode ? state.missed : 0);
+  sessionLog.finish({
+    notasSeguidas: `${done}/${total}`,
+    acertos: state.followStats.correct,
+    erros: state.followStats.wrong,
+    ataquesCaptados: rhythm.played,
+    naoDetectados: rhythm.missed,
+    precisaoRitmica: rhythm.accuracy,
+    repeticoes: state.loop.count || 0,
+  });
+
+  const record = { id: sessionLog.toJSON().inicio, ...sessionLog.toJSON() };
+  state.lastSessionLog = record;
+  try {
+    await saveSessionLog(record);
+  } catch (error) {
+    // Não poder guardar o diário não pode derrubar o fim do estudo. O da sessão
+    // que acabou continua em memória e pode ser baixado na tela de resultado.
+    console.warn("Não foi possível guardar o diário da sessão.", error);
+  }
+  return record;
 }
 
 function resetPracticeUi() {
@@ -1878,7 +2063,18 @@ function setFeedback(grade, kicker, title, detail) {
   panel.innerHTML = `<span>${escapeHtml(kicker)}</span><strong>${escapeHtml(title)}</strong><small>${escapeHtml(detail)}</small>`;
 }
 
+// O botão de compartilhar só aparece onde o aparelho sabe compartilhar arquivo
+// — no celular apoiado no piano, que é onde a sessão acontece. No computador
+// sobra o download, que é o caminho natural ali.
+function reflectSessionLogActions() {
+  const file = sessionLogFile();
+  byId("shareSessionLogButton").hidden = !file
+    || !navigator.canShare?.({ files: [file] });
+  byId("downloadSessionLogButton").disabled = !file;
+}
+
 function showPracticeResult() {
+  reflectSessionLogActions();
   if (state.practiceMode === "teacher" && state.follow) {
     const { done, total } = followProgress(state.follow);
     const attempts = state.followStats.correct + state.followStats.wrong;
@@ -1940,7 +2136,11 @@ function resetNeuralSession() {
 
 function reflectNeuralStatus(status, detail = {}) {
   neuralUiState.modelStatus = status;
+  // O aquecimento reporta progresso a cada bloco de áudio; só o que muda de
+  // estado interessa ao diário.
+  if (status !== "warming") sessionLog.add("neuralEstado", { estado: status });
   if (status === "error") {
+    sessionLog.addError(detail, { origem: "neural" });
     setNeuralAdvanceEnabled(false);
     void onsetEngine.setPcmCaptureEnabled(false);
     if (state.practiceActive) {
@@ -1974,7 +2174,21 @@ function maybeAdvanceWithNeural(result) {
   const gateOptions = {
     ignoreMidis: pianoRecognition.ringingMidis(currentExpected, performance.now()),
   };
-  if (!evaluateNeuralFollowResult(result, currentExpected, gateOptions).accepted) return false;
+  const decision = evaluateNeuralFollowResult(result, currentExpected, gateOptions);
+  // O portão neural recusa muito mais do que aceita, e cada recusa tem um
+  // motivo nomeado. Sem isso registrado, "o neural não avança neste aparelho"
+  // não tem como ser investigado à distância.
+  sessionLog.addThrottled("neural", {
+    aceito: decision.accepted,
+    motivo: decision.reason,
+    esperado: decision.expected,
+    confianca: decision.confidence,
+    concorrente: decision.strongestUnexpected,
+    abaixoDoLimiar: decision.belowThreshold,
+    latenciaMs: result?.latencyMs,
+    quadrosAnalisados: result?.analyzedFrames,
+  }, decision.accepted ? 0 : 1000);
+  if (!decision.accepted) return false;
 
   const token = `${state.loop.count}:${eventIndex}`;
   if (neuralUiState.lastAdvanceToken === token) return false;
@@ -2269,6 +2483,22 @@ function reflectConnection() {
   badge.textContent = offline ? "Offline · repertório disponível" : "Salvo neste aparelho";
   badge.dataset.connection = offline ? "offline" : "online";
 }
+
+byId("downloadSessionLogButton").addEventListener("click", downloadSessionLog);
+byId("shareSessionLogButton").addEventListener("click", () => void shareSessionLog());
+
+// Uma exceção que ninguém tratou some sem deixar rastro: o aluno vê a tela
+// travar e não tem o que contar. Registrada, ela viaja junto com a sessão.
+window.addEventListener("error", (event) => {
+  sessionLog.addError(event.error || event.message, {
+    origem: "janela",
+    arquivo: event.filename,
+    linha: event.lineno,
+  });
+});
+window.addEventListener("unhandledrejection", (event) => {
+  sessionLog.addError(event.reason, { origem: "promessa" });
+});
 
 window.addEventListener("online", reflectConnection);
 window.addEventListener("offline", reflectConnection);
