@@ -248,6 +248,20 @@ function renderLibrary() {
     .filter((piece) => `${piece.title} ${piece.composer}`.toLocaleLowerCase("pt-BR").includes(query))
     .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
   const grid = byId("pieceGrid");
+  const panel = byId("repertoirePanel");
+  const total = state.pieces.length;
+  const count = byId("repertoireCount");
+  count.textContent = query
+    ? `${pieces.length} de ${total} ${total === 1 ? "música" : "músicas"}`
+    : `${total} ${total === 1 ? "música salva" : "músicas salvas"}`;
+  // Na primeira visita, uma biblioteca vazia fica aberta para não esconder o
+  // caminho de adicionar a primeira partitura. Quem já tem músicas vê a pasta
+  // recolhida e escolhe quando abrir, que é justamente o ganho de organização.
+  if (!panel.dataset.initialized) {
+    panel.open = total === 0;
+    panel.dataset.initialized = "true";
+  }
+  if (total === 0) panel.open = true;
   grid.replaceChildren();
 
   if (!pieces.length) {
@@ -448,6 +462,7 @@ async function importPiece(event) {
     state.selectedFiles = [];
     state.pendingImport = null;
     renderSelectedFiles();
+    byId("repertoirePanel").open = true;
     renderLibrary();
     showView("libraryView");
     toast("Peça salva neste aparelho.");

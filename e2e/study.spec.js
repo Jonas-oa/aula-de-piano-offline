@@ -1,5 +1,23 @@
 import { expect, test } from "@playwright/test";
 
+test("o repertório funciona como uma pasta retrátil sem esconder o primeiro passo", async ({ page }) => {
+  await page.goto("/");
+
+  const folder = page.locator("#repertoirePanel");
+  // Uma biblioteca vazia abre sozinha para manter "Adicionar partitura" visível.
+  await expect(folder).toHaveJSProperty("open", true);
+  await expect(page.locator("#repertoireCount")).toHaveText("0 músicas salvas");
+  await expect(page.locator(".add-piece-button")).toBeVisible();
+
+  await folder.locator(":scope > summary").click();
+  await expect(folder).toHaveJSProperty("open", false);
+  await expect(page.locator("#pieceGrid")).toBeHidden();
+
+  await folder.locator(":scope > summary").click();
+  await expect(folder).toHaveJSProperty("open", true);
+  await expect(page.locator("#pieceGrid")).toBeVisible();
+});
+
 test("modo de estudo permanece legível e utilizável em celular horizontal", async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem(

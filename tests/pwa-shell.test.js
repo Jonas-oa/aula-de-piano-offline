@@ -118,6 +118,17 @@ test("todo elemento que o app procura existe no HTML", () => {
   assert.deepEqual(missing, [], "o app procura elementos que o HTML não define");
 });
 
+test("o repertório é uma pasta retrátil que não esconde a primeira importação", () => {
+  const app = fs.readFileSync(path.join(root, "src/app.js"), "utf8");
+  const html = fs.readFileSync(path.join(root, "index.html"), "utf8");
+
+  assert.match(html, /<details id="repertoirePanel"[^>]*class="[^"]*library-folder/);
+  assert.match(html, /id="repertoireCount"/);
+  assert.match(html, /id="pieceGrid"[\s\S]*data-view-target="importView"[\s\S]*<\/details>/);
+  assert.match(app, /panel\.open = total === 0/);
+  assert.match(app, /repertoirePanel"\)\.open = true/);
+});
+
 test("a importação só oferece os formatos que o app sabe abrir", () => {
   const html = fs.readFileSync(path.join(root, "index.html"), "utf8");
   assert.match(html, /accept="[^"]*\.musicxml/);
