@@ -1,4 +1,5 @@
 import { rhythmExercises } from "./data/rhythm-exercises.js";
+import { readingExercises, readingLevelName } from "./data/reading-exercises.js";
 import {
   clearSessionLogs,
   deletePiece,
@@ -231,6 +232,10 @@ function levelLabel(level) {
   return { iniciante: "Iniciante", intermediario: "Intermediário", avancado: "Avançado" }[level] || level;
 }
 
+function isBuiltInExercise(item) {
+  return item?.type === "rhythm" || item?.type === "reading";
+}
+
 // Uma única fonte para "tempos por compasso" da peça aberta. A fórmula lida no
 // MusicXML vence o valor escolhido no formulário de importação, que costuma
 // ficar no 4/4 padrão mesmo quando a partitura está em outro compasso.
@@ -345,6 +350,44 @@ function renderRhythms() {
         <span class="tag">Duas mãos</span>
       </div>
       <button class="ghost-button">Praticar exercício</button>
+    `;
+    card.querySelector("button").addEventListener("click", () => openPractice(exercise));
+    grid.append(card);
+  }
+}
+
+function renderReadingExercises() {
+  const level = byId("readingLevelFilter").value;
+  const skill = byId("readingSkillFilter").value;
+  const exercises = readingExercises.filter((exercise) => (
+    (level === "all" || String(exercise.level) === level)
+    && (skill === "all" || exercise.skill === skill)
+  ));
+  const grid = byId("readingGrid");
+  const count = byId("readingCount");
+  count.textContent = `${exercises.length} de ${readingExercises.length} exercícios livres`;
+  grid.replaceChildren();
+
+  for (const exercise of exercises) {
+    const hands = availablePracticeHands(exercise.events);
+    const handLabel = hands.right && hands.left
+      ? "Duas mãos"
+      : hands.left ? "Mão esquerda" : "Mão direita";
+    const card = document.createElement("article");
+    card.className = `reading-card reading-level-${exercise.level}`;
+    card.innerHTML = `
+      <div class="reading-card-top">
+        <span class="tag reading-level-tag">Nível ${exercise.level} · ${escapeHtml(readingLevelName(exercise.level))}</span>
+        <span class="tag">${escapeHtml(exercise.skill)}</span>
+      </div>
+      <h3>${escapeHtml(exercise.title)}</h3>
+      <p>${escapeHtml(exercise.focus)}</p>
+      <div class="card-tags">
+        <span class="tag">${escapeHtml(exercise.timeSignature)}</span>
+        <span class="tag">${exercise.bpm} bpm</span>
+        <span class="tag">${handLabel}</span>
+      </div>
+      <button class="ghost-button">Abrir exercício</button>
     `;
     card.querySelector("button").addEventListener("click", () => openPractice(exercise));
     grid.append(card);
@@ -658,11 +701,11 @@ function structuredScore(item, events, metadata = null) {
     timeSignature,
     beatsPerBar: currentBeatsPerBar(item, metadata),
     pickupBeats: metadata?.pickupBeats || 0,
-    keyFifths: metadata?.keyFifths ?? 0,
-    keyMode: metadata?.keyMode || "",
+    keyFifths: metadata?.keyFifths ?? item.keyFifths ?? 0,
+    keyMode: metadata?.keyMode || item.keyMode || "",
     clef: "grand",
-    rests: metadata?.rests || [],
-    measures: metadata?.measures || [],
+    rests: metadata?.rests || item.rests || [],
+    measures: metadata?.measures || item.measures || [],
     notes: (events || []).map((event) => ({
       beat: event.beat,
       duration: event.duration,
@@ -1072,7 +1115,7 @@ async function openPractice(item) {
   resetNeuralSession();
   reflectLoopButtons();
   state.practiceMode = "teacher"; // cada peça abre no modo professor; PDF cai para tempo abaixo
-  state.exactMode = item.type === "rhythm" || Boolean(item.musicXmlAsset);
+  state.exactMode = isBuiltInExercise(item) || Boolean(item.musicXmlAsset);
 
   byId("practiceTitle").textContent = item.title;
   byId("practiceComposer").textContent = (item.composer || item.style || "EXERCÍCIO").toUpperCase();
@@ -1085,7 +1128,7 @@ async function openPractice(item) {
   void preparePracticeInput();
 
   try {
-    if (item.type === "rhythm") {
+    if (isBuiltInExercise(item)) {
       state.currentEvents = item.events;
     } else if (item.musicXmlAsset) {
       state.currentMusicMetadata = parseMusicXml(await readMusicXmlFile(item.musicXmlAsset));
@@ -1099,7 +1142,9 @@ async function openPractice(item) {
       renderStructured(0, { fresh: true });
       setStructuredPageLabel();
       setAnalysisMode(
-        item.type === "rhythm" ? "Exercício estruturado" : "Partitura estruturada",
+        item.type === "reading"
+          ? `Leitura livre · nível ${item.level}`
+          : item.type === "rhythm" ? "Exercício estruturado" : "Partitura estruturada",
         "O app conhece cada nota. Em Aguardar notas, o cursor só avança após a nota certa; selecione um trecho para estudá-lo.",
       );
       byId("pdfOnlyOptions").hidden = true;
@@ -2409,6 +2454,8 @@ document.querySelectorAll("[data-view-target]").forEach((button) => {
 byId("brandButton").addEventListener("click", () => showView("libraryView"));
 byId("librarySearch").addEventListener("input", renderLibrary);
 byId("rhythmFilter").addEventListener("change", renderRhythms);
+byId("readingLevelFilter").addEventListener("change", renderReadingExercises);
+byId("readingSkillFilter").addEventListener("change", renderReadingExercises);
 byId("pieceFiles").addEventListener("change", (event) => void acceptFiles(event.target.files));
 byId("importForm").addEventListener("submit", importPiece);
 byId("dropZone").addEventListener("dragover", (event) => {
@@ -2602,5 +2649,6 @@ try {
   toast(`Biblioteca local indisponível: ${readableError(error)}`);
 }
 renderLibrary();
+renderReadingExercises();
 renderRhythms();
 void renderSessionLogs();

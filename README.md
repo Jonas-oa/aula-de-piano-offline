@@ -31,6 +31,9 @@ Aplicativo web offline para estudar peças completas com a partitura aberta e re
   tela de estudo;
 - avaliação do tempo pelo microfone em partituras PDF, diretamente no navegador;
 - entrada Web MIDI para captar notas e acordes com maior precisão;
+- 36 exercícios originais de leitura musical, organizados em nove níveis do
+  primeiro contato ao desafio avançado, todos disponíveis livremente e com
+  filtros por nível e habilidade;
 - 24 exercícios rítmicos originais para duas mãos, sem fases ou bloqueios;
 - diário de cada sessão gravado no aparelho, para baixar ou compartilhar e
   anexar a um relato de erro;

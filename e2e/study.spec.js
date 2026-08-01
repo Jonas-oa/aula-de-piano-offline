@@ -18,6 +18,29 @@ test("o repertório funciona como uma pasta retrátil sem esconder o primeiro pa
   await expect(page.locator("#pieceGrid")).toBeVisible();
 });
 
+test("os 36 exercícios de leitura ficam livres e filtráveis do nível 0 ao 8", async ({ page }) => {
+  await page.goto("/");
+
+  await expect(page.locator("#readingPanel")).toHaveJSProperty("open", true);
+  await expect(page.locator(".reading-card")).toHaveCount(36);
+  await expect(page.locator("#readingCount")).toHaveText("36 de 36 exercícios livres");
+  await expect(page.locator(".reading-card button:disabled")).toHaveCount(0);
+
+  await page.locator("#readingLevelFilter").selectOption("8");
+  await expect(page.locator(".reading-card")).toHaveCount(4);
+  await expect(page.locator("#readingCount")).toHaveText("4 de 36 exercícios livres");
+  await expect(page.locator(".reading-card").first()).toContainText("Nível 8 · Desafio");
+
+  await page.locator("#readingSkillFilter").selectOption("Compassos e tonalidades");
+  await expect(page.locator(".reading-card")).toHaveCount(1);
+  await expect(page.locator(".reading-card")).toContainText("Desafio em 12/8");
+  await page.locator(".reading-card button").click();
+  await expect(page.locator("#practiceView")).toHaveClass(/active/);
+  await expect(page.locator("#practiceTitle")).toHaveText("Desafio em 12/8");
+  await expect(page.locator("#analysisModeBadge")).toContainText("Leitura livre · nível 8");
+  await expect(page.locator("#documentStage svg[data-score-key]")).toBeVisible();
+});
+
 test("modo de estudo permanece legível e utilizável em celular horizontal", async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem(

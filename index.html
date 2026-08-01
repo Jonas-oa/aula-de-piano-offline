@@ -66,6 +66,45 @@
           </div>
         </details>
 
+        <details id="readingPanel" class="section-block rhythm-section reading-section" open>
+          <summary>
+            <span class="rhythm-summary-icon reading-summary-icon" aria-hidden="true">𝄞</span>
+            <span class="rhythm-summary-copy">
+              <strong id="readingTitle">Exercícios de leitura</strong>
+              <small id="readingCount" aria-live="polite">36 exercícios livres do primeiro contato ao avançado</small>
+            </span>
+            <span class="rhythm-summary-chevron" aria-hidden="true">⌄</span>
+          </summary>
+          <div class="rhythm-content" aria-labelledby="readingTitle">
+            <div class="rhythm-toolbar reading-toolbar">
+              <p>Explore qualquer nível, sem cadastro, fases ou bloqueios.</p>
+              <div class="reading-filters">
+                <select id="readingLevelFilter" aria-label="Filtrar exercícios por nível">
+                  <option value="all">Todos os níveis</option>
+                  <option value="0">Nível 0 · Primeiro contato</option>
+                  <option value="1">Nível 1 · Notas de referência</option>
+                  <option value="2">Nível 2 · Cinco dedos</option>
+                  <option value="3">Nível 3 · Leitura básica</option>
+                  <option value="4">Nível 4 · Duas mãos</option>
+                  <option value="5">Nível 5 · Expansão</option>
+                  <option value="6">Nível 6 · Intermediário</option>
+                  <option value="7">Nível 7 · Avançado</option>
+                  <option value="8">Nível 8 · Desafio</option>
+                </select>
+                <select id="readingSkillFilter" aria-label="Filtrar exercícios por habilidade">
+                  <option value="all">Todas as habilidades</option>
+                  <option value="Notas e teclado">Notas e teclado</option>
+                  <option value="Intervalos e padrões">Intervalos e padrões</option>
+                  <option value="Ritmo e fluência">Ritmo e fluência</option>
+                  <option value="Duas mãos e acordes">Duas mãos e acordes</option>
+                  <option value="Compassos e tonalidades">Compassos e tonalidades</option>
+                </select>
+              </div>
+            </div>
+            <div id="readingGrid" class="rhythm-grid reading-grid"></div>
+          </div>
+        </details>
+
         <details id="rhythmPanel" class="section-block rhythm-section">
           <summary>
             <span class="rhythm-summary-icon" aria-hidden="true">♫</span>
