@@ -429,3 +429,34 @@ test("o diário é encontrável no repertório, sem passar pela tela de resultad
   await page.locator("#clearSessionLogsButton").click();
   await expect(page.locator(".session-log-empty")).toBeVisible();
 });
+
+test("o áudio de diagnóstico é opcional, desligado por padrão e lembrado", async ({ page }) => {
+  await page.goto("/");
+  await page.locator("#sessionLogPanel").evaluate((panel) => {
+    panel.open = true;
+  });
+
+  const toggle = page.locator("#diagnosticAudioToggle");
+  const status = page.locator("#diagnosticAudioSettingStatus");
+  // Gravar o som da casa de alguém não pode ser o padrão.
+  await expect(toggle).not.toBeChecked();
+  await expect(status).toContainText("Desligado");
+
+  await toggle.check();
+  await expect(status).toContainText("Ativado");
+  await expect.poll(() => page.evaluate(() =>
+    localStorage.getItem("partitura-viva-diagnostic-audio"))).toBe("true");
+
+  // A escolha sobrevive ao recarregamento: quem ligou para investigar um
+  // problema não precisa lembrar de ligar de novo na sessão seguinte.
+  await page.reload();
+  await page.locator("#sessionLogPanel").evaluate((panel) => {
+    panel.open = true;
+  });
+  await expect(page.locator("#diagnosticAudioToggle")).toBeChecked();
+
+  await page.locator("#diagnosticAudioToggle").uncheck();
+  await expect(page.locator("#diagnosticAudioSettingStatus")).toContainText("Desligado");
+  await expect.poll(() => page.evaluate(() =>
+    localStorage.getItem("partitura-viva-diagnostic-audio"))).toBe("false");
+});

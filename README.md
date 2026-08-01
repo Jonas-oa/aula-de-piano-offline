@@ -32,8 +32,8 @@ Aplicativo web offline para estudar peças completas com a partitura aberta e re
 - avaliação do tempo pelo microfone em partituras PDF, diretamente no navegador;
 - entrada Web MIDI para captar notas e acordes com maior precisão;
 - 24 exercícios rítmicos originais para duas mãos, sem fases ou bloqueios;
-- diário de cada sessão gravado no aparelho, para baixar ou compartilhar e
-  anexar a um relato de erro;
+- diário de cada sessão gravado no aparelho, com áudio diagnóstico opcional e
+  sincronizado, para baixar ou compartilhar e anexar a um relato de erro;
 - armazenamento local com IndexedDB e proteção de tela durante a prática;
 - modo de estudo imersivo e horizontal, com partitura de espaçamento adaptativo
   para que ataques rápidos não sobreponham cabeças, hastes e acidentes;
@@ -51,11 +51,49 @@ avulsas e acordes, incluindo notas ausentes e extras. Em PDF puro, onde as
 alturas não são conhecidas, o microfone continua avaliando somente os ataques
 rítmicos. MIDI permanece a opção de maior precisão em ambientes ruidosos.
 
+## Como uma nota é validada
+
+No modo **Aguardar notas**, o cursor só avança depois de passar por portões
+complementares; um pico de volume isolado não conta como nota:
+
+1. **Evento esperado:** o MusicXML informa as alturas do evento atual. Se a
+   pauta pede Lá4, por exemplo, o motor espera o MIDI 69, correspondente a
+   440 Hz. Em um acorde, todas as alturas esperadas precisam aparecer.
+2. **Ataque:** o sinal precisa ultrapassar o piso adaptativo da sala e apresentar
+   uma subida absoluta e relativa compatível com um novo ataque. A continuidade
+   de uma nota grave, sozinha, não deveria reabrir esse portão.
+3. **Altura e ruído:** em uma janela maior, o motor compara as frequências
+   esperadas com as vizinhas, a mediana espectral e o piso tonal. Nota ausente
+   ou altura extra relevante impede o avanço. Alturas recém-aceitas podem ser
+   ignoradas por até 2,6 segundos para não confundir a ressonância natural do
+   piano com uma nova nota extra.
+4. **Confirmação neural:** quando há aceleração por GPU, o Basic Pitch confirma
+   presença, novo ataque e dominância da altura esperada. O motor acústico
+   continua em paralelo e serve de alternativa quando o neural ainda está
+   aquecendo ou não está disponível.
+5. **Sequência:** o resultado só vale para o evento que estava armado quando a
+   análise começou. Respostas atrasadas de uma nota anterior são descartadas.
+
+Há uma separação importante entre altura e tempo. **Aguardar notas** valida a
+sequência de alturas, mas hoje não exige que o ataque caia na grade do BPM nem
+que a tecla permaneça sustentada por toda a duração escrita; o cursor pode
+esperar indefinidamente pela próxima nota. **Avaliar ritmo** compara os ataques
+com a grade temporal, mas, usando microfone, não exige uma altura específica.
+Uma validação unificada de altura, instante do ataque e sustentação ainda é uma
+evolução futura.
+
+O motor também não identifica semanticamente “porta”, “voz” ou “vento”. Ele
+mede características observáveis — sinal impulsivo ou sustentado, energia tonal
+ou espalhada e coincidência com a frequência esperada. O áudio diagnóstico
+serve justamente para confrontar essas medidas com o que realmente aconteceu
+no ambiente.
+
 O reconhecimento neural usa o modelo Basic Pitch e TensorFlow.js localmente. Ao
 pressionar **Iniciar** em **Aguardar notas** com microfone, o modelo é ativado
 automaticamente. Ele precisa de cerca de dois segundos de áudio para a primeira
-janela e então compara a probabilidade das 88 teclas com a nota esperada. Nenhum
-áudio é enviado ou armazenado.
+janela e então compara a probabilidade das 88 teclas com a nota esperada. Nada é
+enviado automaticamente. Por padrão o áudio também não é armazenado; isso só
+muda quando o usuário ativa explicitamente **Guardar áudio de diagnóstico**.
 
 Cada inferência analisa todo o áudio desde o instante em que o cursor armou a
 nota, e não um pedaço fixo no fim do buffer. Com a janela fixa, a maior parte do
@@ -144,18 +182,23 @@ ser anexado a uma issue.
 
 O diário registra o que o aparelho é, o que os motores ouviram e o que
 decidiram: nível do sinal, piso de ruído e limiar a cada ataque; altura
-esperada, alturas ouvidas, proeminência e confiança a cada decisão do motor
-acústico; o motivo de cada recusa do motor neural; cada movimento do cursor; e
-os erros que hoje somem sem deixar rastro, inclusive os de fora do estudo, como
-uma importação que falhou.
+esperada e sua frequência; compasso, pulso, duração escrita e idade do ataque;
+alturas ouvidas, proeminência, limiares espectrais e ressonâncias ignoradas a
+cada decisão do motor acústico; o motivo de cada recusa do motor neural; cada
+movimento do cursor; e os erros que hoje somem sem deixar rastro, inclusive os
+de fora do estudo, como uma importação que falhou.
 
-**Nenhum áudio entra no arquivo.** A promessa de que o som não sai do aparelho
-continua valendo: o diário guarda as medidas extraídas do som, nunca as
-amostras, e o gravador descarta qualquer buffer que chegue até ele por descuido.
+O áudio é opcional e fica desligado por padrão. Quando ativado, o app grava até
+três minutos do mesmo microfone em um arquivo `.audio.webm` separado e
+sincronizado ao `.log`. Os bytes nunca são duplicados dentro do JSON: o diário
+leva somente nome, tipo, tamanho, duração e deslocamento inicial da gravação.
+Tanto o diário quanto o áudio permanecem no aparelho e só saem por uma ação
+explícita de baixar ou compartilhar.
 
 O arquivo sai com extensão `.log` porque o GitHub aceita `.log` e `.txt` como
 anexo de issue e recusa `.json`, que é o formato do conteúdo. As vinte sessões
-mais recentes ficam guardadas; as anteriores saem sozinhas.
+mais recentes ficam guardadas; por espaço, apenas os cinco áudios mais recentes
+são preservados. Os anteriores saem sozinhos sem apagar as medidas do diário.
 
 Não há envio automático. Fazer o aplicativo publicar sozinho exigiria um token
 embutido no código, e como o repositório é público esse token daria escrita nele
