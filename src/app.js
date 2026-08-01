@@ -14,7 +14,16 @@ import {
   SessionLog,
   sessionLogFilename,
 } from "./core/session-log.js";
-import { beatsPerBarFromSignature, midiToPortuguese, noteToMidi } from "./core/music.js";
+import {
+  DiagnosticAudioRecorder,
+  DIAGNOSTIC_AUDIO_MAX_DURATION_MS,
+} from "./core/diagnostic-audio-recorder.js";
+import {
+  beatsPerBarFromSignature,
+  midiToFrequency,
+  midiToPortuguese,
+  noteToMidi,
+} from "./core/music.js";
 import { parseMusicXml } from "./core/musicxml.js";
 import { isMusicXmlFilename, readMusicXmlFile } from "./core/musicxml-file.js";
 import { musicXmlBlob, musicXmlFilename } from "./core/musicxml-export.js";
@@ -91,6 +100,7 @@ const state = {
   keyboardVisible: true,
   lastSessionLog: null,
   sessionLogs: [],
+  currentExpectedArmedAt: null,
 };
 
 const viewer = new DocumentViewer(byId("documentStage"), {
@@ -148,6 +158,7 @@ const wakeLock = new ScreenWakeLockManager({
 
 const neuralUiState = {
   modelStatus: "disabled",
+  lastLoggedStatus: null,
   advanceEnabled: false,
   lastAdvanceToken: null,
   activationPromise: null,
@@ -181,10 +192,13 @@ const onsetEngine = new OnsetEngine({
 
 const pianoRecognition = new PianoRecognitionEngine();
 
-// Diário da sessão. Só números e rótulos — nunca áudio. Serve para investigar
-// depois o que não dá para ver na hora: por que o cursor andou ou por que ficou
-// parado enquanto o aluno tocava.
+// O JSON do diário leva apenas números e rótulos. Quando o aluno autoriza o
+// diagnóstico, o áudio fica ao lado dele em um arquivo binário separado. Assim
+// dá para investigar por que o cursor andou sem duplicar som dentro do log.
 const sessionLog = new SessionLog();
+const diagnosticAudioRecorder = new DiagnosticAudioRecorder({
+  onStatus: (status, detail) => reflectDiagnosticAudioCaptureStatus(status, detail),
+});
 // Qual build o aparelho está realmente executando. Vem do nome do cache do
 // service worker em vez de uma constante repetida no código, porque o problema
 // pode ser justamente um service worker antigo servindo a versão de ontem.
@@ -582,18 +596,20 @@ async function renderSessionLogs() {
         <strong>${escapeHtml(record.contexto?.peca || "Exercício de ritmo")}</strong>
         <small>${escapeHtml(started.toLocaleString("pt-BR"))}${minutes ? ` · ${minutes} min` : ""}${
       record.resumo?.notasSeguidas ? ` · ${escapeHtml(record.resumo.notasSeguidas)} notas` : ""
-    }</small>
+    }${record.audioAsset?.bytes ? ' · <span class="session-log-audio-badge">com áudio</span>' : ""}</small>
       </div>
       <div class="session-log-buttons">
         <button class="ghost-button share" type="button" hidden>Compartilhar</button>
-        <button class="ghost-button download" type="button">Baixar</button>
+        <button class="ghost-button download" type="button">Baixar diário</button>
+        <button class="ghost-button download-audio" type="button" ${record.audioAsset?.bytes ? "" : "hidden"}>Baixar áudio</button>
       </div>
     `;
-    const file = sessionLogFile(record);
+    const files = sessionLogFiles(record);
     const shareButton = item.querySelector(".share");
-    shareButton.hidden = !navigator.canShare?.({ files: [file] });
+    shareButton.hidden = !navigator.canShare?.({ files });
     shareButton.addEventListener("click", () => void shareSessionLog(record));
     item.querySelector(".download").addEventListener("click", () => downloadSessionLog(record));
+    item.querySelector(".download-audio").addEventListener("click", () => downloadSessionAudio(record));
     list.append(item);
   }
 }
@@ -608,12 +624,20 @@ function sessionLogFile(record = state.lastSessionLog) {
   });
 }
 
-function downloadSessionLog(record = state.lastSessionLog) {
-  const file = sessionLogFile(record);
-  if (!file) {
-    toast("Nenhuma sessão gravada ainda.");
-    return;
-  }
+function sessionAudioFile(record = state.lastSessionLog) {
+  const asset = record?.audioAsset;
+  if (!asset?.bytes) return null;
+  return new File([asset.bytes], asset.name, {
+    type: asset.type || "audio/webm",
+  });
+}
+
+function sessionLogFiles(record = state.lastSessionLog) {
+  return [sessionLogFile(record), sessionAudioFile(record)].filter(Boolean);
+}
+
+function downloadFile(file, message) {
+  if (!file) return false;
   const url = URL.createObjectURL(file);
   const link = document.createElement("a");
   link.href = url;
@@ -622,20 +646,39 @@ function downloadSessionLog(record = state.lastSessionLog) {
   link.click();
   link.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
-  toast(`Diário salvo como “${file.name}”.`);
+  toast(message || `Arquivo salvo como “${file.name}”.`);
+  return true;
 }
 
-async function shareSessionLog(record = state.lastSessionLog) {
+function downloadSessionLog(record = state.lastSessionLog) {
   const file = sessionLogFile(record);
   if (!file) {
     toast("Nenhuma sessão gravada ainda.");
     return;
   }
+  downloadFile(file, `Diário salvo como “${file.name}”.`);
+}
+
+function downloadSessionAudio(record = state.lastSessionLog) {
+  const file = sessionAudioFile(record);
+  if (!file) {
+    toast("Esta sessão não possui áudio de diagnóstico.");
+    return;
+  }
+  downloadFile(file, `Áudio salvo como “${file.name}”.`);
+}
+
+async function shareSessionLog(record = state.lastSessionLog) {
+  const files = sessionLogFiles(record);
+  if (!files.length) {
+    toast("Nenhuma sessão gravada ainda.");
+    return;
+  }
   try {
     await navigator.share({
-      files: [file],
+      files,
       title: "Diário de estudo — Partitura Viva",
-      text: `Sessão de ${record?.contexto?.peca || "estudo"}.`,
+      text: `Sessão de ${record?.contexto?.peca || "estudo"}${files.length > 1 ? " com áudio de diagnóstico" : ""}.`,
     });
   } catch (error) {
     // Cancelar o menu de compartilhamento é uma escolha do usuário, não uma
@@ -1142,6 +1185,8 @@ function reflectPracticeRunning(running) {
   for (const button of document.querySelectorAll("#handToggle .choice-button")) {
     button.disabled = running || button.dataset.available === "false";
   }
+  byId("diagnosticAudioToggle").disabled = running
+    || typeof globalThis.MediaRecorder !== "function";
   if (running) setTempoExpanded(false);
 }
 
@@ -1307,6 +1352,50 @@ function reflectPlaybackState(status) {
 
 const PANEL_PREFS_KEY = "partitura-viva-study-side-panels";
 const KEYBOARD_PREF_KEY = "partitura-viva-keyboard-visible";
+const DIAGNOSTIC_AUDIO_PREF_KEY = "partitura-viva-diagnostic-audio";
+
+function loadDiagnosticAudioPreference() {
+  try {
+    return localStorage.getItem(DIAGNOSTIC_AUDIO_PREF_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function setDiagnosticAudioPreference(enabled, { persist = true } = {}) {
+  const toggle = byId("diagnosticAudioToggle");
+  const supported = typeof globalThis.MediaRecorder === "function";
+  toggle.checked = supported && Boolean(enabled);
+  toggle.disabled = !supported || state.practiceActive || state.countInActive;
+  byId("diagnosticAudioSettingStatus").textContent = !supported
+    ? "Indisponível neste navegador"
+    : toggle.checked
+      ? "Ativado · será gravado nas próximas sessões com microfone"
+      : "Desligado · nenhum áudio será gravado";
+  if (persist) {
+    try {
+      localStorage.setItem(DIAGNOSTIC_AUDIO_PREF_KEY, String(toggle.checked));
+    } catch {
+      // A gravação continua opcional nesta visita mesmo sem persistência.
+    }
+  }
+}
+
+function reflectDiagnosticAudioCaptureStatus(status, detail = {}) {
+  const label = byId("diagnosticAudioStatus");
+  if (!label) return;
+  if (status === "recording") {
+    label.hidden = false;
+    label.textContent = "● Gravando diagnóstico";
+    return;
+  }
+  if (status === "stopped" && detail?.truncated) {
+    label.hidden = false;
+    label.textContent = "Áudio salvo · limite de 3 min";
+    return;
+  }
+  label.hidden = true;
+}
 
 function hasSavedPanelPreferences() {
   try {
@@ -1584,9 +1673,65 @@ async function startInput() {
   else if (!midiInput.access) await midiInput.connect();
 }
 
+function startDiagnosticAudioCapture() {
+  const requested = byId("diagnosticAudioToggle").checked;
+  if (!requested) {
+    diagnosticAudioRecorder.reset();
+    reflectDiagnosticAudioCaptureStatus("disabled");
+    sessionLog.add("audioDiagnostico", { estado: "desligado" });
+    return;
+  }
+  if (state.inputMode !== "microphone") {
+    diagnosticAudioRecorder.reset();
+    reflectDiagnosticAudioCaptureStatus("disabled");
+    sessionLog.add("audioDiagnostico", { estado: "indisponivel", motivo: "entrada-midi" });
+    return;
+  }
+  const result = diagnosticAudioRecorder.start(onsetEngine.stream, {
+    sessionStartedAt: sessionLog.startedAt,
+  });
+  sessionLog.add("audioDiagnostico", {
+    estado: result.status,
+    tipo: result.mimeType,
+    limiteMs: DIAGNOSTIC_AUDIO_MAX_DURATION_MS,
+  });
+  if (result.status === "error") {
+    sessionLog.addError(result.error, { origem: "audio-diagnostico" });
+  }
+}
+
+async function stopDiagnosticAudioCapture() {
+  const result = await diagnosticAudioRecorder.stop();
+  if (!result) return null;
+  if (result.error) sessionLog.addError(new Error(result.error), { origem: "audio-diagnostico" });
+  if (!result.blob?.size) {
+    sessionLog.add("audioDiagnostico", { estado: "vazio" });
+    return null;
+  }
+  const asset = {
+    name: result.name,
+    type: result.type,
+    bytes: await result.blob.arrayBuffer(),
+    durationMs: result.durationMs,
+    startOffsetMs: result.startOffsetMs,
+    truncated: result.truncated,
+  };
+  sessionLog.add("audioDiagnostico", {
+    estado: "salvo",
+    arquivo: asset.name,
+    tipo: asset.type,
+    tamanhoBytes: asset.bytes.byteLength,
+    duracaoMs: asset.durationMs,
+    inicioRelativoMs: asset.startOffsetMs,
+    truncado: asset.truncated,
+  });
+  return asset;
+}
+
 // Tudo o que é preciso saber para reproduzir a sessão sem ter estado nela: a
 // peça, o trecho, como o aluno estava ouvindo e o que o aparelho oferece.
 function beginSessionLog(events = []) {
+  state.currentExpectedArmedAt = null;
   sessionLog.start({
     build: "apurando",
     peca: state.currentItem?.title,
@@ -1603,6 +1748,16 @@ function beginSessionLog(events = []) {
     repeticoes: state.loop.count || 0,
     bpm: Number(byId("tempoSlider")?.value) || null,
     taxaDeAmostragem: onsetEngine.context?.sampleRate || null,
+    audioDiagnosticoSolicitado: byId("diagnosticAudioToggle").checked,
+    validacao: {
+      altura: "nota-esperada-da-partitura",
+      intensidade: "rms-versus-piso-adaptativo",
+      ruido: "proeminencia-tonal-e-notas-extras",
+      ataque: "subida-absoluta-e-relativa",
+      tempo: state.practiceMode === "teacher"
+        ? "ordem-da-partitura-sem-prazo"
+        : "grade-ritmica-do-bpm",
+    },
     aparelho: describeDevice(),
   });
   void runningBuild().then((build) => { sessionLog.context.build = build; });
@@ -1634,6 +1789,8 @@ async function startTeacherPractice() {
     toast(readableError(error));
     return;
   }
+
+  startDiagnosticAudioCapture();
 
   state.practiceActive = true;
   showFollowCursor();
@@ -1680,6 +1837,8 @@ async function startTempoPractice() {
     return;
   }
 
+  startDiagnosticAudioCapture();
+
   const startAt = performance.now() + countBeats * beatMs + 120;
   if (practiceEvents.length) {
     state.schedule = eventsToSchedule(practiceEvents, bpm, startAt);
@@ -1720,7 +1879,7 @@ function handleOnset(timestamp, midi) {
   sessionLog.add("ataque", {
     origem: midi === null ? "microfone" : "midi",
     midi,
-    esperado: currentFollowEvent(state.follow)?.midis,
+    ...currentExpectedDiagnostic(timestamp),
     rms: diagnostic?.rms,
     piso: diagnostic?.floor,
     limiar: diagnostic?.threshold,
@@ -1789,6 +1948,56 @@ function expectedNoteLabel(midis = []) {
   return list.map((midi) => midiToPortuguese(midi)).join(" + ");
 }
 
+function expectedFrequencies(midis = []) {
+  return (midis || [])
+    .filter(Number.isFinite)
+    .map((midi) => midiToFrequency(midi));
+}
+
+function currentExpectedDiagnostic(timestamp = null) {
+  const event = currentFollowEvent(state.follow);
+  if (!event) return {};
+  const absoluteBeat = Number(event.beat);
+  const beatsPerBar = Number(state.currentScore?.beatsPerBar) || 0;
+  const explicitMeasureIndex = Number.isInteger(event.measureIndex)
+    ? event.measureIndex
+    : null;
+  const derivedMeasureIndex = explicitMeasureIndex ?? (
+    Number.isFinite(absoluteBeat) && beatsPerBar > 0
+      ? Math.floor(absoluteBeat / beatsPerBar)
+      : null
+  );
+  const measure = derivedMeasureIndex === null
+    ? null
+    : state.currentScore?.measures?.find(({ index }) => index === derivedMeasureIndex);
+  const measureStart = Number.isFinite(Number(measure?.beat))
+    ? Number(measure.beat)
+    : derivedMeasureIndex !== null && beatsPerBar > 0
+      ? derivedMeasureIndex * beatsPerBar
+      : null;
+  const durationBeats = Number(event.duration);
+  const bpm = Number(byId("tempoSlider")?.value);
+  const armedForMs = Number.isFinite(timestamp) && Number.isFinite(state.currentExpectedArmedAt)
+    ? Math.max(0, timestamp - state.currentExpectedArmedAt)
+    : undefined;
+  return {
+    esperado: event.midis,
+    frequenciasEsperadasHz: expectedFrequencies(event.midis),
+    compasso: event.measureNumber ?? (
+      derivedMeasureIndex === null ? undefined : derivedMeasureIndex + 1
+    ),
+    pulsoNoCompasso: Number.isFinite(absoluteBeat) && Number.isFinite(measureStart)
+      ? absoluteBeat - measureStart + 1
+      : undefined,
+    posicaoNaPartituraEmTempos: Number.isFinite(absoluteBeat) ? absoluteBeat : undefined,
+    duracaoEmTempos: Number.isFinite(durationBeats) ? durationBeats : undefined,
+    duracaoEscritaMs: Number.isFinite(durationBeats) && bpm > 0
+      ? durationBeats * 60_000 / bpm
+      : undefined,
+    desdeArmadoMs: armedForMs,
+  };
+}
+
 function handleFollowOnset(midi) {
   handleFollowResult(registerFollowNote(state.follow, midi));
 }
@@ -1796,7 +2005,7 @@ function handleFollowOnset(midi) {
 // O retrato de um quadro do motor acústico. `analysis` traz as amostras e o
 // mapa de amplitudes junto com as medidas; nada disso entra — o log leva a
 // conclusão e os números que a sustentam.
-function logAcousticFrame(type, analysis, { throttleMs = 0 } = {}) {
+function logAcousticFrame(type, analysis, { throttleMs = 0, timestamp = null } = {}) {
   const data = {
     desfecho: analysis.outcome,
     status: analysis.status,
@@ -1807,8 +2016,19 @@ function logAcousticFrame(type, analysis, { throttleMs = 0 } = {}) {
     proeminencia: analysis.prominence,
     confianca: analysis.confidence,
     rms: analysis.rms,
+    medianaEspectral: analysis.medianAmplitude,
+    pisoTonal: analysis.tonalFloor,
+    limiarDaNotaEsperada: analysis.expectedThreshold,
+    limiarDeNotaExtra: analysis.extraThreshold,
+    ressonanciasIgnoradas: analysis.ignoredResonance?.length
+      ? analysis.ignoredResonance
+      : undefined,
+    idadeDoAtaqueMs: analysis.attackAgeMs,
+    validadeDoAtaqueMs: analysis.attackValidityMs,
+    janelaDeRessonanciaMs: analysis.resonanceWindowMs,
     esperandoAtaque: analysis.waitingForAttack || undefined,
     esperandoSoltura: analysis.waitingForRelease || undefined,
+    ...currentExpectedDiagnostic(timestamp),
   };
   return throttleMs
     ? sessionLog.addThrottled(type, data, throttleMs)
@@ -1824,6 +2044,7 @@ function armCurrentMicrophoneEvent(timestamp = performance.now()) {
   ) return;
   const expected = currentFollowEvent(state.follow)?.midis || [];
   if (!expected.length) return;
+  state.currentExpectedArmedAt = timestamp;
   neuralShadowEngine.setExpected(expected, timestamp);
   pianoRecognition.armExpected(expected, timestamp);
 }
@@ -1839,14 +2060,14 @@ function handlePitchSamples(samples, sampleRate, timestamp) {
   const analysis = pianoRecognition.process(samples, sampleRate, timestamp);
   if (!analysis) return;
   if (analysis.outcome === "match" || analysis.outcome === "wrong") {
-    logAcousticFrame("acustico", analysis);
+    logAcousticFrame("acustico", analysis, { timestamp });
     handleFollowResult(registerFollowChord(state.follow, analysis.detected));
     return;
   }
   // Os quadros pendentes chegam a 28 por segundo. Registrar todos afogaria o
   // arquivo; registrar nenhum esconderia justamente o caso de quem toca e não
   // é reconhecido — é aqui que se vê a nota chegando perto e não passando.
-  logAcousticFrame("espera", analysis, { throttleMs: 500 });
+  logAcousticFrame("espera", analysis, { throttleMs: 500, timestamp });
 
   if (analysis.status === "incomplete") {
     setFeedback("early", "QUASE", "Complete o acorde", `Falta: ${expectedNoteLabel(analysis.missing)}`);
@@ -1901,6 +2122,7 @@ function handleFollowResult(result) {
     resultado: result.type,
     indice: result.index,
     esperado: result.expected,
+    frequenciasEsperadasHz: expectedFrequencies(result.expected),
     faltando: result.remaining?.length ? result.remaining : undefined,
     extra: result.extra?.length ? result.extra : undefined,
   });
@@ -2046,6 +2268,7 @@ async function stopPractice({ showResult = true, keepInput = true } = {}) {
   const hadActivity = state.practiceActive || state.countInActive || state.attempts.length;
   state.practiceActive = false;
   state.countInActive = false;
+  const audioAsset = await stopDiagnosticAudioCapture();
   setNeuralAdvanceEnabled(false);
   await setNeuralEnabled(false);
   for (const timer of state.countTimers) window.clearTimeout(timer);
@@ -2058,28 +2281,45 @@ async function stopPractice({ showResult = true, keepInput = true } = {}) {
   if (!keepInput) await onsetEngine.stop();
   else void preparePracticeInput();
 
-  await closeSessionLog();
+  await closeSessionLog(audioAsset);
   if (showResult && hadActivity) showPracticeResult();
 }
 
 // Fecha o diário e o guarda no aparelho. Uma sessão que não foi salva não pode
 // ser enviada depois, e o aluno só percebe que precisava dela quando o problema
 // já aconteceu — por isso salva sempre, sem perguntar.
-async function closeSessionLog() {
+async function closeSessionLog(audioAsset = null) {
   if (!sessionLog.active) return null;
   const { done, total } = state.follow ? followProgress(state.follow) : { done: 0, total: 0 };
   const rhythm = summarizeAttempts(state.attempts, state.exactMode ? state.missed : 0);
+  const loggedAttacks = sessionLog.entries.filter(({ type }) => type === "ataque");
   sessionLog.finish({
     notasSeguidas: `${done}/${total}`,
     acertos: state.followStats.correct,
     erros: state.followStats.wrong,
-    ataquesCaptados: rhythm.played,
+    ataquesCaptados: state.practiceMode === "teacher" ? loggedAttacks.length : rhythm.played,
+    ataquesComSinalSuficiente: state.practiceMode === "teacher"
+      ? loggedAttacks.filter(({ suficiente }) => suficiente).length
+      : undefined,
     naoDetectados: rhythm.missed,
     precisaoRitmica: rhythm.accuracy,
     repeticoes: state.loop.count || 0,
   });
 
-  const record = { id: sessionLog.toJSON().inicio, ...sessionLog.toJSON() };
+  const audio = audioAsset ? {
+    disponivel: true,
+    arquivo: audioAsset.name,
+    tipo: audioAsset.type,
+    tamanhoBytes: audioAsset.bytes.byteLength,
+    duracaoMs: audioAsset.durationMs,
+    inicioRelativoMs: audioAsset.startOffsetMs,
+    truncado: Boolean(audioAsset.truncated),
+  } : null;
+  const record = {
+    id: sessionLog.toJSON().inicio,
+    ...sessionLog.toJSON(),
+    ...(audio ? { audio, audioAsset } : {}),
+  };
   state.lastSessionLog = record;
   try {
     await saveSessionLog(record);
@@ -2141,10 +2381,12 @@ function setFeedback(grade, kicker, title, detail) {
 // — no celular apoiado no piano, que é onde a sessão acontece. No computador
 // sobra o download, que é o caminho natural ali.
 function reflectSessionLogActions() {
-  const file = sessionLogFile();
-  byId("shareSessionLogButton").hidden = !file
-    || !navigator.canShare?.({ files: [file] });
-  byId("downloadSessionLogButton").disabled = !file;
+  const files = sessionLogFiles();
+  const audioFile = sessionAudioFile();
+  byId("shareSessionLogButton").hidden = !files.length
+    || !navigator.canShare?.({ files });
+  byId("downloadSessionLogButton").disabled = !files.length;
+  byId("downloadSessionAudioButton").hidden = !audioFile;
 }
 
 function showPracticeResult() {
@@ -2206,13 +2448,17 @@ function resetNeuralSession() {
   neuralUiState.lastAdvanceToken = null;
   neuralUiState.activationPromise = null;
   neuralUiState.activationGeneration += 1;
+  neuralUiState.lastLoggedStatus = null;
 }
 
 function reflectNeuralStatus(status, detail = {}) {
   neuralUiState.modelStatus = status;
   // O aquecimento reporta progresso a cada bloco de áudio; só o que muda de
   // estado interessa ao diário.
-  if (status !== "warming") sessionLog.add("neuralEstado", { estado: status });
+  if (status !== "warming" && status !== neuralUiState.lastLoggedStatus) {
+    sessionLog.add("neuralEstado", { estado: status });
+    neuralUiState.lastLoggedStatus = status;
+  }
   if (status === "error") {
     sessionLog.addError(detail, { origem: "neural" });
     setNeuralAdvanceEnabled(false);
@@ -2256,6 +2502,7 @@ function maybeAdvanceWithNeural(result) {
     aceito: decision.accepted,
     motivo: decision.reason,
     esperado: decision.expected,
+    frequenciasEsperadasHz: expectedFrequencies(decision.expected),
     confianca: decision.confidence,
     concorrente: decision.strongestUnexpected,
     abaixoDoLimiar: decision.belowThreshold,
@@ -2559,6 +2806,10 @@ function reflectConnection() {
 }
 
 byId("downloadSessionLogButton").addEventListener("click", () => downloadSessionLog());
+byId("downloadSessionAudioButton").addEventListener("click", () => downloadSessionAudio());
+byId("diagnosticAudioToggle").addEventListener("change", (event) => {
+  setDiagnosticAudioPreference(event.target.checked);
+});
 byId("clearSessionLogsButton").addEventListener("click", async () => {
   await clearSessionLogs();
   state.lastSessionLog = null;
@@ -2585,6 +2836,7 @@ window.addEventListener("offline", reflectConnection);
 reflectConnection();
 reflectLoopButtons();
 restorePanelPreferences();
+setDiagnosticAudioPreference(loadDiagnosticAudioPreference(), { persist: false });
 setKeyboardVisible(loadKeyboardVisibility(), { persist: false });
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible" && state.currentView === "practiceView") {

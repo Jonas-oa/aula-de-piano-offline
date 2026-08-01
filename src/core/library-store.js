@@ -5,6 +5,11 @@ const LOG_STORE_NAME = "logs";
 // O log serve para investigar o que acabou de acontecer. Guardar sessão sem fim
 // encheria o aparelho do aluno para nada.
 const MAX_STORED_LOGS = 20;
+// O áudio de diagnóstico é a parte pesada: três minutos comprimidos passam de
+// um megabyte, e vinte deles encostariam na cota do navegador — que, ao estourar,
+// derruba o repertório junto. Só os cinco mais recentes conservam o som; os
+// diários mais antigos continuam inteiros, sem o anexo.
+const MAX_STORED_AUDIOS = 5;
 
 function openDatabase() {
   return new Promise((resolve, reject) => {
@@ -70,11 +75,23 @@ export async function saveSessionLog(record) {
     const stored = await requestResult(store.getAll());
     // O `id` é o instante de início em ISO, então a ordem alfabética é a
     // cronológica e as sessões mais antigas saem primeiro.
-    const excess = stored
-      .map(({ id }) => id)
-      .sort()
-      .slice(0, Math.max(0, stored.length - MAX_STORED_LOGS));
+    const ids = stored.map(({ id }) => id).sort();
+    const excess = ids.slice(0, Math.max(0, ids.length - MAX_STORED_LOGS));
     for (const id of excess) await requestResult(store.delete(id));
+
+    // Entre as sessões que ficam, só as mais recentes conservam o áudio. O
+    // diário antigo permanece completo: perde o anexo, não as medidas.
+    const kept = ids.filter((id) => !excess.includes(id));
+    for (const id of kept.slice(0, Math.max(0, kept.length - MAX_STORED_AUDIOS))) {
+      const older = stored.find((entry) => entry.id === id);
+      if (!older?.audioAsset) continue;
+      const { audioAsset, ...withoutAudio } = older;
+      await requestResult(store.put({
+        ...withoutAudio,
+        // Some o som, fica o registro de que existiu e por que não está mais aqui.
+        audio: { ...(older.audio || {}), descartado: "espaço" },
+      }));
+    }
     return record;
   } finally {
     database.close();

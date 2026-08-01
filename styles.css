@@ -838,6 +838,17 @@ main { width: min(1160px, calc(100% - 28px)); margin: 0 auto; padding: 28px 0 48
 .result-grid div { padding: 12px; border-radius: 12px; background: var(--soft); }
 .result-grid span { display: block; color: var(--muted); font-size: .7rem; }
 .result-grid strong { font-size: 1.25rem; }
+.diagnostic-audio-setting { display: flex; align-items: start; gap: 11px; margin-bottom: 12px; padding: 13px 14px; border: 2px solid var(--line); border-radius: 12px; background: var(--surface); cursor: pointer; }
+.diagnostic-audio-setting input { width: 20px; height: 20px; margin-top: 2px; flex: 0 0 auto; accent-color: var(--primary); }
+.diagnostic-audio-setting:has(input:disabled) { cursor: not-allowed; opacity: .6; }
+.diagnostic-audio-copy { display: grid; gap: 3px; min-width: 0; }
+.diagnostic-audio-copy strong { font-size: .92rem; }
+.diagnostic-audio-copy small { color: var(--muted); font-size: .75rem; line-height: 1.45; }
+.diagnostic-audio-status { font-weight: 800; }
+/* O ponto vermelho de gravação precisa se distinguir do "Microfone ativo" ao
+   lado, que é verde: são dois estados diferentes e ficam lado a lado. */
+.recording-status { display: inline-flex; min-height: 30px; align-items: center; padding: 5px 10px; border: 1px solid #f0c7c7; border-radius: 999px; background: #fdf0f0; color: var(--danger); font-size: .74rem; font-weight: 850; }
+.session-log-audio-badge { padding: 1px 7px; border-radius: 999px; background: #eef4fb; color: var(--blue-dark); font-weight: 850; }
 .session-log-list { display: grid; gap: 8px; }
 .session-log-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px 14px; border-radius: 12px; background: var(--soft); }
 .session-log-info { display: grid; gap: 2px; min-width: 0; }

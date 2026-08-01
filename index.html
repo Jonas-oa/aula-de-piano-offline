@@ -109,9 +109,17 @@
           </summary>
           <div class="rhythm-content" aria-labelledby="sessionLogTitle">
             <div class="rhythm-toolbar">
-              <p>Cada sessão fica gravada no aparelho. São medidas do reconhecimento, nunca o áudio. Anexe o arquivo a uma issue para rastrear um erro.</p>
+              <p>Cada sessão fica gravada no aparelho. São medidas do reconhecimento, e o áudio só é gravado se você pedir. Anexe os arquivos a uma issue para rastrear um erro.</p>
               <button id="clearSessionLogsButton" class="ghost-button" type="button">Apagar todos</button>
             </div>
+            <label class="diagnostic-audio-setting" for="diagnosticAudioToggle">
+              <input id="diagnosticAudioToggle" type="checkbox" />
+              <span class="diagnostic-audio-copy">
+                <strong>Guardar áudio de diagnóstico</strong>
+                <small>Grava até 3 minutos do microfone junto com o diário, para confrontar as medidas com o que aconteceu na sala. O áudio fica no aparelho e só sai se você baixar ou compartilhar.</small>
+                <small id="diagnosticAudioSettingStatus" class="diagnostic-audio-status" aria-live="polite">Desligado · nenhum áudio será gravado</small>
+              </span>
+            </label>
             <div id="sessionLogList" class="session-log-list"></div>
           </div>
         </details>
@@ -338,6 +346,7 @@
           </div>
           <div id="practiceBottomControls" class="bottombar-end">
             <span id="inputStatus" class="input-status" data-status="stopped">Microfone em espera</span>
+            <span id="diagnosticAudioStatus" class="recording-status" aria-live="polite" hidden>● Gravando diagnóstico</span>
             <span id="screenStatus" class="screen-status">Tela ativa</span>
             <details class="limitations">
               <summary aria-label="O que está sendo avaliado?">?</summary>
@@ -366,10 +375,11 @@
   <dialog id="resultDialog" class="result-dialog">
     <div id="resultContent"></div>
     <div class="result-log">
-      <p>O diário desta sessão ficou salvo no aparelho: o que o motor ouviu, o que decidiu e por quê. São medidas, nunca o áudio. Anexe-o a uma issue para rastrear um erro.</p>
+      <p>O diário desta sessão ficou salvo no aparelho: o que o motor ouviu, o que decidiu e por quê. O áudio só acompanha se você tiver pedido. Anexe a uma issue para rastrear um erro.</p>
       <div class="result-log-actions">
         <button id="shareSessionLogButton" class="ghost-button" type="button" hidden>Compartilhar diário</button>
         <button id="downloadSessionLogButton" class="ghost-button" type="button">Baixar diário</button>
+        <button id="downloadSessionAudioButton" class="ghost-button" type="button" hidden>Baixar áudio</button>
       </div>
     </div>
     <form method="dialog"><button class="primary-button wide">Continuar</button></form>
