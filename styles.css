@@ -528,6 +528,24 @@ main { width: min(1160px, calc(100% - 28px)); margin: 0 auto; padding: 28px 0 48
 }
 .practice-topbar .practice-title h1 { max-width: 190px; }
 
+.input-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 18px clamp(16px, 3vw, 24px);
+  border: 2px solid var(--line);
+  border-radius: 21px;
+  background: var(--surface);
+  box-shadow: 0 5px 0 #dfe5e8;
+}
+.input-card-copy { min-width: 0; }
+.input-card h2 { margin: 0 0 4px; font-size: 1.3rem; font-weight: 900; letter-spacing: -.02em; }
+.input-card p:not(.eyebrow) { margin: 0; color: var(--muted); font-size: .84rem; line-height: 1.45; }
+.input-card p[data-state="conectado"] { color: var(--primary-dark); font-weight: 800; }
+.input-card p[data-state="ausente"] { color: var(--warning); font-weight: 800; }
+.input-card .input-choice { flex: 0 0 auto; }
 .input-choice { display: inline-flex; padding: 3px; border-radius: 999px; background: var(--soft); gap: 3px; }
 .choice-button { min-height: 34px; padding: 0 12px; border: 0; border-radius: 999px; background: transparent; color: var(--muted); font-size: .78rem; font-weight: 850; cursor: pointer; }
 .choice-button.active { background: white; color: var(--primary); box-shadow: 0 3px 10px rgba(23,27,47,.08); }

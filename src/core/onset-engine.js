@@ -458,17 +458,27 @@ export class MidiInput {
     this.onStatus("disconnected", 0);
   }
 
+  // Nome dos instrumentos ligados agora. A tela mostra isso porque "conectado"
+  // sozinho não diz se o aparelho que respondeu é o piano ou outra coisa
+  // qualquer espetada na mesma porta.
+  get deviceNames() {
+    return this.inputs.map((input) => input.name).filter(Boolean);
+  }
+
   #bindInputs() {
     for (const input of this.inputs) input.onmidimessage = null;
     this.inputs = [...this.access.inputs.values()];
     for (const input of this.inputs) {
       input.onmidimessage = (event) => {
         const [status, note, velocity] = event.data;
+        // Nota tocada é `note-on` com velocidade acima de zero. Muitos teclados
+        // encerram a nota com `note-on` de velocidade zero em vez de `note-off`,
+        // e tratar isso como ataque faria cada tecla solta virar uma nota nova.
         if ((status & 0xf0) === 0x90 && velocity > 0) {
           this.onNote({ midi: note, velocity, timestamp: performance.now() });
         }
       };
     }
-    this.onStatus(this.inputs.length ? "connected" : "empty", this.inputs.length);
+    this.onStatus(this.inputs.length ? "connected" : "empty", this.inputs.length, this.deviceNames);
   }
 }
