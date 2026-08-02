@@ -32,6 +32,9 @@ jobs:
       - name: Testes unitários e de integração
         run: npm test
 
+      - name: Impedir cascata de harmônicos
+        run: npm run check:cascade
+
       - name: Validar sintaxe dos módulos
         run: |
           find src -name '*.js' -print0 | xargs -0 -n1 node --check
