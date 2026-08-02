@@ -234,6 +234,10 @@ const midiInput = new MidiInput({
 
 const INPUT_MODE_KEY = "partitura-viva-input-mode";
 let inputModeSelectionGeneration = 0;
+// Por que a última tentativa de MIDI não abriu. O aviso flutuante some em
+// poucos segundos; quem está com o cabo na mão precisa do motivo à vista até
+// resolver ou desistir do teclado.
+let lastMidiFailure = null;
 
 function persistInputMode(mode) {
   try {
@@ -262,6 +266,11 @@ function reflectLibraryInput(status = null, names = []) {
 
   const label = byId("libraryInputStatus");
   if (!midi) {
+    if (lastMidiFailure) {
+      label.dataset.state = "ausente";
+      label.textContent = `MIDI não abriu: ${lastMidiFailure} Seguindo pelo microfone.`;
+      return;
+    }
     delete label.dataset.state;
     label.textContent = "Microfone · funciona com qualquer piano, sem cabo.";
     return;
@@ -1655,7 +1664,12 @@ function selectPracticeMode(mode) {
 }
 
 async function selectInputMode(mode) {
-  if (state.practiceActive || state.countInActive) return;
+  if (state.practiceActive || state.countInActive) {
+    // Tocar no botão e não ver nada acontecer parece defeito do botão. O
+    // estudo em andamento é o motivo, e ele cabe no aviso.
+    if (mode !== state.inputMode) toast("Pare o estudo antes de trocar a entrada.");
+    return;
+  }
   const selectionGeneration = ++inputModeSelectionGeneration;
   if (mode !== "microphone" && neuralUiState.modelStatus !== "disabled") {
     await setNeuralEnabled(false);
@@ -1677,19 +1691,29 @@ async function selectInputMode(mode) {
         return;
       }
       persistInputMode("midi");
+      // O estado desta conexão já foi pintado por `onStatus`, com os nomes dos
+      // aparelhos; aqui só o registro da falha anterior deixa de valer.
+      lastMidiFailure = null;
       if (!count) toast("Conecte e ligue o piano MIDI, depois tente novamente.");
       reflectInputStatus(count ? "midi" : "stopped");
     } catch (error) {
+      sessionLog.addError(error, { origem: "midi" });
+      if (selectionGeneration !== inputModeSelectionGeneration) return;
+      lastMidiFailure = readableError(error);
       state.inputMode = "microphone";
       persistInputMode("microphone");
       byId("microphoneModeButton").classList.add("active");
       byId("midiModeButton").classList.remove("active");
       reflectLibraryInput();
-      toast(readableError(error));
-      void preparePracticeInput();
+      // O microfone volta a ouvir primeiro: se ele também reclamar, o aviso do
+      // microfone não pode ser a última palavra para quem acabou de pedir MIDI.
+      await preparePracticeInput();
+      if (selectionGeneration === inputModeSelectionGeneration) toast(lastMidiFailure);
     }
   } else {
     persistInputMode("microphone");
+    lastMidiFailure = null;
+    reflectLibraryInput();
     midiInput.disconnect();
     void preparePracticeInput();
   }

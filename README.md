@@ -60,6 +60,16 @@ mesmo cabo de carregar costuma servir quando liga na porta USB do instrumento.
 A permissão de MIDI só é pedida quando você escolhe MIDI, e não ao abrir o
 aplicativo. O Safari no iPhone não tem Web MIDI; ali só o microfone funciona.
 
+Quando o MIDI não abre, a tela principal mantém o motivo à vista e o app segue
+pelo microfone. Os três motivos possíveis são:
+
+- **permissão negada** — o navegador pede o acesso aos aparelhos MIDI à parte do
+  microfone; libere-o nas configurações do site e toque em MIDI outra vez;
+- **página sem https** — Web MIDI só existe em contexto seguro; `localhost`
+  também é aceito;
+- **navegador sem Web MIDI** — iPhone e iPad não têm em nenhum navegador; no
+  Android e no computador, use Chrome, Edge ou Opera.
+
 ## Como uma nota é validada
 
 No modo **Aguardar notas**, o cursor só avança depois de passar por portões
