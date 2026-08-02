@@ -212,10 +212,16 @@ async function runningBuild() {
 }
 
 const midiInput = new MidiInput({
-  onNote: ({ midi, timestamp }) => handleOnset(timestamp, midi),
+  // Uma resposta atrasada de permissão não pode deixar o MIDI injetar notas
+  // depois que o aluno já voltou ao microfone.
+  onNote: ({ midi, timestamp }) => {
+    if (state.inputMode === "midi") handleOnset(timestamp, midi);
+  },
   onStatus: (status, count, names = []) => {
-    if (status === "connected") toast(`${count} entrada MIDI conectada${count > 1 ? "s" : ""}.`);
-    if (status === "empty") toast("Nenhum piano MIDI foi encontrado.");
+    if (state.inputMode === "midi" && status === "connected") {
+      toast(`${count} entrada MIDI conectada${count > 1 ? "s" : ""}.`);
+    }
+    if (state.inputMode === "midi" && status === "empty") toast("Nenhum piano MIDI foi encontrado.");
     // Conectar e desconectar o instrumento no meio do estudo precisa aparecer:
     // sem isso o indicador continuava dizendo "Microfone em espera".
     if (state.inputMode === "midi" && status !== "disconnected") {
@@ -227,6 +233,15 @@ const midiInput = new MidiInput({
 });
 
 const INPUT_MODE_KEY = "partitura-viva-input-mode";
+let inputModeSelectionGeneration = 0;
+
+function persistInputMode(mode) {
+  try {
+    localStorage.setItem(INPUT_MODE_KEY, mode);
+  } catch {
+    // A escolha continua valendo nesta visita mesmo sem persistência.
+  }
+}
 
 function loadInputMode() {
   try {
@@ -1641,28 +1656,32 @@ function selectPracticeMode(mode) {
 
 async function selectInputMode(mode) {
   if (state.practiceActive || state.countInActive) return;
+  const selectionGeneration = ++inputModeSelectionGeneration;
   if (mode !== "microphone" && neuralUiState.modelStatus !== "disabled") {
     await setNeuralEnabled(false);
   }
+  if (selectionGeneration !== inputModeSelectionGeneration) return;
   state.inputMode = mode;
   byId("microphoneModeButton").classList.toggle("active", mode === "microphone");
   byId("midiModeButton").classList.toggle("active", mode === "midi");
   byId("levelBar").style.width = "0";
-  try {
-    localStorage.setItem(INPUT_MODE_KEY, mode);
-  } catch {
-    // A escolha continua valendo nesta visita mesmo sem persistência.
-  }
   reflectLibraryInput();
 
   if (mode === "midi") {
     await onsetEngine.stop();
+    if (selectionGeneration !== inputModeSelectionGeneration) return;
     try {
       const count = await midiInput.connect();
+      if (selectionGeneration !== inputModeSelectionGeneration) {
+        if (state.inputMode !== "midi") midiInput.disconnect();
+        return;
+      }
+      persistInputMode("midi");
       if (!count) toast("Conecte e ligue o piano MIDI, depois tente novamente.");
       reflectInputStatus(count ? "midi" : "stopped");
     } catch (error) {
       state.inputMode = "microphone";
+      persistInputMode("microphone");
       byId("microphoneModeButton").classList.add("active");
       byId("midiModeButton").classList.remove("active");
       reflectLibraryInput();
@@ -1670,6 +1689,7 @@ async function selectInputMode(mode) {
       void preparePracticeInput();
     }
   } else {
+    persistInputMode("microphone");
     midiInput.disconnect();
     void preparePracticeInput();
   }

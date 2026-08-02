@@ -122,6 +122,21 @@ test("erros anteriores à sessão não se perdem", () => {
   assert.equal(entradas[0].name, "TypeError");
 });
 
+test("erros anteriores entram uma vez e não contaminam sessões futuras", () => {
+  const clock = fakeClock();
+  const log = new SessionLog({ clock });
+  log.addError(new Error("microfone recusado"));
+
+  log.start();
+  log.finish();
+  assert.equal(log.toJSON().errosAntesDaSessao.length, 1);
+
+  clock.advance(1000);
+  log.start();
+  log.finish();
+  assert.deepEqual(log.toJSON().errosAntesDaSessao, []);
+});
+
 test("a pilha do erro entra recortada", () => {
   const log = new SessionLog({ clock: fakeClock() });
   log.start();

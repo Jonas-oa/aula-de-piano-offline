@@ -82,6 +82,7 @@ export class SessionLog {
   } = {}) {
     this.clock = clock;
     this.maxEntries = maxEntries;
+    this.pendingErrors = [];
     this.reset();
   }
 
@@ -93,6 +94,7 @@ export class SessionLog {
     this.dropped = 0;
     this.summary = null;
     this.lastThrottleAt = new Map();
+    this.errorsBeforeSession = [];
   }
 
   get active() {
@@ -100,7 +102,9 @@ export class SessionLog {
   }
 
   start(context = {}) {
+    const errorsBeforeSession = this.pendingErrors.splice(0);
     this.reset();
+    this.errorsBeforeSession = errorsBeforeSession;
     this.startedAt = this.clock();
     this.context = { ...context };
     return this;
@@ -144,7 +148,6 @@ export class SessionLog {
       ...extra,
     });
     if (!this.active) {
-      this.pendingErrors = this.pendingErrors || [];
       this.pendingErrors.push(data);
       return null;
     }
@@ -169,7 +172,7 @@ export class SessionLog {
       contexto: this.context,
       resumo: this.summary,
       entradasDescartadas: this.dropped,
-      errosAntesDaSessao: this.pendingErrors || [],
+      errosAntesDaSessao: this.errorsBeforeSession,
       entradas: this.entries,
     };
   }
