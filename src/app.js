@@ -1885,6 +1885,10 @@ function handleOnset(timestamp, midi) {
     limiar: diagnostic?.threshold,
     subida: diagnostic?.rise,
     subidaRelativa: diagnostic?.relativeRise,
+    // A medida que decide o ataque desde a correção da cascata de harmônicos.
+    // Fica no diário junto com a antiga para que a próxima sessão relatada já
+    // mostre as duas lado a lado.
+    subidaSobreVale: diagnostic?.riseOverRecentLow,
     suficiente: diagnostic?.workable,
   });
 

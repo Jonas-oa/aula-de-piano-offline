@@ -63,11 +63,17 @@ test("dezesseis ataques continuam detectáveis sobre ressonância acumulada", ()
   const attacks = Array.from({ length: 16 }, (_, index) => 504 + index * 504);
   const detected = [];
 
+  // Cada batida traz o pico percussivo do martelo, muito mais alto que a cauda
+  // que ela deixa. Sem esse pico o modelo não continha ataque nenhum: o nível
+  // apenas subia um degrau sobre a ressonância acumulada, e nenhum detector que
+  // compare com o vale recente deveria chamar isso de batida. A envoltória é a
+  // mesma calibrada contra as amostras reais do Salamander.
   for (let timestamp = 0; timestamp <= attacks.at(-1) + 1000; timestamp += 12) {
     let level = 0.0008;
     for (const attackAt of attacks) {
       if (timestamp < attackAt) continue;
-      level += 0.025 * Math.exp(-(timestamp - attackAt) / 650);
+      const age = timestamp - attackAt;
+      level += 0.025 * Math.exp(-age / 650) * (1 + 4 * Math.exp(-age / 28));
     }
     if (detector.process(level, timestamp).isAttack) detected.push(timestamp);
   }
@@ -104,7 +110,16 @@ function renderSession(played, seconds, {
       const fundamental = midiToFrequency(midi);
       for (let index = start; index < total; index += 1) {
         const t = (index - start) / SAMPLE_RATE;
-        const envelope = Math.exp((-t * 1000) / decayMs) * (1 - Math.exp(-t * 1400));
+        // Pico percussivo do martelo. Sem ele as notas subiam lisas e a fixture
+        // não continha ataque nenhum para o detector achar — servia enquanto o
+        // portão aceitava 8% de subida, e deixou de servir quando ele passou a
+        // comparar com o vale recente. O fator veio de medida: nas amostras
+        // reais do Salamander, esta mesma escala ligada dá 4,63 de subida sobre
+        // o vale, e com este pico a fixture dá 4,93.
+        const attack = 1 + 4 * Math.exp((-t * 1000) / 28);
+        const envelope = Math.exp((-t * 1000) / decayMs)
+          * (1 - Math.exp(-t * 1400))
+          * attack;
         if (t > 0.02 && envelope < 1e-4) break;
         let value = 0;
         for (let partial = 1; partial <= 12; partial += 1) {
