@@ -496,3 +496,20 @@ test("a escolha entre microfone e MIDI fica na tela principal e é lembrada", as
   await page.locator("#libraryMicrophoneButton").click();
   await expect(status).toContainText("sem cabo");
 });
+
+test("uma conexão MIDI recusada volta ao microfone sem guardar a escolha inválida", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.navigator.requestMIDIAccess = async () => {
+      throw new DOMException("Permissão recusada", "NotAllowedError");
+    };
+  });
+  await page.goto("/");
+
+  await page.locator("#libraryMidiButton").click();
+  await expect(page.locator("#libraryMicrophoneButton")).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(() => page.evaluate(() =>
+    localStorage.getItem("partitura-viva-input-mode"))).toBe("microphone");
+
+  await page.reload();
+  await expect(page.locator("#libraryMicrophoneButton")).toHaveAttribute("aria-pressed", "true");
+});
