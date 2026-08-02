@@ -438,19 +438,26 @@ export class MidiInput {
     this.onStatus = onStatus || (() => {});
     this.access = null;
     this.inputs = [];
+    this.connectionGeneration = 0;
   }
 
   async connect() {
     if (!navigator.requestMIDIAccess) {
       throw new Error("Web MIDI não está disponível neste navegador.");
     }
-    this.access = await navigator.requestMIDIAccess();
+    const generation = ++this.connectionGeneration;
+    const access = await navigator.requestMIDIAccess();
+    // O pedido de permissão pode terminar depois que o aluno já voltou ao
+    // microfone. Nesse caso a resposta antiga não pode religar as portas MIDI.
+    if (generation !== this.connectionGeneration) return 0;
+    this.access = access;
     this.#bindInputs();
     this.access.onstatechange = () => this.#bindInputs();
     return this.inputs.length;
   }
 
   disconnect() {
+    this.connectionGeneration += 1;
     for (const input of this.inputs) input.onmidimessage = null;
     this.inputs = [];
     if (this.access) this.access.onstatechange = null;
