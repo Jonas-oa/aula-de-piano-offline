@@ -11,6 +11,16 @@ const MAX_STORED_LOGS = 20;
 // diários mais antigos continuam inteiros, sem o anexo.
 const MAX_STORED_AUDIOS = 5;
 
+// O limite é de áudios, não de sessões. Uma sessão sem gravação não pode
+// expulsar o único diagnóstico sonoro existente só por ser mais recente.
+export function audioIdsToDiscard(records, maxAudios = MAX_STORED_AUDIOS) {
+  const audioRecords = (records || [])
+    .filter(({ audioAsset }) => Boolean(audioAsset))
+    .sort((left, right) => String(left.id).localeCompare(String(right.id)));
+  const excess = Math.max(0, audioRecords.length - Math.max(0, Number(maxAudios) || 0));
+  return audioRecords.slice(0, excess).map(({ id }) => id);
+}
+
 function openDatabase() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
@@ -81,9 +91,9 @@ export async function saveSessionLog(record) {
 
     // Entre as sessões que ficam, só as mais recentes conservam o áudio. O
     // diário antigo permanece completo: perde o anexo, não as medidas.
-    const kept = ids.filter((id) => !excess.includes(id));
-    for (const id of kept.slice(0, Math.max(0, kept.length - MAX_STORED_AUDIOS))) {
-      const older = stored.find((entry) => entry.id === id);
+    const kept = stored.filter(({ id }) => !excess.includes(id));
+    for (const id of audioIdsToDiscard(kept)) {
+      const older = kept.find((entry) => entry.id === id);
       if (!older?.audioAsset) continue;
       const { audioAsset, ...withoutAudio } = older;
       await requestResult(store.put({
