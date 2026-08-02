@@ -213,7 +213,7 @@ async function runningBuild() {
 
 const midiInput = new MidiInput({
   onNote: ({ midi, timestamp }) => handleOnset(timestamp, midi),
-  onStatus: (status, count) => {
+  onStatus: (status, count, names = []) => {
     if (status === "connected") toast(`${count} entrada MIDI conectada${count > 1 ? "s" : ""}.`);
     if (status === "empty") toast("Nenhum piano MIDI foi encontrado.");
     // Conectar e desconectar o instrumento no meio do estudo precisa aparecer:
@@ -221,8 +221,47 @@ const midiInput = new MidiInput({
     if (state.inputMode === "midi" && status !== "disconnected") {
       reflectInputStatus(status === "connected" ? "midi" : "stopped");
     }
+    sessionLog.add("midi", { estado: status, entradas: count, aparelhos: names });
+    reflectLibraryInput(status, names);
   },
 });
+
+const INPUT_MODE_KEY = "partitura-viva-input-mode";
+
+function loadInputMode() {
+  try {
+    return localStorage.getItem(INPUT_MODE_KEY) === "midi" ? "midi" : "microphone";
+  } catch {
+    return "microphone";
+  }
+}
+
+// A tela principal precisa dizer o que está ligado, e não só qual botão está
+// aceso: quem liga o cabo quer ver o nome do teclado aparecer.
+function reflectLibraryInput(status = null, names = []) {
+  const midi = state.inputMode === "midi";
+  byId("libraryMicrophoneButton").classList.toggle("active", !midi);
+  byId("libraryMicrophoneButton").setAttribute("aria-pressed", String(!midi));
+  byId("libraryMidiButton").classList.toggle("active", midi);
+  byId("libraryMidiButton").setAttribute("aria-pressed", String(midi));
+
+  const label = byId("libraryInputStatus");
+  if (!midi) {
+    delete label.dataset.state;
+    label.textContent = "Microfone · funciona com qualquer piano, sem cabo.";
+    return;
+  }
+  const conectados = names.length ? names : midiInput.deviceNames;
+  if (conectados.length) {
+    label.dataset.state = "conectado";
+    label.textContent = `${conectados.join(", ")} · conectado, sem erro de captação.`;
+    return;
+  }
+  label.dataset.state = status === "empty" ? "ausente" : "";
+  label.textContent = status === "empty"
+    ? "Nenhum teclado encontrado. Ligue o teclado e confira o cabo — no Android ele precisa de um cabo que ponha o celular como host."
+    : "MIDI · toque em MIDI outra vez depois de ligar o teclado.";
+}
 
 function showView(viewId) {
   state.currentView = viewId;
@@ -1609,6 +1648,12 @@ async function selectInputMode(mode) {
   byId("microphoneModeButton").classList.toggle("active", mode === "microphone");
   byId("midiModeButton").classList.toggle("active", mode === "midi");
   byId("levelBar").style.width = "0";
+  try {
+    localStorage.setItem(INPUT_MODE_KEY, mode);
+  } catch {
+    // A escolha continua valendo nesta visita mesmo sem persistência.
+  }
+  reflectLibraryInput();
 
   if (mode === "midi") {
     await onsetEngine.stop();
@@ -1620,6 +1665,7 @@ async function selectInputMode(mode) {
       state.inputMode = "microphone";
       byId("microphoneModeButton").classList.add("active");
       byId("midiModeButton").classList.remove("active");
+      reflectLibraryInput();
       toast(readableError(error));
       void preparePracticeInput();
     }
@@ -2809,6 +2855,8 @@ function reflectConnection() {
   badge.dataset.connection = offline ? "offline" : "online";
 }
 
+byId("libraryMicrophoneButton").addEventListener("click", () => void selectInputMode("microphone"));
+byId("libraryMidiButton").addEventListener("click", () => void selectInputMode("midi"));
 byId("downloadSessionLogButton").addEventListener("click", () => downloadSessionLog());
 byId("downloadSessionAudioButton").addEventListener("click", () => downloadSessionAudio());
 byId("diagnosticAudioToggle").addEventListener("change", (event) => {
@@ -2840,6 +2888,13 @@ window.addEventListener("offline", reflectConnection);
 reflectConnection();
 reflectLoopButtons();
 restorePanelPreferences();
+// A escolha da entrada é lembrada, mas a conexão MIDI não é refeita sozinha ao
+// abrir: `requestMIDIAccess` pede permissão, e um pedido logo na abertura, sem
+// o aluno ter tocado em nada, é o tipo de coisa que se recusa por reflexo.
+state.inputMode = loadInputMode();
+byId("microphoneModeButton").classList.toggle("active", state.inputMode === "microphone");
+byId("midiModeButton").classList.toggle("active", state.inputMode === "midi");
+reflectLibraryInput();
 setDiagnosticAudioPreference(loadDiagnosticAudioPreference(), { persist: false });
 setKeyboardVisible(loadKeyboardVisibility(), { persist: false });
 document.addEventListener("visibilitychange", () => {

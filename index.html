@@ -40,6 +40,22 @@
           </div>
         </div>
 
+        <section class="section-block input-card" aria-labelledby="inputCardTitle">
+          <div class="input-card-copy">
+            <p class="eyebrow">COMO O APP TE OUVE</p>
+            <h2 id="inputCardTitle">Entrada do instrumento</h2>
+            <p id="libraryInputStatus" aria-live="polite">Microfone · funciona com qualquer piano, sem cabo.</p>
+          </div>
+          <div id="libraryInputToggle" class="input-choice" role="group" aria-label="Entrada do instrumento">
+            <button id="libraryMicrophoneButton" class="choice-button active" type="button" aria-pressed="true">
+              <span aria-hidden="true">🎤</span> Microfone
+            </button>
+            <button id="libraryMidiButton" class="choice-button" type="button" aria-pressed="false">
+              <span aria-hidden="true">🎹</span> MIDI
+            </button>
+          </div>
+        </section>
+
         <details id="repertoirePanel" class="section-block library-folder">
           <summary>
             <span class="library-folder-icon" aria-hidden="true"></span>

@@ -460,3 +460,39 @@ test("o áudio de diagnóstico é opcional, desligado por padrão e lembrado", a
   await expect.poll(() => page.evaluate(() =>
     localStorage.getItem("partitura-viva-diagnostic-audio"))).toBe("false");
 });
+
+test("a escolha entre microfone e MIDI fica na tela principal e é lembrada", async ({ page }) => {
+  // Antes a escolha só existia dentro da tela de estudo, em dois botões de
+  // emoji. Quem liga o teclado quer decidir isso antes de abrir a peça.
+  await page.addInitScript(() => {
+    // Um teclado ligado, para a tela ter o que mostrar.
+    window.navigator.requestMIDIAccess = async () => ({
+      inputs: new Map([["0", { name: "Yamaha Digital Keyboard" }]]),
+      onstatechange: null,
+    });
+  });
+  await page.goto("/");
+
+  const status = page.locator("#libraryInputStatus");
+  await expect(page.locator("#libraryMicrophoneButton")).toHaveAttribute("aria-pressed", "true");
+  await expect(status).toContainText("sem cabo");
+
+  await page.locator("#libraryMidiButton").click();
+  await expect(page.locator("#libraryMidiButton")).toHaveAttribute("aria-pressed", "true");
+  // O nome do aparelho aparece: "conectado" sozinho não diz se quem respondeu
+  // foi o piano.
+  await expect(status).toContainText("Yamaha Digital Keyboard");
+
+  // A escolha sobrevive ao recarregamento e chega igual à tela de estudo.
+  await page.reload();
+  await expect(page.locator("#libraryMidiButton")).toHaveAttribute("aria-pressed", "true");
+  await page.locator("#rhythmPanel").evaluate((panel) => {
+    panel.open = true;
+  });
+  await page.locator(".rhythm-card button").first().click();
+  await expect(page.locator("#midiModeButton")).toHaveClass(/active/);
+
+  await page.locator("#leavePracticeButton").click();
+  await page.locator("#libraryMicrophoneButton").click();
+  await expect(status).toContainText("sem cabo");
+});

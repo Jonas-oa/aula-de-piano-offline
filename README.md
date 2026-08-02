@@ -30,6 +30,8 @@ Aplicativo web offline para estudar peças completas com a partitura aberta e re
   ponto e seleção de trecho A–B com repetição opcional, diretamente dentro da
   tela de estudo;
 - avaliação do tempo pelo microfone em partituras PDF, diretamente no navegador;
+- escolha entre **microfone** e **MIDI** na tela principal, com o nome do
+  teclado conectado à vista e a preferência lembrada entre sessões;
 - entrada Web MIDI para captar notas e acordes com maior precisão;
 - 24 exercícios rítmicos originais para duas mãos, sem fases ou bloqueios;
 - diário de cada sessão gravado no aparelho, com áudio diagnóstico opcional e
@@ -49,7 +51,14 @@ conversão de PDF.
 Com MusicXML, o motor acústico usa o evento esperado para reconhecer notas
 avulsas e acordes, incluindo notas ausentes e extras. Em PDF puro, onde as
 alturas não são conhecidas, o microfone continua avaliando somente os ataques
-rítmicos. MIDI permanece a opção de maior precisão em ambientes ruidosos.
+rítmicos. MIDI permanece a opção de maior precisão em ambientes ruidosos, e as duas
+entradas convivem: a escolha fica na tela principal e vale para o estudo
+seguinte, sem tirar nada do microfone.
+
+No Android, o teclado precisa de um cabo que ponha o celular como host — o
+mesmo cabo de carregar costuma servir quando liga na porta USB do instrumento.
+A permissão de MIDI só é pedida quando você escolhe MIDI, e não ao abrir o
+aplicativo. O Safari no iPhone não tem Web MIDI; ali só o microfone funciona.
 
 ## Como uma nota é validada
 
