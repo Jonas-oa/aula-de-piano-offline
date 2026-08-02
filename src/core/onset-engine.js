@@ -35,12 +35,38 @@ export class AdaptiveOnsetDetector {
     minAttackRise = 0.00035,
     floorMultiplier = 2.4,
     minimumIntervalMs = 82,
+    // Quanto o nível precisa superar o vale mais recente para valer como
+    // batida nova. Comparar com o quadro imediatamente anterior — como se fazia
+    // — não distingue nada: uma corda de piano não morre lisa, porque as três
+    // cordas da mesma tecla estão levemente desafinadas e batem entre si, e
+    // essa ondulação sozinha chegou a 1,71 numa sessão real enquanto o sinal
+    // caía quinze vezes. Cada ondulação virava um ataque, e o cursor andava
+    // quatro notas com uma tecla só.
+    //
+    // Contra o vale recente a diferença fica evidente: numa nota que decai, o
+    // menor valor dos últimos 150 ms é o próprio instante atual, então a razão
+    // fica em 1. As medidas que fixam o limiar:
+    //
+    //   ressonância pura, amostras reais do Salamander ....... até 1,14
+    //   ondulação do decaimento, sessão real num celular ..... até 1,71
+    //   toque fraco em sala barulhenta, no limite ............ 2,39
+    //   escala ligada tocada de verdade, Salamander .......... a partir de 4,63
+    //   toques reais da mesma sessão no celular .............. a partir de 4,42
+    //
+    // Fica acima de tudo que é ressonância e abaixo de tudo que é dedo. A folga
+    // menor é a de cima, contra o toque fraco em sala ruim: ali o aluno pode
+    // precisar repetir a nota. É a troca já assumida no projeto — esperar custa
+    // uma repetição, avançar errado estraga o resto do estudo.
+    minRiseOverRecentLow = 2,
+    recentLowWindowMs = 150,
   } = {}) {
     this.initialFloor = initialFloor;
     this.minAttackRms = minAttackRms;
     this.minAttackRise = minAttackRise;
     this.floorMultiplier = floorMultiplier;
     this.minimumIntervalMs = minimumIntervalMs;
+    this.minRiseOverRecentLow = minRiseOverRecentLow;
+    this.recentLowWindowMs = recentLowWindowMs;
     this.reset();
   }
 
@@ -48,11 +74,25 @@ export class AdaptiveOnsetDetector {
     this.floor = this.initialFloor;
     this.previousRms = 0;
     this.lastOnsetAt = -Infinity;
+    this.recentLevels = [];
+  }
+
+  // O menor nível da janela recente, antes de contar o quadro atual. A janela é
+  // medida em tempo, e não em número de quadros, para a decisão não mudar com a
+  // cadência de quem chama.
+  #recentLow(now) {
+    const recent = this.recentLevels;
+    while (recent.length && now - recent[0].at > this.recentLowWindowMs) recent.shift();
+    if (!recent.length) return null;
+    let low = Infinity;
+    for (const entry of recent) low = Math.min(low, entry.value);
+    return low;
   }
 
   process(rms, timestamp) {
     const level = Math.max(0, Number(rms) || 0);
     const now = Number(timestamp) || 0;
+    const recentLow = this.#recentLow(now);
     const quietCeiling = Math.max(this.minAttackRms * 1.25, this.floor * 1.8);
 
     if (level <= quietCeiling) {
@@ -70,10 +110,19 @@ export class AdaptiveOnsetDetector {
     const threshold = Math.max(this.minAttackRms, this.floor * this.floorMultiplier);
     const requiredRise = Math.max(this.minAttackRise, this.floor * 0.35);
     const relativeRise = level / Math.max(this.previousRms, this.floor, 0.0001);
+    // Enquanto a janela não encheu não há vale com que comparar; nesse começo
+    // vale a subida contra o piso, que é o caso de quem toca a primeira nota
+    // no silêncio.
+    // O vale é uma medida real do próprio sinal, então não precisa do piso como
+    // referência — e usá-lo penalizava justamente a sala barulhenta, onde o
+    // piso é alto e o toque fraco já tem pouca folga.
+    const riseOverRecentLow = recentLow === null
+      ? relativeRise
+      : level / Math.max(recentLow, 0.0001);
     const isAttack = (
       level > threshold
       && rise > requiredRise
-      && relativeRise > 1.08
+      && riseOverRecentLow > this.minRiseOverRecentLow
       && now - this.lastOnsetAt > this.minimumIntervalMs
     );
     const nearAttack = !isAttack
@@ -87,6 +136,7 @@ export class AdaptiveOnsetDetector {
 
     if (isAttack) this.lastOnsetAt = now;
     this.previousRms = level;
+    this.recentLevels.push({ at: now, value: level });
     return {
       isAttack,
       rms: level,
@@ -94,6 +144,7 @@ export class AdaptiveOnsetDetector {
       threshold,
       rise,
       relativeRise,
+      riseOverRecentLow,
       nearAttack,
       workable,
     };

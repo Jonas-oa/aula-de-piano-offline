@@ -8,6 +8,7 @@
     "build:neural": "node scripts/build-basic-pitch.mjs",
     "check:neural": "node scripts/build-basic-pitch.mjs --check",
     "check:neural:audio": "node --test tests/basic-pitch-audio.check.mjs",
+    "check:cascade": "node --test tests/harmonic-cascade.check.mjs",
     "test": "node --test",
     "test:e2e": "playwright test",
     "serve": "python3 -m http.server 8080"

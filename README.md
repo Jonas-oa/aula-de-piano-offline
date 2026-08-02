@@ -138,6 +138,19 @@ se destacar dentro do mesmo quadro e o cursor espera em vez de andar. Preferimos
 esperar: um avanço falso tira o cursor do lugar onde o aluno está e estraga o
 resto do estudo, enquanto uma nota não reconhecida apenas pede que ele repita.
 
+O que vale como ataque também mudou por medida. Comparar o nível com o quadro
+imediatamente anterior não distingue nada: uma corda de piano não morre lisa,
+porque as três cordas da mesma tecla estão levemente desafinadas e batem entre
+si. Numa sessão real essa ondulação chegou a 1,71 de subida enquanto o sinal
+caía quinze vezes, e o portão exigia apenas 1,08 — cada ondulação virava uma
+batida nova, e uma tecla só fazia o cursor andar quatro notas.
+
+O nível passa a ser comparado com o vale dos últimos 150 ms. Numa nota que
+decai, o menor valor recente é o próprio instante atual, então a razão fica em
+1; numa batida de verdade, o vale é o silêncio anterior ao dedo. A ressonância
+pura não passa de 1,14 nas amostras reais, e o toque mais fraco de uma escala
+ligada dá 4,63.
+
 Um ataque também tem prazo. Ele explica o áudio dos 700 ms seguintes, tempo de
 sobra para a nota preencher a janela de análise e ser confirmada. Sem esse
 prazo, qualquer ruído tomado por ataque deixava o portão aberto pelo resto do
@@ -154,6 +167,13 @@ uma escolha do aplicativo:
 - **uma nota dobrada na oitava pode passar despercebida.** Se a partitura pede
   Sol4 e Sol5 juntos, o harmônico natural do Sol4 já ocupa a região do Sol5, e
   a falta do agudo não é detectável. Nesses trechos, o MIDI dá a resposta certa;
+- **uma nota tocada na oitava acima de outra que ainda soa forte pode não ser
+  ouvida como nota nova.** O segundo harmônico da grave já ocupa a frequência da
+  aguda, então o nível total mal se mexe quando o dedo cai. O aplicativo prefere
+  esperar a avançar por engano: basta tocar a nota de novo, com a grave já mais
+  decaída, e o cursor anda. É o caso da abertura da Passacaglia, cujas primeiras
+  notas — Lá2, Lá3, Mi4, Lá4 — são justamente os harmônicos 1, 2, 3 e 4 do
+  próprio Lá2;
 - **a nota anterior continua soando.** Uma corda de piano vibra por segundos, e
   exigir silêncio antes de cada nota travaria qualquer melodia ligada. Por isso
   as alturas que o motor já aceitou não são cobradas como nota extra pelos
@@ -219,6 +239,7 @@ Abra `http://localhost:8080`. Microfone e MIDI exigem contexto seguro; `localhos
 npm test
 npm run check:neural
 npm run check:neural:audio
+npm run check:cascade
 npm run test:e2e
 ```
 
@@ -228,7 +249,9 @@ fabricadas, então eles verificam o portão de decisão, não o reconhecimento.
 build novo. `check:neural:audio` é o único que executa o modelo: ele sintetiza
 trechos com as amostras do Salamander e mede o que o Basic Pitch reconhece. Fica
 fora do `npm test` porque cada inferência custa alguns segundos na CPU.
-`test:e2e` usa Playwright para simular a tela de estudo em um celular
+`check:cascade` reproduz com as amostras reais a falha em que uma tecla só
+avançava quatro notas, e a contrapartida de que a melodia tocada de verdade
+continua avançando. `test:e2e` usa Playwright para simular a tela de estudo em um celular
 horizontal. No GitHub, `npm test` e `check:neural` rodam automaticamente antes
 da mesclagem.
 
