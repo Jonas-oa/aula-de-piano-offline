@@ -8,6 +8,12 @@ function fakeAccess(entradas = [{ name: "Yamaha Digital Keyboard" }]) {
   return { inputs, onstatechange: null };
 }
 
+function deferred() {
+  let resolve;
+  const promise = new Promise((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
 function comNavegador(valor, corpo) {
   const anterior = Object.getOwnPropertyDescriptor(globalThis, "navigator");
   Object.defineProperty(globalThis, "navigator", { configurable: true, value: valor });
@@ -121,4 +127,22 @@ test("desconectar solta as portas e não deixa nota atrasada entrar", async () =
     assert.equal(entrada.access, null);
   });
   assert.deepEqual(notas, []);
+});
+
+test("desconectar durante a permissão impede uma conexão MIDI atrasada", async () => {
+  const pedido = deferred();
+  const porta = { name: "Yamaha" };
+  const estados = [];
+  await comNavegador({ requestMIDIAccess: () => pedido.promise }, async () => {
+    const entrada = new MidiInput({ onStatus: (status) => estados.push(status) });
+    const conectando = entrada.connect();
+    entrada.disconnect();
+    pedido.resolve(fakeAccess([porta]));
+
+    assert.equal(await conectando, 0);
+    assert.equal(entrada.access, null);
+    assert.deepEqual(entrada.deviceNames, []);
+    assert.equal(porta.onmidimessage, undefined);
+    assert.deepEqual(estados, ["disconnected"]);
+  });
 });
