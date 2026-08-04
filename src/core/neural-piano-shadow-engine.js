@@ -343,6 +343,7 @@ export class NeuralPianoShadowEngine {
     this.loadingPromise = null;
     this.disposed = false;
     this.inferenceActive = false;
+    this.inferenceRequested = false;
     this.lastInferenceAt = -Infinity;
     this.expectedMidis = [];
     this.expectedArmedAt = null;
@@ -354,6 +355,7 @@ export class NeuralPianoShadowEngine {
     this.enabled = Boolean(enabled);
     this.resampler.reset();
     this.buffer.reset();
+    this.inferenceRequested = false;
     this.lastInferenceAt = -Infinity;
     if (!this.enabled) {
       this.onStatus("disabled");
@@ -363,33 +365,55 @@ export class NeuralPianoShadowEngine {
     // qualquer sessão seguinte para sempre.
     this.disposed = false;
 
-    if (!this.runtime) {
-      this.onStatus("loading");
-      this.loadingPromise ||= this.runtimeLoader();
-      try {
-        const runtime = await this.loadingPromise;
-        // O modelo carregado pertence à engine, não à chamada que o pediu.
-        // Parar e recomeçar durante o carregamento leva duas chamadas a esperar
-        // a mesma promessa: se a que perdeu a geração descartasse o modelo, a
-        // que venceu ficaria com um runtime morto e a primeira inferência
-        // derrubaria o motor neural pelo resto da sessão.
-        if (this.disposed) {
-          runtime.dispose?.();
-          return false;
-        }
-        this.runtime = runtime;
-        if (generation !== this.sequence || !this.enabled) return false;
-      } catch (error) {
-        if (generation !== this.sequence) return false;
-        this.enabled = false;
-        this.onStatus("error", error);
-        return false;
-      } finally {
-        this.loadingPromise = null;
-      }
+    try {
+      const runtime = await this.#loadRuntime();
+      if (!runtime || generation !== this.sequence || !this.enabled) return false;
+    } catch (error) {
+      if (generation !== this.sequence) return false;
+      this.enabled = false;
+      this.onStatus("error", error);
+      return false;
     }
     this.onStatus("warming", { progress: 0 });
     return true;
+  }
+
+  // Compila o modelo enquanto o aluno ainda está lendo a partitura. A captura
+  // PCM e as inferências continuam desligadas; portanto o pré-carregamento não
+  // usa o microfone nem ocupa CPU continuamente. Ao pressionar Iniciar, os
+  // shaders já estão prontos e o primeiro fallback não paga a espera observada
+  // de 2,4 a 6,4 segundos.
+  async preload() {
+    if (this.runtime) return true;
+    this.disposed = false;
+    try {
+      return Boolean(await this.#loadRuntime());
+    } catch (error) {
+      this.onStatus("error", error);
+      return false;
+    }
+  }
+
+  async #loadRuntime() {
+    if (this.runtime) return this.runtime;
+    if (!this.loadingPromise) {
+      const startedAt = this.clock();
+      this.onStatus("loading");
+      this.loadingPromise = this.runtimeLoader().then((runtime) => {
+        if (this.disposed) {
+          runtime.dispose?.();
+          return null;
+        }
+        this.runtime = runtime;
+        this.onStatus("ready", {
+          loadMs: Math.max(0, Math.round(this.clock() - startedAt)),
+        });
+        return runtime;
+      }).finally(() => {
+        this.loadingPromise = null;
+      });
+    }
+    return this.loadingPromise;
   }
 
   // O instante em que o cursor armou a nota delimita o áudio que pode
@@ -399,6 +423,15 @@ export class NeuralPianoShadowEngine {
   setExpected(midis = [], armedAt = this.clock()) {
     this.expectedMidis = [...new Set(midis)].filter(Number.isFinite);
     this.expectedArmedAt = Number.isFinite(armedAt) ? armedAt : null;
+    // Uma solicitação pertence ao evento que a criou. Se o acústico avançou
+    // antes de o fallback começar, a nota seguinte espera a própria demanda.
+    this.inferenceRequested = false;
+  }
+
+  requestInference() {
+    if (!this.enabled || this.inferenceActive || this.inferenceRequested) return false;
+    this.inferenceRequested = true;
+    return true;
   }
 
   pushPcm(samples, sampleRate) {
@@ -414,9 +447,11 @@ export class NeuralPianoShadowEngine {
 
     const now = this.clock();
     if (
-      this.inferenceActive
+      !this.inferenceRequested
+      || this.inferenceActive
       || now - this.lastInferenceAt < this.inferenceIntervalMs
     ) return;
+    this.inferenceRequested = false;
     this.lastInferenceAt = now;
     void this.#infer(this.sequence, now);
   }
@@ -462,6 +497,7 @@ export class NeuralPianoShadowEngine {
     this.runtime = null;
     this.loadingPromise = null;
     this.expectedArmedAt = null;
+    this.inferenceRequested = false;
     this.resampler.reset();
     this.buffer.reset();
     this.onStatus("disabled");
