@@ -159,6 +159,19 @@ test("a audição é controlada de dentro da tela de estudo", () => {
   assert.match(app, /addEventListener\("pointerdown", beginScoreGesture\)/);
 });
 
+test("o metrônomo fica junto das ações principais e acompanha o andamento", () => {
+  const app = fs.readFileSync(path.join(root, "src/app.js"), "utf8");
+  const html = fs.readFileSync(path.join(root, "index.html"), "utf8");
+
+  assert.match(
+    html,
+    /id="practicePrimaryActions"[\s\S]*id="startPracticeButton"[\s\S]*id="metronomeButton"/,
+  );
+  assert.match(html, /id="metronomeButton"[^>]*aria-pressed="false"/);
+  assert.match(app, /metronomeEngine\.setTempo\(bpm\)/);
+  assert.match(app, /metronomeEngine\.start\([\s\S]*beatsPerBar: currentBeatsPerBar\(\)/);
+});
+
 test("os modos e ações usam nomes que explicam o resultado", () => {
   const html = fs.readFileSync(path.join(root, "index.html"), "utf8");
 

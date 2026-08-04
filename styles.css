@@ -630,6 +630,14 @@ main { width: min(1160px, calc(100% - 28px)); margin: 0 auto; padding: 28px 0 48
 .document-controls { display: inline-flex; align-items: center; gap: 5px; }
 .pdf-options select { padding: 7px 9px; border-radius: 999px; border: 1px solid var(--line); background: white; font: inherit; font-size: .76rem; }
 .practice-start { background: var(--primary); color: #1a1400; }
+.metronome-toggle {
+  min-height: 38px; border-color: rgba(255,255,255,.3);
+  background: rgba(255,255,255,.1); color: #f4f1ea;
+}
+.metronome-toggle[aria-pressed="true"] {
+  border-color: var(--primary); background: #fff3bd; color: #4a3704;
+  box-shadow: 0 0 0 2px rgba(255,211,55,.18);
+}
 .playback-controls { display: inline-flex; align-items: center; gap: 7px; }
 .playback-start {
   min-width: 94px;
@@ -656,6 +664,7 @@ main { width: min(1160px, calc(100% - 28px)); margin: 0 auto; padding: 28px 0 48
   backdrop-filter: blur(8px);
 }
 .practice-primary-actions .practice-start,
+.practice-primary-actions .metronome-toggle,
 .practice-primary-actions .playback-start {
   min-width: 92px;
   min-height: 38px;
@@ -837,6 +846,7 @@ main { width: min(1160px, calc(100% - 28px)); margin: 0 auto; padding: 28px 0 48
   .practice-bottombar:not(.is-collapsed) { padding: 9px; }
   .practice-primary-actions { top: 5px; padding: 3px; }
   .practice-primary-actions .practice-start,
+  .practice-primary-actions .metronome-toggle,
   .practice-primary-actions .playback-start {
     min-width: 82px; min-height: 34px; padding: 5px 8px; font-size: .72rem;
   }

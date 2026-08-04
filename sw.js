@@ -1,4 +1,4 @@
-const CACHE_NAME = "partitura-viva-v1-145";
+const CACHE_NAME = "partitura-viva-v1-146";
 const PIANO_SAMPLE_SHELL = [
   "A0v10.mp3", "A1v10.mp3", "A2v10.mp3", "A3v10.mp3", "A4v10.mp3",
   "A5v10.mp3", "A6v10.mp3", "A7v10.mp3",
@@ -18,6 +18,7 @@ const APP_SHELL = [
   "./src/app.js",
   "./src/audio/pcm-capture-processor.js",
   "./src/core/library-store.js",
+  "./src/core/metronome-engine.js",
   "./src/core/music.js",
   "./src/core/musicxml.js",
   "./src/core/musicxml-file.js",

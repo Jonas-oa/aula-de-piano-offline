@@ -34,6 +34,7 @@ import {
 } from "./core/neural-piano-shadow-engine.js";
 import { PianoPlaybackEngine } from "./core/piano-playback-engine.js";
 import { PianoRecognitionEngine } from "./core/piano-recognition-engine.js";
+import { MetronomeEngine } from "./core/metronome-engine.js";
 import {
   createFollowState,
   currentEvent as currentFollowEvent,
@@ -118,6 +119,8 @@ const viewer = new DocumentViewer(byId("documentStage"), {
 });
 
 const pianoKeyboard = new PianoKeyboard(byId("pianoKeyboard"), byId("pianoHint"));
+
+const metronomeEngine = new MetronomeEngine();
 
 const playbackEngine = new PianoPlaybackEngine({
   onCursor(index) {
@@ -1172,6 +1175,7 @@ async function leavePracticeFullscreen() {
 
 async function openPractice(item) {
   enterPracticeFullscreen();
+  stopMetronome();
   await stopPractice({ showResult: false, keepInput: false });
   playbackEngine.stop({ preserveCursor: true });
   state.currentItem = item;
@@ -1600,6 +1604,7 @@ function originalTempo() {
 
 function reflectTempo(value) {
   const bpm = clampTempo(value, originalTempo());
+  metronomeEngine.setTempo(bpm);
   const percent = tempoPercent(bpm, originalTempo());
   byId("tempoSlider").value = String(bpm);
   byId("tempoOutput").value = String(bpm);
@@ -1611,6 +1616,7 @@ function reflectTempo(value) {
     `${bpm} BPM, ${percent}% do andamento original`,
   );
   byId("tempoChipButton").setAttribute("aria-label", `Ajustar andamento: ${bpm} BPM`);
+  reflectMetronomeButton();
   for (const button of document.querySelectorAll("[data-tempo-percent]")) {
     const presetBpm = tempoFromPercent(originalTempo(), button.dataset.tempoPercent);
     const active = presetBpm === bpm;
@@ -1642,6 +1648,41 @@ function changeTempoBy(delta) {
 
 function selectTempoPercent(percent) {
   return applyTempo(tempoFromPercent(originalTempo(), percent));
+}
+
+function reflectMetronomeButton() {
+  const button = byId("metronomeButton");
+  const bpm = metronomeEngine.bpm;
+  const active = metronomeEngine.isActive;
+  const label = active
+    ? `Desligar metrônomo em ${bpm} BPM`
+    : `Ligar metrônomo em ${bpm} BPM`;
+  button.setAttribute("aria-pressed", String(active));
+  button.setAttribute("aria-label", label);
+  button.title = label;
+}
+
+function stopMetronome() {
+  metronomeEngine.stop();
+  reflectMetronomeButton();
+}
+
+async function toggleMetronome() {
+  enterPracticeFullscreen();
+  if (metronomeEngine.isActive) {
+    stopMetronome();
+    return;
+  }
+  try {
+    await metronomeEngine.start({
+      bpm: Number(byId("tempoSlider").value),
+      beatsPerBar: currentBeatsPerBar(),
+    });
+    reflectMetronomeButton();
+  } catch (error) {
+    stopMetronome();
+    toast(`Não foi possível iniciar o metrônomo: ${readableError(error)}`);
+  }
 }
 
 const STAT_LABELS = {
@@ -2634,6 +2675,7 @@ function showPracticeResult() {
 
 async function leavePractice() {
   setTempoExpanded(false);
+  stopMetronome();
   playbackEngine.stop({ preserveCursor: true });
   // `stopPractice` já desligou a captura e a inferência. O modelo continua
   // carregado de propósito: descartá-lo aqui obrigava cada peça seguinte a
@@ -2894,6 +2936,7 @@ byId("rightHandButton").addEventListener("click", () => selectPracticeHand("righ
 byId("leftHandButton").addEventListener("click", () => selectPracticeHand("left"));
 byId("startPracticeButton").addEventListener("click", startPractice);
 byId("stopPracticeButton").addEventListener("click", () => stopPractice({ showResult: true }));
+byId("metronomeButton").addEventListener("click", toggleMetronome);
 byId("playbackToggleButton").addEventListener("click", togglePlayback);
 byId("playbackStopButton").addEventListener("click", stopPlayback);
 byId("tempoChipButton").addEventListener("click", () =>
