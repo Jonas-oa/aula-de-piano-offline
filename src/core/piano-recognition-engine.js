@@ -458,6 +458,10 @@ export class PianoRecognitionEngine {
       stableMatches: 0,
       stableWrongFrames: 0,
       hasAttack: !continuous,
+      // Uma nota fraca ainda pode ser reconhecida e avançar, mas não deve
+      // condenar o aluno se o espectro ficar inconclusivo. Só um ataque com
+      // nível suficiente autoriza a estatística de "nota errada".
+      workableAttack: !continuous,
       attackAt: continuous ? Number.POSITIVE_INFINITY : timestamp,
       wrongReported: false,
       best: null,
@@ -484,9 +488,13 @@ export class PianoRecognitionEngine {
   // tentativa nova e o motor esperaria a batida seguinte para reconhecer a nota
   // que o aluno acabou de tocar. Manter as duas etapas juntas aqui evita que
   // cada chamador precise lembrar da ordem.
-  armForAttack(expectedMidis, timestamp = performance.now()) {
+  armForAttack(
+    expectedMidis,
+    timestamp = performance.now(),
+    { workable = true } = {},
+  ) {
     if (!this.isArmedFor(expectedMidis)) this.armExpected(expectedMidis, timestamp);
-    this.noteAttack(timestamp);
+    this.noteAttack(timestamp, { workable });
     return this.attempt;
   }
 
@@ -496,9 +504,26 @@ export class PianoRecognitionEngine {
   // um ataque válido, os disparos seguintes são o mesmo golpe e não podem zerar
   // o progresso — zerando, um acorde nunca acumulava os dois quadros estáveis
   // de que precisa, e um erro isolado era contabilizado dezenas de vezes.
-  noteAttack(timestamp = performance.now()) {
-    if (!this.attempt || this.attempt.hasAttack) return;
+  noteAttack(timestamp = performance.now(), { workable = true } = {}) {
+    if (!this.attempt) return;
+    const strongEnough = workable !== false;
+    // O caso visto no celular começa com um precursor fraco e, dezenas de
+    // milissegundos depois, chega o golpe principal. O precursor pode abrir a
+    // escuta para um acerto, mas quando o golpe forte chega ele passa a ser a
+    // origem real da janela de erro. Sem esta promoção, a transição espectral
+    // era marcada como errada antes de a nota preencher o quadro de 170 ms.
+    if (this.attempt.hasAttack) {
+      if (!this.attempt.workableAttack && strongEnough) {
+        this.attempt.workableAttack = true;
+        this.attempt.attackAt = timestamp;
+        this.attempt.stableMatches = 0;
+        this.attempt.stableWrongFrames = 0;
+        this.attempt.wrongReported = false;
+      }
+      return;
+    }
     this.attempt.hasAttack = true;
+    this.attempt.workableAttack = strongEnough;
     this.attempt.attackAt = timestamp;
     this.attempt.waitForRelease = false;
     this.attempt.stableMatches = 0;
@@ -527,6 +552,12 @@ export class PianoRecognitionEngine {
         ignoreMidis: this.ringingMidis(attempt.expected, timestamp),
       },
     );
+    analysis.attackWorkable = attempt.workableAttack;
+    analysis.attackAgeMs = attempt.hasAttack
+      ? Math.max(0, timestamp - attempt.attackAt)
+      : null;
+    analysis.attackValidityMs = this.options.attackValidityMs;
+    analysis.resonanceWindowMs = this.options.resonanceWindowMs;
     if (attempt.waitForRelease) {
       if (analysis.status !== "match") {
         attempt.waitForRelease = false;
@@ -547,6 +578,7 @@ export class PianoRecognitionEngine {
       && timestamp - attempt.attackAt > this.options.attackValidityMs
     ) {
       attempt.hasAttack = false;
+      attempt.workableAttack = false;
       attempt.stableMatches = 0;
       attempt.stableWrongFrames = 0;
     }
@@ -588,6 +620,7 @@ export class PianoRecognitionEngine {
     }
     if (
       attempt.continuous
+      && attempt.workableAttack
       && !attempt.wrongReported
       && attempt.stableWrongFrames >= this.options.wrongFrames
       && timestamp - attempt.attackAt >= this.options.wrongGraceMs
