@@ -163,6 +163,19 @@ const neuralUiState = {
   lastAdvanceToken: null,
   activationPromise: null,
   activationGeneration: 0,
+  loadMs: null,
+  requests: 0,
+  latencies: [],
+};
+
+const performanceDiagnostics = {
+  observer: null,
+  longTaskSupported: false,
+  longTaskCount: 0,
+  longTaskTotalMs: 0,
+  longestTaskMs: 0,
+  lastPcmFrame: null,
+  droppedPcmFrames: 0,
 };
 
 const neuralShadowEngine = new NeuralPianoShadowEngine({
@@ -174,8 +187,10 @@ const onsetEngine = new OnsetEngine({
   onOnset: (timestamp) => handleOnset(timestamp, null),
   onSamples: (samples, sampleRate, timestamp) =>
     handlePitchSamples(samples, sampleRate, timestamp),
-  onPcmChunk: (samples, sampleRate) =>
-    neuralShadowEngine.pushPcm(samples, sampleRate),
+  onPcmChunk: (samples, sampleRate, frame) => {
+    recordPcmFrame(frame, samples.length);
+    neuralShadowEngine.pushPcm(samples, sampleRate);
+  },
   onPcmStatus: (status, error) => reflectNeuralCaptureStatus(status, error),
   onLevel: (level) => {
     byId("levelBar").style.width = `${Math.round(level * 100)}%`;
@@ -1223,6 +1238,13 @@ async function openPractice(item) {
     applyPracticeModeAvailability();
     applyPracticeHandAvailability();
     applyPieceControls();
+    if (
+      state.currentEvents?.length
+      && state.inputMode === "microphone"
+      && state.practiceMode === "teacher"
+    ) {
+      void neuralShadowEngine.preload();
+    }
   } catch (error) {
     byId("documentStage").innerHTML = `<div class="loading-state">${escapeHtml(readableError(error))}</div>`;
     toast(readableError(error));
@@ -1692,6 +1714,9 @@ async function selectInputMode(mode) {
     persistInputMode("microphone");
     midiInput.disconnect();
     void preparePracticeInput();
+    if (state.currentEvents?.length && state.practiceMode === "teacher") {
+      void neuralShadowEngine.preload();
+    }
   }
 }
 
@@ -1794,10 +1819,81 @@ async function stopDiagnosticAudioCapture() {
   return asset;
 }
 
+function startPerformanceDiagnostics() {
+  neuralUiState.requests = 0;
+  neuralUiState.latencies = [];
+  performanceDiagnostics.observer?.disconnect();
+  performanceDiagnostics.observer = null;
+  performanceDiagnostics.longTaskSupported = false;
+  performanceDiagnostics.longTaskCount = 0;
+  performanceDiagnostics.longTaskTotalMs = 0;
+  performanceDiagnostics.longestTaskMs = 0;
+  performanceDiagnostics.lastPcmFrame = null;
+  performanceDiagnostics.droppedPcmFrames = 0;
+
+  if (
+    typeof PerformanceObserver !== "function"
+    || !PerformanceObserver.supportedEntryTypes?.includes("longtask")
+  ) return;
+  performanceDiagnostics.longTaskSupported = true;
+  try {
+    performanceDiagnostics.observer = new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) {
+        performanceDiagnostics.longTaskCount += 1;
+        performanceDiagnostics.longTaskTotalMs += entry.duration;
+        performanceDiagnostics.longestTaskMs = Math.max(
+          performanceDiagnostics.longestTaskMs,
+          entry.duration,
+        );
+      }
+    });
+    performanceDiagnostics.observer.observe({ entryTypes: ["longtask"] });
+  } catch {
+    performanceDiagnostics.longTaskSupported = false;
+    performanceDiagnostics.observer = null;
+  }
+}
+
+function recordPcmFrame(frame, chunkLength) {
+  if (!Number.isFinite(frame) || !Number.isFinite(chunkLength)) return;
+  if (performanceDiagnostics.lastPcmFrame !== null) {
+    const gap = frame - performanceDiagnostics.lastPcmFrame - chunkLength;
+    if (gap > 0) performanceDiagnostics.droppedPcmFrames += gap;
+  }
+  performanceDiagnostics.lastPcmFrame = frame;
+}
+
+function percentile(values, ratio) {
+  const sorted = values.filter(Number.isFinite).sort((left, right) => left - right);
+  if (!sorted.length) return null;
+  return sorted[Math.min(sorted.length - 1, Math.floor((sorted.length - 1) * ratio))];
+}
+
+function finishPerformanceDiagnostics() {
+  performanceDiagnostics.observer?.disconnect();
+  performanceDiagnostics.observer = null;
+  return {
+    tarefasLongasSuportadas: performanceDiagnostics.longTaskSupported,
+    tarefasLongas: performanceDiagnostics.longTaskCount,
+    tempoEmTarefasLongasMs: Math.round(performanceDiagnostics.longTaskTotalMs),
+    maiorTarefaLongaMs: Math.round(performanceDiagnostics.longestTaskMs),
+    quadrosPcmPerdidos: performanceDiagnostics.droppedPcmFrames,
+    solicitacoesNeurais: neuralUiState.requests,
+    inferenciasNeurais: neuralUiState.latencies.length,
+    carregamentoNeuralMs: neuralUiState.loadMs,
+    latenciaNeuralMedianaMs: percentile(neuralUiState.latencies, 0.5),
+    latenciaNeuralP95Ms: percentile(neuralUiState.latencies, 0.95),
+    latenciaNeuralMaximaMs: neuralUiState.latencies.length
+      ? Math.max(...neuralUiState.latencies)
+      : null,
+  };
+}
+
 // Tudo o que é preciso saber para reproduzir a sessão sem ter estado nela: a
 // peça, o trecho, como o aluno estava ouvindo e o que o aparelho oferece.
 function beginSessionLog(events = []) {
   state.currentExpectedArmedAt = null;
+  startPerformanceDiagnostics();
   sessionLog.start({
     build: "apurando",
     peca: state.currentItem?.title,
@@ -1814,12 +1910,18 @@ function beginSessionLog(events = []) {
     repeticoes: state.loop.count || 0,
     bpm: Number(byId("tempoSlider")?.value) || null,
     taxaDeAmostragem: onsetEngine.context?.sampleRate || null,
+    latenciaBaseAudioMs: Number.isFinite(onsetEngine.context?.baseLatency)
+      ? onsetEngine.context.baseLatency * 1000
+      : null,
+    latenciaSaidaAudioMs: Number.isFinite(onsetEngine.context?.outputLatency)
+      ? onsetEngine.context.outputLatency * 1000
+      : null,
     audioDiagnosticoSolicitado: byId("diagnosticAudioToggle").checked,
     validacao: {
       altura: "nota-esperada-da-partitura",
       intensidade: "rms-versus-piso-adaptativo",
       ruido: "proeminencia-tonal-e-notas-extras",
-      ataque: "subida-absoluta-e-relativa",
+      ataque: "subida-sobre-vale-e-qualidade-do-sinal",
       tempo: state.practiceMode === "teacher"
         ? "ordem-da-partitura-sem-prazo"
         : "grade-ritmica-do-bpm",
@@ -1938,6 +2040,18 @@ async function startTempoPractice() {
   }, countBeats * beatMs + 120));
 }
 
+function requestNeuralFallback(reason) {
+  if (!neuralUiState.advanceEnabled) return false;
+  const requested = neuralShadowEngine.requestInference();
+  if (!requested) return false;
+  neuralUiState.requests += 1;
+  sessionLog.add("neuralSolicitacao", {
+    motivo: reason,
+    ...currentExpectedDiagnostic(performance.now()),
+  });
+  return true;
+}
+
 function handleOnset(timestamp, midi) {
   if (!state.practiceActive) return;
 
@@ -1965,7 +2079,10 @@ function handleOnset(timestamp, midi) {
         handleFollowResult(forceFollowAdvance(state.follow));
         return;
       }
-      pianoRecognition.armForAttack(expected, timestamp);
+      pianoRecognition.armForAttack(expected, timestamp, {
+        workable: diagnostic?.workable,
+      });
+      requestNeuralFallback(diagnostic?.workable ? "ataque-suficiente" : "ataque-fraco");
       return;
     }
     handleFollowOnset(midi);
@@ -2097,6 +2214,7 @@ function logAcousticFrame(type, analysis, { throttleMs = 0, timestamp = null } =
     validadeDoAtaqueMs: analysis.attackValidityMs,
     janelaDeRessonanciaMs: analysis.resonanceWindowMs,
     esperandoAtaque: analysis.waitingForAttack || undefined,
+    ataqueComSinalSuficiente: analysis.attackWorkable,
     esperandoSoltura: analysis.waitingForRelease || undefined,
     ...currentExpectedDiagnostic(timestamp),
   };
@@ -2138,6 +2256,19 @@ function handlePitchSamples(samples, sampleRate, timestamp) {
   // arquivo; registrar nenhum esconderia justamente o caso de quem toca e não
   // é reconhecido — é aqui que se vê a nota chegando perto e não passando.
   logAcousticFrame("espera", analysis, { throttleMs: 500, timestamp });
+
+  if (analysis.waitingForAttack && analysis.status === "match") {
+    requestNeuralFallback("nota-ouvida-sem-ataque");
+  } else if (
+    analysis.attackWorkable
+    && analysis.attackAgeMs >= 250
+    && analysis.attackAgeMs <= analysis.attackValidityMs
+  ) {
+    // Uma segunda tentativa neural cobre a cadência real do modelo sem deixá-lo
+    // rodando continuamente entre as notas. O próprio motor limita o intervalo
+    // e recusa solicitações enquanto uma inferência já está em andamento.
+    requestNeuralFallback("acustico-ainda-pendente");
+  }
 
   if (analysis.status === "incomplete") {
     setFeedback("early", "QUASE", "Complete o acorde", `Falta: ${expectedNoteLabel(analysis.missing)}`);
@@ -2360,6 +2491,7 @@ async function stopPractice({ showResult = true, keepInput = true } = {}) {
 // já aconteceu — por isso salva sempre, sem perguntar.
 async function closeSessionLog(audioAsset = null) {
   if (!sessionLog.active) return null;
+  const desempenho = finishPerformanceDiagnostics();
   const { done, total } = state.follow ? followProgress(state.follow) : { done: 0, total: 0 };
   const rhythm = summarizeAttempts(state.attempts, state.exactMode ? state.missed : 0);
   const loggedAttacks = sessionLog.entries.filter(({ type }) => type === "ataque");
@@ -2374,6 +2506,7 @@ async function closeSessionLog(audioAsset = null) {
     naoDetectados: rhythm.missed,
     precisaoRitmica: rhythm.accuracy,
     repeticoes: state.loop.count || 0,
+    desempenho,
   });
 
   const audio = audioAsset ? {
@@ -2519,10 +2652,14 @@ function resetNeuralSession() {
   neuralUiState.activationPromise = null;
   neuralUiState.activationGeneration += 1;
   neuralUiState.lastLoggedStatus = null;
+  neuralUiState.loadMs = null;
+  neuralUiState.requests = 0;
+  neuralUiState.latencies = [];
 }
 
 function reflectNeuralStatus(status, detail = {}) {
   neuralUiState.modelStatus = status;
+  if (Number.isFinite(detail?.loadMs)) neuralUiState.loadMs = detail.loadMs;
   // O aquecimento reporta progresso a cada bloco de áudio; só o que muda de
   // estado interessa ao diário.
   if (status !== "warming" && status !== neuralUiState.lastLoggedStatus) {
@@ -2556,6 +2693,7 @@ function maybeAdvanceWithNeural(result) {
     && state.follow
   );
   if (!eligible) return false;
+  if (Number.isFinite(result?.latencyMs)) neuralUiState.latencies.push(result.latencyMs);
 
   const currentExpected = currentFollowEvent(state.follow)?.midis || [];
   const eventIndex = state.follow?.index;
