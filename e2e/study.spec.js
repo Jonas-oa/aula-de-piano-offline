@@ -35,6 +35,7 @@ test("modo de estudo permanece legível e utilizável em celular horizontal", as
   await expect(practice).toHaveClass(/active/);
   await expect(page.locator("#documentStage svg[data-score-key]")).toBeVisible();
   await expect(page.locator("#startPracticeButton")).toBeVisible();
+  await expect(page.locator("#metronomeButton")).toBeVisible();
   await expect(page.locator("#playbackToggleButton")).toBeVisible();
   await expect(page.locator(".bass-clef-symbol")).toHaveText("𝄢");
   await expect(page.locator("#inputStatus")).toHaveAttribute("data-status", "active");
@@ -61,6 +62,7 @@ test("modo de estudo permanece legível e utilizável em celular horizontal", as
 
   const actionBoxes = await Promise.all([
     page.locator("#startPracticeButton").boundingBox(),
+    page.locator("#metronomeButton").boundingBox(),
     page.locator("#playbackToggleButton").boundingBox(),
   ]);
   for (const box of actionBoxes) {
@@ -79,6 +81,13 @@ test("modo de estudo permanece legível e utilizável em celular horizontal", as
   await page.locator("#bottombarToggleButton").click();
   await page.locator("#topbarToggleButton").click();
   await expect(page.locator("#tempoChipButton")).toBeVisible();
+
+  await page.locator("#metronomeButton").click();
+  await expect(page.locator("#metronomeButton")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("#metronomeButton")).toHaveAttribute(
+    "aria-label",
+    "Desligar metrônomo em 64 BPM",
+  );
 
   const noteXs = await page.locator(".score-event").evaluateAll((events) =>
     events.slice(0, 10).map((event) => {
@@ -110,10 +119,16 @@ test("modo de estudo permanece legível e utilizável em celular horizontal", as
   await page.locator("#tempoIncreaseButton").click();
   await expect(page.locator("#tempoOutput")).toHaveText("53");
   await expect(page.locator("#tempoPercentOutput")).toHaveText("83%");
+  await expect(page.locator("#metronomeButton")).toHaveAttribute(
+    "aria-label",
+    "Desligar metrônomo em 53 BPM",
+  );
 
   await page.locator("#tempoResetButton").click();
   await expect(page.locator("#tempoOutput")).toHaveText("64");
   await expect(page.locator("[data-tempo-percent='100']")).toHaveAttribute("aria-pressed", "true");
+  await page.locator("#metronomeButton").click();
+  await expect(page.locator("#metronomeButton")).toHaveAttribute("aria-pressed", "false");
 });
 
 test("renderizador une colcheias e semicolcheias indicadas pelo MusicXML", async ({ page }) => {
