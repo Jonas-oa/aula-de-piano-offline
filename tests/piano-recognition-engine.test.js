@@ -232,6 +232,40 @@ test("escuta contínua exige ataque novo e contabiliza um erro por ataque", () =
   assert.equal(engine.process(correct, SAMPLE_RATE, 280).outcome, "match");
 });
 
+test("ataque fraco pode acertar, mas nunca vira erro do aluno", () => {
+  const engine = new PianoRecognitionEngine({ analysisIntervalMs: 0 });
+  const correct = pianoSignal([60]);
+  const wrong = pianoSignal([62]);
+
+  engine.armExpected([60], 0);
+  engine.noteAttack(10, { workable: false });
+  assert.equal(engine.process(wrong, SAMPLE_RATE, 40).outcome, "pending");
+  assert.equal(engine.process(wrong, SAMPLE_RATE, 220).outcome, "pending");
+  assert.equal(
+    engine.process(correct, SAMPLE_RATE, 260).outcome,
+    "match",
+    "uma altura clara continua podendo salvar uma captação fraca",
+  );
+});
+
+test("golpe forte depois do precursor fraco reinicia a janela de erro", () => {
+  const engine = new PianoRecognitionEngine({ analysisIntervalMs: 0 });
+  const correct = pianoSignal([64]);
+  const transition = pianoSignal([63]);
+
+  engine.armExpected([64], 0);
+  engine.noteAttack(10, { workable: false });
+  engine.process(transition, SAMPLE_RATE, 40);
+  engine.noteAttack(100, { workable: true });
+
+  assert.equal(
+    engine.process(transition, SAMPLE_RATE, 180).outcome,
+    "pending",
+    "80 ms depois do golpe principal ainda é a transição da janela",
+  );
+  assert.equal(engine.process(correct, SAMPLE_RATE, 260).outcome, "match");
+});
+
 test("um ataque não autoriza o avanço para sempre", () => {
   // Sem prazo, um ruído qualquer tomado por ataque deixava o portão aberto pelo
   // resto do evento: o motor voltava a tentar a cada quadro e bastava um único

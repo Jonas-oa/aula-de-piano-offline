@@ -250,6 +250,7 @@ test("a janela analisada acompanha o instante em que o cursor armou a nota", asy
   // A nota foi armada 600 ms atrás: tudo o que soou desde então precisa entrar
   // na conta, e não apenas os últimos 139 ms do buffer.
   engine.setExpected([69], -600);
+  engine.requestInference();
   engine.pushPcm(new Float32Array(50_000), 22_050);
   await nextTurn();
 
@@ -257,6 +258,59 @@ test("a janela analisada acompanha o instante em que o cursor armou a nota", asy
   assert.equal(results[0].endFrame, 157);
   assert.equal(results[0].startFrame, 99);
   assert.ok(results[0].analyzedFrames * (256 / 22.05) > 600);
+});
+
+test("pré-carregamento prepara o modelo sem ligar captura nem inferência", async () => {
+  let loads = 0;
+  let inferCalls = 0;
+  const statuses = [];
+  const engine = new NeuralPianoShadowEngine({
+    clock: () => 125,
+    runtimeLoader: async () => {
+      loads += 1;
+      return {
+        infer: async () => {
+          inferCalls += 1;
+          return fakeModelOutput();
+        },
+        dispose() {},
+      };
+    },
+    onStatus: (status) => statuses.push(status),
+  });
+
+  assert.equal(await engine.preload(), true);
+  assert.equal(await engine.preload(), true);
+  assert.equal(loads, 1);
+  assert.equal(engine.enabled, false);
+  assert.equal(inferCalls, 0);
+  assert.deepEqual(statuses, ["loading", "ready"]);
+});
+
+test("modelo neural só infere quando o acústico pede fallback", async () => {
+  let inferCalls = 0;
+  const engine = new NeuralPianoShadowEngine({
+    clock: () => 0,
+    inferenceIntervalMs: 0,
+    runtimeLoader: async () => ({
+      infer: async () => {
+        inferCalls += 1;
+        return fakeModelOutput({ active: [{ midi: 69, frame: 0.9, onset: 0.8 }] });
+      },
+      dispose() {},
+    }),
+  });
+
+  assert.equal(await engine.setEnabled(true), true);
+  engine.setExpected([69]);
+  engine.pushPcm(new Float32Array(50_000), 22_050);
+  await nextTurn();
+  assert.equal(inferCalls, 0, "encher o buffer sozinho não deve gastar inferência");
+
+  assert.equal(engine.requestInference(), true);
+  engine.pushPcm(new Float32Array(2048), 22_050);
+  await nextTurn();
+  assert.equal(inferCalls, 1);
 });
 
 test("parar e recomeçar durante o carregamento não deixa o modelo morto", async () => {
@@ -314,6 +368,7 @@ test("modelo é descartado quando a inferência falha, para a sessão seguinte r
 
   assert.equal(await engine.setEnabled(true), true);
   engine.setExpected([69]);
+  engine.requestInference();
   engine.pushPcm(new Float32Array(50_000), 22_050);
   await nextTurn();
 
@@ -349,6 +404,7 @@ test("modo sombra espera dois segundos e nunca sobrepõe inferências", async ()
 
   assert.equal(await engine.setEnabled(true), true);
   engine.setExpected([69]);
+  engine.requestInference();
   engine.pushPcm(new Float32Array(20_000), 22_050);
   assert.equal(inferCalls, 0);
   assert.equal(statuses.at(-1), "warming");
