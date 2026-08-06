@@ -189,8 +189,20 @@ const neuralShadowEngine = new NeuralPianoShadowEngine({
   onResult: (result) => maybeAdvanceWithNeural(result),
 });
 
+const MICROPHONE_REARM_GUARD_MS = 110;
+
 const onsetEngine = new OnsetEngine({
   onOnset: (timestamp) => handleOnset(timestamp, null),
+  onSuppressedOnset: (timestamp, diagnostic) => {
+    sessionLog.add("ataqueIgnorado", {
+      motivo: "rearme-curto-do-cursor",
+      restanteMs: Math.max(0, diagnostic.suppressedUntil - timestamp),
+      rms: diagnostic.rms,
+      subida: diagnostic.rise,
+      subidaSobreVale: diagnostic.riseOverRecentLow,
+      ...currentExpectedDiagnostic(timestamp),
+    });
+  },
   onSamples: (samples, sampleRate, timestamp) =>
     handlePitchSamples(samples, sampleRate, timestamp),
   onPcmChunk: (samples, sampleRate, frame) => {
@@ -2395,6 +2407,9 @@ function handleFollowResult(result) {
   // advance ou complete
   state.followStats.correct += 1;
   appendAttemptDot("on-time");
+  if (state.inputMode === "microphone") {
+    onsetEngine.suppressOnsetsFor(MICROPHONE_REARM_GUARD_MS);
+  }
 
   // A lista do acompanhamento já contém somente o trecho e a mão escolhidos.
   // Quando a repetição está ligada, concluir essa lista volta ao seu início.
