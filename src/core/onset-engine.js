@@ -74,7 +74,18 @@ export class AdaptiveOnsetDetector {
     this.floor = this.initialFloor;
     this.previousRms = 0;
     this.lastOnsetAt = -Infinity;
+    this.suppressedUntil = -Infinity;
     this.recentLevels = [];
+  }
+
+  // Depois que o cursor aceita uma nota, o pico principal do mesmo golpe ainda
+  // pode chegar ao analisador. Essa cauda não é um novo toque e fica silenciada
+  // por uma janela curta, sem impedir ataques reais posteriores.
+  suppressFor(durationMs, timestamp = performance.now()) {
+    const start = Number(timestamp) || 0;
+    const duration = Math.max(0, Number(durationMs) || 0);
+    this.suppressedUntil = Math.max(this.suppressedUntil, start + duration);
+    return this.suppressedUntil;
   }
 
   // O menor nível da janela recente, antes de contar o quadro atual. A janela é
@@ -119,13 +130,15 @@ export class AdaptiveOnsetDetector {
     const riseOverRecentLow = recentLow === null
       ? relativeRise
       : level / Math.max(recentLow, 0.0001);
-    const isAttack = (
+    const attackCandidate = (
       level > threshold
       && rise > requiredRise
       && riseOverRecentLow > this.minRiseOverRecentLow
       && now - this.lastOnsetAt > this.minimumIntervalMs
     );
-    const nearAttack = !isAttack
+    const suppressedAttack = attackCandidate && now < this.suppressedUntil;
+    const isAttack = attackCandidate && !suppressedAttack;
+    const nearAttack = !attackCandidate
       && level >= threshold * 0.65
       && rise > Math.max(0.0005, this.floor * 0.18)
       && now - this.lastOnsetAt > this.minimumIntervalMs;
@@ -134,11 +147,15 @@ export class AdaptiveOnsetDetector {
     // que o problema é a captação, não a execução dele.
     const workable = level >= threshold * 2.5;
 
-    if (isAttack) this.lastOnsetAt = now;
+    // Mesmo o candidato suprimido reinicia o intervalo do detector. Assim os
+    // quadros seguintes do mesmo pico não reaparecem quando a guarda terminar.
+    if (attackCandidate) this.lastOnsetAt = now;
     this.previousRms = level;
     this.recentLevels.push({ at: now, value: level });
     return {
       isAttack,
+      suppressedAttack,
+      suppressedUntil: this.suppressedUntil,
       rms: level,
       floor: this.floor,
       threshold,
@@ -154,6 +171,7 @@ export class AdaptiveOnsetDetector {
 export class OnsetEngine {
   constructor({
     onOnset,
+    onSuppressedOnset,
     onLevel,
     onSamples,
     onPcmChunk,
@@ -162,6 +180,7 @@ export class OnsetEngine {
     onStatus,
   } = {}) {
     this.onOnset = onOnset || (() => {});
+    this.onSuppressedOnset = onSuppressedOnset || (() => {});
     this.onLevel = onLevel || (() => {});
     this.onSamples = onSamples || (() => {});
     this.onPcmChunk = onPcmChunk || (() => {});
@@ -403,6 +422,10 @@ export class OnsetEngine {
     return performance.now() - this.lastWorkableAt <= withinMs;
   }
 
+  suppressOnsetsFor(durationMs, timestamp = performance.now()) {
+    return this.detector.suppressFor(durationMs, timestamp);
+  }
+
   // A cadência é própria, e não a da tela. Com requestAnimationFrame a escuta
   // parava junto com o desenho — justamente quando o aparelho fica apoiado no
   // piano, com a tela escurecendo — e variava entre telas de 60 e 120 Hz.
@@ -424,7 +447,9 @@ export class OnsetEngine {
       this.onLevel(Math.min(1, rms / Math.max(onset.threshold * 4, 0.005)));
     }
     this.onSamples(this.buffer, this.context.sampleRate, now);
-    if (onset.isAttack) {
+    if (onset.suppressedAttack) {
+      this.onSuppressedOnset(now, onset);
+    } else if (onset.isAttack) {
       this.onOnset(now);
     }
 
