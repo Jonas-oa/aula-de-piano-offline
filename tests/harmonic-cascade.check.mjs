@@ -54,7 +54,10 @@ function tocar(audio, partitura, { ateMs }) {
     const analise = recognition.process(quadro, SOURCE_SAMPLE_RATE, ms);
     if (analise?.outcome === "match" || analise?.outcome === "wrong") {
       const resultado = registerChord(follow, analise.detected);
-      if (resultado.type === "advance" || resultado.type === "complete") armar(ms);
+      if (resultado.type === "advance" || resultado.type === "complete") {
+        detector.suppressFor(110, ms);
+        armar(ms);
+      }
     }
     if (onset.isAttack) {
       const esperado = currentEvent(follow)?.midis || [];

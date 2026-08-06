@@ -282,4 +282,27 @@ test("reiniciar o detector descarta a sensibilidade contaminada da sessão anter
   assert.equal(detector.floor, detector.initialFloor);
   assert.equal(detector.previousRms, 0);
   assert.equal(detector.lastOnsetAt, -Infinity);
+  assert.equal(detector.suppressedUntil, -Infinity);
+});
+
+test("rearme curto absorve o segundo pico do mesmo ataque", () => {
+  const detector = new AdaptiveOnsetDetector();
+  for (let ms = 0; ms <= 84; ms += 12) detector.process(0.0004, ms);
+
+  assert.equal(detector.process(0.0069, 100).isAttack, true);
+  // O mesmo golpe continua crescendo, mas ainda está dentro do intervalo
+  // mínimo. O cursor aceita a nota em seguida e arma a guarda do próximo evento.
+  assert.equal(detector.process(0.038, 160).isAttack, false);
+  detector.process(0.037, 196);
+  detector.suppressFor(110, 196);
+
+  const duplicate = detector.process(0.04, 197);
+  assert.equal(duplicate.isAttack, false);
+  assert.equal(duplicate.suppressedAttack, true);
+
+  // Depois de cair e ultrapassar a guarda, um toque real continua passando.
+  detector.process(0.005, 330);
+  const nextNote = detector.process(0.03, 350);
+  assert.equal(nextNote.isAttack, true);
+  assert.equal(nextNote.suppressedAttack, false);
 });
