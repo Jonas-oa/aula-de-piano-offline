@@ -58,10 +58,13 @@ import {
   tempoPercent,
 } from "./core/tempo-control.js";
 import {
+  activateSelectedPracticeRange,
   availablePracticeHands,
+  hasSelectedPracticeRange,
   normalizeMeasureRange,
   notesForPracticeHand,
   selectedPracticeEvents,
+  shouldRepeatPracticeRange,
 } from "./core/practice-selection.js";
 import { DocumentViewer } from "./ui/document-viewer.js";
 import { PianoKeyboard } from "./ui/piano-keyboard.js";
@@ -936,6 +939,7 @@ function setLoopFromGesture(anchor, focus) {
   state.loop.a = range.a;
   state.loop.b = range.b;
   state.loop.count = 0;
+  activateSelectedPracticeRange(state.loop);
   refreshLoop();
 }
 
@@ -946,6 +950,7 @@ function updateLoopHandle(point, index) {
   state.loop.a = range.a;
   state.loop.b = range.b;
   state.loop.count = 0;
+  activateSelectedPracticeRange(state.loop);
   refreshLoop();
 }
 
@@ -1078,7 +1083,7 @@ function endScoreGesture(event, { cancelled = false } = {}) {
   }
   if (!cancelled && (gesture.mode === "loop-range" || gesture.mode === "loop-handle")) {
     reflectLoopButtons();
-    toast(`Trecho selecionado: ${selectedMeasureLabel()}.`);
+    toast(`Trecho selecionado: ${selectedMeasureLabel()}. Repetição ligada.`);
   }
   scoreGesture = null;
 }
@@ -1100,6 +1105,7 @@ function markLoop(point) {
     const range = normalizeMeasureRange(state.currentScore.notes, state.loop.a, state.loop.b);
     state.loop.a = range.a;
     state.loop.b = range.b;
+    activateSelectedPracticeRange(state.loop);
   }
   if (playbackEngine.isActive) {
     playbackEngine.stop({ preserveCursor: true });
@@ -1107,7 +1113,7 @@ function markLoop(point) {
   refreshLoop();
   toast(point === "a"
     ? `Início selecionado: ${selectedMeasureLabel()}.`
-    : `Fim selecionado: ${selectedMeasureLabel()}.`);
+    : `Fim selecionado: ${selectedMeasureLabel()}. Repetição ligada.`);
 }
 
 function clearLoop() {
@@ -1374,7 +1380,7 @@ function applyPieceControls() {
 
 function selectedPlaybackBounds() {
   const total = state.currentEvents?.length || 0;
-  const hasRegion = state.loop.a != null && state.loop.b != null;
+  const hasRegion = hasSelectedPracticeRange(state.loop);
   return {
     startIndex: hasRegion ? state.loop.a : state.viewIndex,
     endIndex: hasRegion ? state.loop.b : Math.max(0, total - 1),
@@ -1945,7 +1951,7 @@ function beginSessionLog(events = []) {
     mao: state.practiceHand,
     entrada: state.inputMode,
     eventos: events.length,
-    trecho: state.loop.active && state.loop.a !== null
+    trecho: hasSelectedPracticeRange(state.loop)
       ? `notas ${state.loop.a}–${state.loop.b}`
       : "peça inteira",
     repeticoes: state.loop.count || 0,
@@ -2393,9 +2399,7 @@ function handleFollowResult(result) {
   // A lista do acompanhamento já contém somente o trecho e a mão escolhidos.
   // Quando a repetição está ligada, concluir essa lista volta ao seu início.
   if (
-    state.loop.active
-    && state.loop.a != null
-    && state.loop.b != null
+    shouldRepeatPracticeRange(state.loop)
     && result.type === "complete"
   ) {
     state.loop.count += 1;
@@ -2485,11 +2489,38 @@ function practiceTick() {
   const complete = state.schedule.length
     && state.schedule.every((event) => event.matched || event.missed);
   if (complete) {
+    if (restartTempoPracticeLoop()) {
+      state.animationFrame = requestAnimationFrame(practiceTick);
+      return;
+    }
     stopPractice({ showResult: true });
     return;
   }
 
   state.animationFrame = requestAnimationFrame(practiceTick);
+}
+
+function restartTempoPracticeLoop() {
+  if (!shouldRepeatPracticeRange(state.loop)) return false;
+  const events = currentPracticeEvents({ relative: true });
+  if (!events.length) return false;
+
+  state.loop.count += 1;
+  state.lastMidiAttempt = null;
+  state.schedule = eventsToSchedule(
+    events,
+    Number(byId("tempoSlider").value),
+    performance.now() + 120,
+  );
+  renderStructured(events[0].originalIndex);
+  setFeedback(
+    "on-time",
+    `↻ REPETINDO ${state.loop.count}×`,
+    "Voltando ao início do trecho",
+    "Mantenha o pulso e toque novamente.",
+  );
+  updateStats();
+  return true;
 }
 
 function advanceScheduledScore(scheduleIndex) {

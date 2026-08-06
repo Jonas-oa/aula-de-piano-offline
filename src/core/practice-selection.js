@@ -4,6 +4,22 @@ export function normalizePracticeHand(hand) {
   return VALID_HANDS.has(hand) ? hand : "both";
 }
 
+export function hasSelectedPracticeRange(loop = null) {
+  return Number.isInteger(loop?.a) && Number.isInteger(loop?.b);
+}
+
+// Selecionar A–B significa preparar um estudo repetido. O aluno ainda pode
+// desligar a repetição de propósito pelo botão, mas não precisa descobrir um
+// segundo controle depois de já ter delimitado o trecho.
+export function activateSelectedPracticeRange(loop = null) {
+  if (hasSelectedPracticeRange(loop)) loop.active = true;
+  return loop;
+}
+
+export function shouldRepeatPracticeRange(loop = null) {
+  return hasSelectedPracticeRange(loop) && loop.active === true;
+}
+
 // A clave é mais confiável que o número do staff quando o MusicXML usa duas
 // partes separadas (ambas podem chamar sua pauta local de staff 1).
 export function practiceHandForNote(note = {}) {
