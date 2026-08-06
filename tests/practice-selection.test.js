@@ -2,11 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  activateSelectedPracticeRange,
   availablePracticeHands,
   derivePracticeEvents,
+  hasSelectedPracticeRange,
   normalizeMeasureRange,
   practiceHandForNote,
   selectedPracticeEvents,
+  shouldRepeatPracticeRange,
 } from "../src/core/practice-selection.js";
 
 const events = [
@@ -95,4 +98,24 @@ test("trecho e mão são combinados preservando índices da pauta", () => {
   const selected = selectedPracticeEvents(events, "right", { a: 2, b: 3 });
   assert.deepEqual(selected.map((event) => event.originalIndex), [3]);
   assert.deepEqual(selected[0].midis, [74]);
+});
+
+test("uma seleção A–B liga a repetição do estudo automaticamente", () => {
+  const loop = { a: 2, b: 3, active: false, count: 0 };
+
+  assert.equal(hasSelectedPracticeRange(loop), true);
+  assert.equal(shouldRepeatPracticeRange(loop), false);
+  assert.equal(activateSelectedPracticeRange(loop), loop);
+  assert.equal(loop.active, true);
+  assert.equal(shouldRepeatPracticeRange(loop), true);
+});
+
+test("não arma repetição enquanto falta uma das pontas do trecho", () => {
+  const loop = { a: 2, b: null, active: false, count: 0 };
+
+  activateSelectedPracticeRange(loop);
+
+  assert.equal(hasSelectedPracticeRange(loop), false);
+  assert.equal(loop.active, false);
+  assert.equal(shouldRepeatPracticeRange(loop), false);
 });
