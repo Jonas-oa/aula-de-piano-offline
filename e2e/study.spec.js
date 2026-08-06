@@ -525,6 +525,14 @@ test("uma conexão MIDI recusada volta ao microfone sem guardar a escolha invál
   await expect.poll(() => page.evaluate(() =>
     localStorage.getItem("partitura-viva-input-mode"))).toBe("microphone");
 
+  // A recusa do MIDI chega como `NotAllowedError`, o mesmo erro do microfone.
+  // Repassá-lo cru mandava o aluno liberar o microfone — a permissão errada — e
+  // o motivo sumia com o aviso flutuante. Ele fica na tela até o MIDI abrir.
+  const status = page.locator("#libraryInputStatus");
+  await expect(status).toContainText("MIDI não abriu");
+  await expect(status).toContainText("separada da do microfone");
+  await expect(page.locator("#toast")).toContainText("aparelhos MIDI");
+
   await page.reload();
   await expect(page.locator("#libraryMicrophoneButton")).toHaveAttribute("aria-pressed", "true");
 });

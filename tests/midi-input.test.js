@@ -32,6 +32,41 @@ test("navegador sem Web MIDI explica em vez de falhar em silêncio", async () =>
   });
 });
 
+test("página insegura é apontada como causa, e não o navegador", async () => {
+  const anterior = Object.getOwnPropertyDescriptor(globalThis, "isSecureContext");
+  Object.defineProperty(globalThis, "isSecureContext", { configurable: true, value: false });
+  try {
+    await comNavegador({}, async () => {
+      await assert.rejects(() => new MidiInput().connect(), /https/);
+    });
+  } finally {
+    if (anterior) Object.defineProperty(globalThis, "isSecureContext", anterior);
+    else delete globalThis.isSecureContext;
+  }
+});
+
+test("permissão negada fala de MIDI, nunca de microfone", async () => {
+  // O erro do navegador é um `NotAllowedError` genérico, igual ao do microfone.
+  // Repassá-lo cru fazia a tela pedir o microfone a quem tocou em MIDI.
+  const negada = new Error("permission denied");
+  negada.name = "NotAllowedError";
+  await comNavegador({ requestMIDIAccess: async () => { throw negada; } }, async () => {
+    const erro = await new MidiInput().connect().then(() => null, (motivo) => motivo);
+    assert.match(erro.message, /MIDI/);
+    assert.doesNotMatch(erro.message, /microfone nas configurações/);
+    assert.equal(erro.cause, negada);
+  });
+});
+
+test("falha inesperada do pedido MIDI chega identificada como MIDI", async () => {
+  const falha = new Error("boom");
+  await comNavegador({ requestMIDIAccess: async () => { throw falha; } }, async () => {
+    const erro = await new MidiInput().connect().then(() => null, (motivo) => motivo);
+    assert.match(erro.message, /entrada MIDI: boom/);
+    assert.equal(erro.cause, falha);
+  });
+});
+
 test("conectar liga as entradas e informa o nome do teclado", async () => {
   const acesso = fakeAccess([{ name: "Yamaha Digital Keyboard" }]);
   const estados = [];

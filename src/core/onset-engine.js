@@ -457,6 +457,32 @@ export class OnsetEngine {
   };
 }
 
+// A entrada MIDI falha por motivos só dela, e nenhum deles é o microfone. Sem
+// mensagens próprias, o app respondia a quem tocou em MIDI com "permita o
+// acesso ao microfone" — o texto genérico de `NotAllowedError` — e o aluno
+// mexia na permissão errada sem nunca abrir o teclado.
+function midiUnavailableMessage() {
+  // `isSecureContext` sempre existe no navegador; fora dele, presumir página
+  // insegura mandaria o aluno conferir o endereço à toa.
+  if (globalThis.isSecureContext === false) {
+    return "O navegador só libera Web MIDI em páginas https. Abra o app por https (ou por localhost) para usar o teclado.";
+  }
+  return "Este navegador não tem Web MIDI. No iPhone e no iPad nenhum navegador tem; no Android e no computador, use Chrome, Edge ou Opera.";
+}
+
+function midiAccessError(error) {
+  if (error?.name === "NotAllowedError" || error?.name === "SecurityError") {
+    return new Error(
+      "Permita o acesso aos aparelhos MIDI nas configurações do navegador. É uma permissão separada da do microfone.",
+      { cause: error },
+    );
+  }
+  return new Error(
+    `Não foi possível abrir a entrada MIDI: ${error?.message || error || "motivo desconhecido"}`,
+    { cause: error },
+  );
+}
+
 export class MidiInput {
   constructor({ onNote, onStatus } = {}) {
     this.onNote = onNote || (() => {});
@@ -468,10 +494,15 @@ export class MidiInput {
 
   async connect() {
     if (!navigator.requestMIDIAccess) {
-      throw new Error("Web MIDI não está disponível neste navegador.");
+      throw new Error(midiUnavailableMessage());
     }
     const generation = ++this.connectionGeneration;
-    const access = await navigator.requestMIDIAccess();
+    let access;
+    try {
+      access = await navigator.requestMIDIAccess();
+    } catch (error) {
+      throw midiAccessError(error);
+    }
     // O pedido de permissão pode terminar depois que o aluno já voltou ao
     // microfone. Nesse caso a resposta antiga não pode religar as portas MIDI.
     if (generation !== this.connectionGeneration) return 0;
